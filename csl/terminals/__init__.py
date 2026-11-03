@@ -99,7 +99,7 @@ class Terminal:
         return False
 
 
-ORDER = ["orca"]   # 기본 터미널 우선순위(앞이 기본). 목록에 없는 구현체는 뒤에
+ORDER = ["orca", "tmux"]   # 기본 터미널 우선순위(앞이 기본). 목록에 없는 구현체는 뒤에
 _registry = None
 
 
@@ -132,8 +132,10 @@ def of_record(term):
 
 
 def env_info(environ):
-    """훅: 환경 변수에서 구현체별 터미널 정보. {"backend": 이름, 키: 값…} 또는 {}."""
-    for t in registry().values():
+    """훅: 환경 변수에서 구현체별 터미널 정보. {"backend": 이름, 키: 값…} 또는 {}.
+
+    다른 터미널 안에서 도는 것(inner — Orca 탭 안의 tmux)을 먼저 본다: 바깥 탭에 쓰면 엉뚱한 창으로 간다."""
+    for t in sorted(registry().values(), key=lambda t: not getattr(t, "inner", False)):
         got = {k: environ[v] for k, v in t.env_keys.items() if environ.get(v)}
         if got:
             return dict(got, backend=t.name)

@@ -3,7 +3,7 @@
 Argus records every Claude Code session no matter where it runs — that part only needs hooks. To **act** on a session
 (jump to its tab, send a message, answer a prompt, switch the model, start a new session), the board has to talk to the
 terminal app the session lives in. Each supported terminal is **one Python file** in `csl/terminals/`. Orca
-(`csl/terminals/orca.py`) is the only one today; this guide shows how to add another.
+(`csl/terminals/orca.py`) and tmux (`csl/terminals/tmux.py`) are supported today; this guide shows how to add another.
 
 ## How the pieces fit
 
@@ -68,105 +68,24 @@ Methods you leave alone keep the base-class default and the feature reports "not
 
 ## Example: tmux
 
-A tmux implementation — every call is a plain `tmux` command, and a pane id (`%12`) is the handle. Its reading,
-writing, `exited`, `create` and `close` were exercised against a real tmux server while writing this guide; `switch`
-and `find` depend on how you attach to tmux, so try them in your own setup (see "Testing" below). `find()` matches the
-pane title, which follows the title Claude Code sets — check `#{pane_title}` shows your session name.
+[`csl/terminals/tmux.py`](../csl/terminals/tmux.py) is a complete implementation in about 200 lines — every call is a
+plain `tmux` command and a pane id (`%12`) is the handle. It is the best starting point for a new terminal. Things it
+had to get right that are easy to miss:
 
-```python
-"""tmux. Session record key: tmux_pane (TMUX_PANE, e.g. "%12")."""
-import os
-import re
-import shutil
-import subprocess
-
-from csl.terminals import Terminal
-
-_PANE = re.compile(r"^%\d+$")
-
-
-def _tmux(*args, timeout=6):
-    try:
-        r = subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=timeout)
-        return r if r.returncode == 0 else None
-    except (OSError, subprocess.SubprocessError):
-        return None
-
-
-class Tmux(Terminal):
-    name = "tmux"
-    label = "tmux"
-    env_keys = {"tmux_pane": "TMUX_PANE"}
-
-    def available(self):
-        return bool(shutil.which("tmux"))
-
-    def handle_of(self, term):
-        h = (term or {}).get("tmux_pane")
-        return h if self.valid(h) else None
-
-    def remember(self, term, handle):
-        return dict(term, backend=self.name, tmux_pane=handle)
-
-    def valid(self, handle):
-        return bool(handle and _PANE.match(handle))
-
-    def terminals(self):
-        r = _tmux("list-panes", "-a", "-F", "#{pane_id}\t#{pane_title}\t#{pane_current_path}")
-        rows = [line.split("\t") for line in (r.stdout.splitlines() if r else [])]
-        return [{"handle": h, "title": t, "path": p} for h, t, p in rows if self.valid(h)]
-
-    def find(self, title, cwd, project_root):
-        hits = [t for t in self.terminals() if title and t["title"].strip().lower() == title.strip().lower()]
-        if len(hits) > 1:
-            hits = [t for t in hits if t["path"] in (cwd, project_root)] or hits
-        return hits[0]["handle"] if len(hits) == 1 else None
-
-    def switch(self, handle):
-        # select the window and pane; bringing the terminal app that hosts tmux to the front is up to activate()
-        return self.valid(handle) and bool(_tmux("switch-client", "-t", handle)) and bool(_tmux("select-pane", "-t", handle))
-
-    def info(self, handle):
-        r = self.valid(handle) and _tmux("display-message", "-p", "-t", handle, "#{pane_current_command}\t#{pane_title}")
-        if not r:
-            return None
-        cmd, _, title = r.stdout.rstrip("\n").partition("\t")
-        return {"agent": "claude" if "claude" in cmd else "", "title": title}
-
-    def exited(self, handle):
-        r = self.valid(handle) and _tmux("display-message", "-p", "-t", handle, "#{pane_dead}")
-        return None if not r else r.stdout.strip() == "1"
-
-    def screen(self, handle):
-        r = self.valid(handle) and _tmux("capture-pane", "-p", "-t", handle)   # no -e: plain text, visible area only
-        return r.stdout.rstrip("\n").split("\n") if r else []
-
-    def write(self, handle, data):
-        # -l sends the string literally (no key-name lookup), control characters included
-        return self.valid(handle) and bool(_tmux("send-keys", "-t", handle, "-l", "--", data, timeout=15))
-
-    def create(self, cwd, title, command):
-        fmt = ("-d", "-P", "-F", "#{pane_id}", "-c", cwd)
-        # new-window needs a running tmux server; with none, start a session instead
-        r = _tmux("new-window", *fmt, "-n", title, command, timeout=15) or \
-            _tmux("new-session", *fmt, "-s", title, command, timeout=15)
-        handle = r.stdout.strip() if r else ""
-        return (handle, None) if self.valid(handle) else (None, "tmux could not open a window")
-
-    def projects(self):
-        counts = {}
-        for t in self.terminals():
-            if t["path"]:
-                counts[t["path"]] = counts.get(t["path"], 0) + 1
-        return [{"path": p, "name": os.path.basename(p.rstrip("/")), "branch": "", "terminals": n, "at": 0}
-                for p, n in sorted(counts.items(), key=lambda kv: -kv[1])]
-
-    def close(self, handle):
-        return self.valid(handle) and bool(_tmux("kill-pane", "-t", handle))
-
-
-TERMINAL = Tmux
-```
+- **Write bytes, not keys.** `tmux send-keys -l` looked right in a raw test, but Claude Code turns on extended keys
+  inside tmux, and tmux then re-encodes a newline as a Ctrl+J key code that Claude Code drops — multi-line messages
+  arrived as one line. Writing through a buffer (`load-buffer` + `paste-buffer -r`, without `-p`) puts the exact bytes
+  into the pane. Test `write()` with a real Claude Code session, not only with a raw reader.
+- **The foreground command may not be called `claude`.** tmux reported Claude Code as `2.1.317` (the versioned binary),
+  so `info()` also checks the pane's tty for a foreground `claude` process.
+- **Nested terminals.** tmux usually runs inside another terminal, so both sets of environment variables are present.
+  `inner = True` makes `env_info()` record tmux first; typing into the outer tab would reach whichever pane tmux is showing.
+- **Record enough to reach the right server.** The hook stores `TMUX` (socket path) next to `TMUX_PANE`, and every
+  call for that pane passes `-S <socket>`, so sessions on a non-default server (`tmux -L name`) work.
+- **Pressing Enter.** `submit()` waits 0.3 s between the text and Enter; sent together, Claude Code can treat the burst
+  as a paste and take Enter as a newline.
+- **Opening a session.** `create()` opens a window with the user's login shell and types the command into it, so `PATH`
+  is the user's and an error message stays readable — running the command directly would close the window on failure.
 
 ## Testing
 
@@ -175,7 +94,7 @@ Start a Claude Code session in your terminal, then poke at your implementation f
 ```sh
 /usr/bin/python3 -c '
 from csl import terminals
-t = terminals.registry()["tmux"]
+t = terminals.registry()["tmux"]   # or your terminal's name
 tabs = t.terminals(); print(tabs)
 h = tabs[0]["handle"]
 print(t.info(h))

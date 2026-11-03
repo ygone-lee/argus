@@ -259,21 +259,31 @@ function mdCached(text) {
   }
   return html;
 }
+// ``` 코드 블록 — 들여 쓴 것도(목록 항목 안의 코드 블록은 항목 글만큼 들여 쓴다). 줄마다 여는 ``` 만큼의 들여쓰기를 걷는다.
+// [html, 다음 줄 번호]
+const FENCE = /^(\s*)```/;
+function fenceBlock(L, i) {
+  const ind = L[i].match(FENCE)[1].replace(/\t/g, "    ").length;
+  const lang = L[i].trim().slice(3).trim();
+  const strip = new RegExp("^ {0," + ind + "}");
+  const buf = []; i++;
+  while (i < L.length && !/^\s*```\s*$/.test(L[i])) buf.push(L[i++].replace(strip, ""));
+  i++;
+  // 코드 블록 오른쪽 위 「복사」(가로로 스크롤돼도 버튼은 제자리)
+  return [`<div class="code-wrap"><button class="code-copy" data-action="copy-code" title="코드 복사">복사</button>` +
+    `<pre${lang ? ` data-lang="${esc(lang)}"` : ""}><code>` + esc(buf.join("\n")) + "</code></pre></div>", i];
+}
 function md(src) {
   const L = String(src || "").replace(/[\r\u0000]/g, "").split("\n");   // NUL 은 inline 의 자리표시와 겹친다
   const out = [];
   let i = 0;
-  const isBlockStart = l => /^```|^#{1,6}\s|^\s*[-*+]\s|^\s*\d+[.)]\s|^>|^\s*\|/.test(l);
+  const isBlockStart = l => /^\s*```|^#{1,6}\s|^\s*[-*+]\s|^\s*\d+[.)]\s|^>|^\s*\|/.test(l);
   while (i < L.length) {
     const l = L[i];
-    if (/^```/.test(l)) {
-      const lang = l.slice(3).trim();
-      const buf = []; i++;
-      while (i < L.length && !/^```/.test(L[i])) buf.push(L[i++]);
-      i++;
-      // 코드 블록 오른쪽 위 「복사」(가로로 스크롤돼도 버튼은 제자리)
-      out.push(`<div class="code-wrap"><button class="code-copy" data-action="copy-code" title="코드 복사">복사</button>` +
-        `<pre${lang ? ` data-lang="${esc(lang)}"` : ""}><code>` + esc(buf.join("\n")) + "</code></pre></div>");
+    if (FENCE.test(l)) {
+      const [html, next] = fenceBlock(L, i);
+      out.push(html);
+      i = next;
       continue;
     }
     if (!l.trim()) { i++; continue; }
@@ -281,7 +291,9 @@ function md(src) {
     if (h) { const n = Math.min(h[1].length + 1, 4); out.push(`<h${n}>${inline(h[2])}</h${n}>`); i++; continue; }
     if (/^\s*(-{3,}|\*{3,})\s*$/.test(l)) { out.push("<hr>"); i++; continue; }
     if (/^\s*\|/.test(l) && i + 1 < L.length && /^\s*\|?\s*:?-{2,}/.test(L[i + 1])) {
-      const cells = r => r.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => inline(c.trim()));
+      // 칸 구분은 이스케이프하지 않은 | 만 — 칸 안의 \| (코드 속 파이프 등)는 글자 | 로
+      const cells = r => r.trim().replace(/^\|/, "").replace(/(?<!\\)\|$/, "").split(/(?<!\\)\|/)
+        .map(c => inline(c.trim().replace(/\\\|/g, "|")));
       let html = "<table><thead><tr>" + cells(l).map(c => "<th>" + c + "</th>").join("") + "</tr></thead><tbody>";
       i += 2;
       while (i < L.length && /^\s*\|/.test(L[i])) html += "<tr>" + cells(L[i++]).map(c => "<td>" + c + "</td>").join("") + "</tr>";
@@ -293,7 +305,14 @@ function md(src) {
       // 들여쓰기 깊이대로 진짜 중첩 목록으로 — 「1. … / 3칸 들여 쓴 - …」 의 글머리표가 바깥 번호 목록의 항목이 되어
       // 번호가 이어지고(2·3) 바깥 번호가 밀리던(4·5) 것. 수준마다 번호·글머리표를 따로, 3. 으로 시작하면 3부터
       const items = [];
-      while (i < L.length && (listRe.test(L[i]) || (/^\s{2,}\S/.test(L[i]) && !isBlockStart(L[i].trim())))) {
+      while (i < L.length) {
+        if (items.length && /^\s+```/.test(L[i])) {   // 항목 아래 들여 쓴 코드 블록은 그 항목 안에
+          const [html, next] = fenceBlock(L, i);
+          items[items.length - 1].html += html;
+          i = next;
+          continue;
+        }
+        if (!(listRe.test(L[i]) || (/^\s{2,}\S/.test(L[i]) && !isBlockStart(L[i].trim())))) break;
         const m = L[i].match(listRe);
         if (m) items.push({ indent: m[1].replace(/\t/g, "    ").length, ordered: /\d/.test(m[2]), num: parseInt(m[2], 10), html: inline(m[3]) });
         else items[items.length - 1].html += "<br>" + inline(L[i].trim());   // 항목 아래 들여 쓴 이어지는 줄
@@ -705,7 +724,7 @@ function turnHtml(t, s, lastRunId) {
   const notice = taskNotice(t.prompt);
   const user = t.prompt == null ? "" : notice ? noticeHtml(notice, at ? hm(at) : "") : `
     <div class="msg-meta">${t.status !== "rewound" && t.prompt && s.state !== "ended" ? `<button class="turn-rw" data-action="rewind-menu" data-sid="${esc(s.session_id)}" data-tid="${t.id}" title="이 요청 앞으로 되돌리기(/rewind)">↶</button>` : ""}${at ? dateLabel(at) + " " + hm(at) : ""}</div>
-    <div class="msg-user"><div class="bubble md ${promptLong && !promptOpen ? "clamped" : ""}">${mdCached(t.prompt)}</div></div>
+    <div class="msg-user"><div class="bubble md ${promptLong && !promptOpen ? "clamped" : ""}">${promptHtml(t)}</div></div>
     ${promptLong ? `<div class="msg-user"><button class="linkish" data-action="toggle-prompt" data-tid="${t.id}">${promptOpen ? "접기" : "요청 전체 보기"}</button></div>` : ""}`;
 
   let claude;
@@ -784,8 +803,50 @@ function thumbsIn(text) {
   const paths = [...new Set((text || "").match(PATH_RE) || [])].filter(p => IMG_PATH.test(p)).slice(0, 12);
   return paths.length ? `<div class="mid-files resp-thumbs">${paths.map(thumbHtml).join("")}</div>` : "";
 }
+// 요청 글 — 붙인 이미지 자리([Image #N], Claude Code 가 남기는 표시)에 대화 기록 속 그 이미지를 썸네일로. 누르면 새 탭에서 크게
+function promptHtml(t) {
+  const html = mdCached(t.prompt);
+  if (!t.id || !html.includes("[Image #")) return html;
+  let k = 0;
+  return html.replace(/\[Image #(\d+)\]/g, (m, n) => {
+    const url = `/api/turns/${t.id}/image/${n}?i=${k++}`;
+    return `<a class="prompt-img" href="${url}" target="_blank" rel="noopener" title="Image #${n} — 눌러서 크게 보기"><img src="${url}" alt="${m}" loading="lazy"></a>`;
+  });
+}
+// 크게 보기 — 보드 위 팝업. 아무 데나 누르거나 Esc 로 닫는다(⌘·Ctrl·Shift 클릭은 새 탭 그대로)
+function openImgView(src, alt) {
+  let v = $("#imgView");
+  if (!v) {
+    v = document.createElement("div");
+    v.id = "imgView";
+    v.className = "img-view";
+    v.hidden = true;
+    v.innerHTML = `<img alt=""><button type="button" class="img-view-x" title="닫기 (Esc)" aria-label="닫기">×</button>`;
+    v.addEventListener("click", () => { v.hidden = true; });
+    document.body.appendChild(v);
+  }
+  const img = v.querySelector("img");
+  img.src = src;
+  img.alt = alt || "";
+  v.hidden = false;
+}
+document.addEventListener("click", e => {
+  const a = e.target.closest && e.target.closest(".prompt-img, .zoom-img");
+  if (!a || e.metaKey || e.ctrlKey || e.shiftKey) return;
+  e.preventDefault();
+  openImgView(a.getAttribute("href"), a.querySelector("img") && a.querySelector("img").alt);
+});
+document.addEventListener("keydown", e => {   // 위에 뜬 것부터 — 팝업만 닫고 칸·입력창의 Esc 로 넘기지 않는다
+  const v = $("#imgView");
+  if (e.key === "Escape" && v && !v.hidden) { e.preventDefault(); e.stopImmediatePropagation(); v.hidden = true; }
+}, true);
 document.addEventListener("error", e => {
-  if (e.target.tagName === "IMG" && e.target.closest(".mid-files")) e.target.hidden = true;
+  if (e.target.tagName !== "IMG") return;
+  if (e.target.closest(".mid-files")) e.target.hidden = true;
+  const a = e.target.closest(".prompt-img");   // 기록에서 이미지를 못 찾으면 원래 글자로
+  if (a) a.replaceWith(document.createTextNode(e.target.alt));
+  const z = e.target.closest(".zoom-img");   // 변경 보기의 이미지 — 못 읽으면 한 줄 안내로
+  if (z) z.outerHTML = '<div class="dv-note">이미지를 불러오지 못했습니다</div>';
 }, true);
 function noticeHtml(n, time) {
   const label = { completed: "끝남", failed: "실패", killed: "중단", stopped: "중단" }[n.status.toLowerCase()] || n.status;
@@ -1632,7 +1693,18 @@ function dvHunkRows(h, split) {
   }).join("");
   return head + rows;
 }
+// 이미지 파일은 바뀌기 전·후를 그림으로(새 파일은 후, 지운 파일은 전만). 누르면 크게(팝업)
+const DV_IMG = /\.(png|jpe?g|gif|webp)$/i;
+function dvImageBody(f) {
+  const url = (side, p) => `/api/sessions/${encodeURIComponent(S.diff.sid)}/diff-image?side=${side}` +
+    `&mode=${encodeURIComponent((S.diff.data && S.diff.data.mode) || "work")}&path=${encodeURIComponent(p)}`;
+  const fig = (label, u) => `<figure class="dv-img"><figcaption>${label}</figcaption>` +
+    `<a class="zoom-img" href="${u}" target="_blank" rel="noopener" title="눌러서 크게 보기"><img src="${u}" alt="" loading="lazy"></a></figure>`;
+  return `<div class="dv-imgs">${f.status !== "A" ? fig(f.status === "D" ? "삭제 전" : "이전", url("old", f.old || f.path)) : ""}` +
+    `${f.status !== "D" ? fig(f.status === "A" ? "새 파일" : "이후", url("new", f.path)) : ""}</div>`;
+}
 function dvFileBody(f) {
+  if (f.binary && DV_IMG.test(f.path)) return dvImageBody(f);
   if (f.binary) return '<div class="dv-note">바이너리 파일 — 내용은 보이지 않습니다</div>';
   if (!f.hunks.length) return `<div class="dv-note">${f.status === "R" ? "내용은 그대로이고 이름만 바뀌었습니다" : "바뀐 내용이 없습니다(권한·모드 변경)"}</div>`;
   if (f.hunks.every(h => !h.lines.length)) return `<div class="dv-note">${esc(f.hunks[0].ctx || "내용 없음")}</div>`;
@@ -1734,7 +1806,7 @@ async function openDiff(sid, mode) {
   S.diff.data = d;
   S.diff.dir = d.dir;
   S.diff.cur = 0;
-  S.diff.files = parseDiff(d.diff).map(f => ({ ...f, collapsed: f.binary || DV_LOCK.test(f.path) || f.add + f.del > DV_BIG }));
+  S.diff.files = parseDiff(d.diff).map(f => ({ ...f, collapsed: (f.binary && !DV_IMG.test(f.path)) || DV_LOCK.test(f.path) || f.add + f.del > DV_BIG }));
   drawDiff(d);
 }
 function dvRedraw() {   // 보기만 바꿀 때 — 다시 읽지 않고, 스크롤 자리(지금 파일)는 지킨다
@@ -5199,7 +5271,7 @@ function actDetailHtml(x) {
   const notice = taskNotice(t.prompt);
   return `<div class="act-dbody">
     ${notice ? noticeHtml(notice, t.prompt_at ? hm(t.prompt_at) : "")
-      : t.prompt ? `<div class="act-dq"><span class="act-dlabel">요청</span><div class="md">${mdCached(t.prompt)}</div></div>` : ""}
+      : t.prompt ? `<div class="act-dq"><span class="act-dlabel">요청</span><div class="md">${promptHtml(t)}</div></div>` : ""}
     ${(t.middle || []).map(m => `<div class="act-dmid md">${mdCached(m)}</div>`).join("")}
     ${t.response ? `<div class="act-da"><span class="act-dlabel">응답</span><div class="md">${mdCached(t.response)}</div></div>` : ""}
   </div>${go}`;

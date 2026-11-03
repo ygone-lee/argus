@@ -218,6 +218,42 @@ def _base_ref(d):
     return None
 
 
+DIFF_IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
+DIFF_IMAGE_MAX = 20 * 1024 * 1024
+
+
+def diff_image(d, rel, side, mode):
+    """변경 보기의 이미지 파일 한쪽: (형식, 바이트) 또는 None. 읽기만 한다.
+
+    old = 비교 기준(커밋 안 한 변경이면 HEAD, 브랜치 전체면 기본 브랜치와 갈라진 곳)의 그 파일,
+    new = 지금 작업 트리의 그 파일. 경로는 저장소 맨 위 기준(git diff)이거나 세션 폴더 기준(추적 안 된 새 파일).
+    SVG 는 같은 출처에서 열면 스크립트가 돌 수 있어 다루지 않는다(글이라 diff 로 보인다)."""
+    ctype = DIFF_IMAGE_TYPES.get(os.path.splitext(rel or "")[1].lower())
+    if not ctype or rel.startswith(("/", "-")) or "\0" in rel or ".." in rel.split("/"):
+        return None
+    top = _git(d, "rev-parse", "--show-toplevel").strip() or d
+    if side == "old":
+        against = "HEAD"
+        if mode == "branch":
+            base = _base_ref(d)
+            against = (base and _git(d, "merge-base", "HEAD", base).strip()) or "HEAD"
+        try:
+            r = subprocess.run(["git", "-C", top, "show", "%s:%s" % (against, rel)], capture_output=True, timeout=15)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return (ctype, r.stdout) if r.returncode == 0 and 0 < len(r.stdout) <= DIFF_IMAGE_MAX else None
+    for root in (top, d):
+        root = os.path.realpath(root)
+        full = os.path.realpath(os.path.join(root, rel))
+        if full.startswith(root + os.sep) and os.path.isfile(full) and os.path.getsize(full) <= DIFF_IMAGE_MAX:
+            try:
+                with open(full, "rb") as f:
+                    return ctype, f.read()
+            except OSError:
+                return None
+    return None
+
+
 def git_diff(d, mode="work"):
     """변경 보기 데이터: diff(통합 형식)·바뀐 파일 수 기준·브랜치 모드면 기준과 커밋 목록."""
     out = {"mode": "work", "base": None, "commits": [], "note": None}
@@ -575,24 +611,62 @@ def dirty_of(d):
     return DIRTY.get(d)
 
 
+_LINES_SEEN = {}   # 새 파일 경로 → (크기, 수정 시각, 줄 수) — 20초마다 다시 읽지 않게
+
+
+def _untracked_stats(d):
+    """새 파일(추적 안 됨) 수와 줄 수 — 변경 보기(_untracked_diff)와 같은 기준: 파일 하나하나, 최대 개수까지,
+    너무 큰 파일·바이너리는 줄 수 0."""
+    names = [n for n in _git(d, "ls-files", "--others", "--exclude-standard", "-z", timeout=10).split("\0") if n]
+    root = os.path.realpath(d)
+    lines = 0
+    for n in names[:UNTRACKED_MAX[0]]:
+        full = os.path.realpath(os.path.join(d, n))
+        if not full.startswith(root + os.sep):
+            continue
+        try:
+            st = os.stat(full)
+        except OSError:
+            continue
+        seen = _LINES_SEEN.get(full)
+        if seen and seen[:2] == (st.st_size, st.st_mtime):
+            lines += seen[2]
+            continue
+        k = 0
+        if st.st_size <= UNTRACKED_MAX[1]:
+            try:
+                with open(full, "rb") as f:
+                    raw = f.read(UNTRACKED_MAX[1] + 1)
+            except OSError:
+                raw = b"\0"
+            if b"\0" not in raw[:8192] and raw:
+                k = raw.count(b"\n") + (0 if raw.endswith(b"\n") else 1)
+        _LINES_SEEN[full] = (st.st_size, st.st_mtime, k)
+        lines += k
+    if len(_LINES_SEEN) > 5000:
+        _LINES_SEEN.clear()
+    return len(names), lines
+
+
 def _dirty_check(d):
     if not os.path.isdir(d):
         return None
     try:
-        r = subprocess.run(["git", "-C", d, "status", "--porcelain=v1", "--untracked-files=normal"],
+        r = subprocess.run(["git", "-C", d, "status", "--porcelain=v1", "--untracked-files=no"],
                            capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
         return DIRTY.get(d)
     if r.returncode != 0:
         return None
-    lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
-    files, new = len(lines), sum(1 for ln in lines if ln.startswith("??"))   # ?? = 추적 안 된 새 파일(폴더는 한 줄)
+    # 변경 보기와 같은 수로: 바뀐 추적 파일 + 새 파일 하나하나(git status 는 새 폴더를 한 줄로 묶어 적게 보였다)
+    changed = len([ln for ln in r.stdout.splitlines() if ln.strip()])
+    new, new_lines = _untracked_stats(d)
     add = dele = 0
-    if files:
+    if changed:
         st = _git(d, "diff", "HEAD", "--shortstat", timeout=10)
         m1, m2 = re.search(r"(\d+) insertion", st), re.search(r"(\d+) deletion", st)
         add, dele = int(m1.group(1)) if m1 else 0, int(m2.group(1)) if m2 else 0
-    return {"files": files, "new": new, "add": add, "del": dele, "at": store.now()}
+    return {"files": changed + new, "new": new, "add": add + new_lines, "del": dele, "at": store.now()}
 
 
 def _dirty_loop():
@@ -863,13 +937,13 @@ class Handler(BaseHTTPRequestHandler):
         host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
         return host in ALLOWED_HOSTS
 
-    def _send(self, code, body, ctype="application/json; charset=utf-8"):
+    def _send(self, code, body, ctype="application/json; charset=utf-8", cache="no-store"):
         if not isinstance(body, bytes):
             body = json.dumps(body, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(body)
@@ -1409,6 +1483,27 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"results": search_turns(conn, q, sid, who, limit, sort, project, exclude, any_word,
                                                             same)})
 
+        m = re.fullmatch(r"/api/turns/(\d+)/image/(\d+)", path)
+        if m and method == "GET":
+            # 요청에 붙인 이미지([Image #N]) — 대화 기록에서 꺼낸다. i 는 요청 글 속 몇 번째 [Image #…] 인지(번호가 안 맞을 때 순서로)
+            row = conn.execute("SELECT t.prompt_id, s.transcript_path FROM turns t JOIN sessions s ON s.session_id = t.session_id"
+                               " WHERE t.id=?", (int(m.group(1)),)).fetchone()
+            imgs = store.prompt_images(row["transcript_path"], row["prompt_id"]) \
+                if row and row["prompt_id"] and row["transcript_path"] else {}
+            img = imgs.get(int(m.group(2)))
+            if img is None:
+                try:
+                    img = list(imgs.values())[int((query.get("i") or [""])[0])]
+                except (ValueError, IndexError):
+                    img = None
+            if img is None:
+                return self._send(404, {"error": "이미지를 찾지 못했습니다"})
+            try:
+                data = base64.b64decode(img[1])
+            except ValueError:
+                return self._send(404, {"error": "이미지를 읽지 못했습니다"})
+            return self._send(200, data, img[0], cache="private, max-age=86400")
+
         m = re.fullmatch(r"/api/turns/(\d+)", path)
         if m and method == "GET":   # 턴 하나 전문(+ 앞뒤 턴 around 개) — argus timeline·turn 용
             try:
@@ -1871,6 +1966,15 @@ class Handler(BaseHTTPRequestHandler):
             mode = (query.get("mode") or ["work"])[0]
             out = git_diff(row["dir"], mode)
             return self._send(200, {"dir": row["dir"], "branch": row["branch"], **out})
+        m = re.fullmatch(r"/api/sessions/([\w\-]+)/diff-image", path)
+        if m and method == "GET":
+            # 변경 보기에서 이미지 파일을 그림으로(바뀌기 전·후)
+            row = conn.execute("SELECT COALESCE(worktree, cwd) AS dir FROM sessions WHERE session_id=?", (m.group(1),)).fetchone()
+            if row is None or not row["dir"] or not os.path.isdir(row["dir"]):
+                return self._send(404, {"error": "폴더가 없습니다"})
+            img = diff_image(row["dir"], (query.get("path") or [""])[0], (query.get("side") or ["new"])[0],
+                             (query.get("mode") or ["work"])[0])
+            return self._send(200, img[1], img[0]) if img else self._send(404, {"error": "이미지를 찾지 못했습니다"})
         m = re.fullmatch(r"/api/sessions/([\w\-]+)/close-branch", path)
         if m and method == "POST":
             # 갈래 탭 닫기: 보드에서 보관(숨김). 백그라운드 갈래(/fork)면 Claude Code 쪽 세션도 멈추고 목록에서 뺀다.
