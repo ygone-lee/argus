@@ -1549,6 +1549,14 @@ select {
 .dv-file.collapsed .dv-fbody { display: none; }
 .dv-open { font-size: 12px; }
 .dv-note { padding: 12px 14px; color: var(--text-2); font-size: 12.5px; }
+.dv-imgs { display: flex; flex-wrap: wrap; gap: 16px; padding: 12px 14px; }
+.dv-img { margin: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.dv-img figcaption { font-size: 12px; color: var(--text-2); }
+.dv-img img {
+  display: block; max-width: min(420px, 100%); max-height: 300px; border-radius: 6px; border: 1px solid var(--border);
+  cursor: zoom-in; background: repeating-conic-gradient(var(--border) 0 25%, transparent 0 50%) 0 0 / 14px 14px;
+}
+.dv-img a:hover img { border-color: var(--accent); }
 .dv-fbody { overflow-x: auto; }
 .dv-tbl { width: 100%; border-collapse: collapse; table-layout: fixed; font-family: var(--mono); font-size: 12px; line-height: 1.55; }
 .dv-tbl col.c-ln { width: 48px; }

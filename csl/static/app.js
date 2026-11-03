@@ -831,7 +831,7 @@ function openImgView(src, alt) {
   v.hidden = false;
 }
 document.addEventListener("click", e => {
-  const a = e.target.closest && e.target.closest(".prompt-img");
+  const a = e.target.closest && e.target.closest(".prompt-img, .zoom-img");
   if (!a || e.metaKey || e.ctrlKey || e.shiftKey) return;
   e.preventDefault();
   openImgView(a.getAttribute("href"), a.querySelector("img") && a.querySelector("img").alt);
@@ -845,6 +845,8 @@ document.addEventListener("error", e => {
   if (e.target.closest(".mid-files")) e.target.hidden = true;
   const a = e.target.closest(".prompt-img");   // 기록에서 이미지를 못 찾으면 원래 글자로
   if (a) a.replaceWith(document.createTextNode(e.target.alt));
+  const z = e.target.closest(".zoom-img");   // 변경 보기의 이미지 — 못 읽으면 한 줄 안내로
+  if (z) z.outerHTML = '<div class="dv-note">이미지를 불러오지 못했습니다</div>';
 }, true);
 function noticeHtml(n, time) {
   const label = { completed: "끝남", failed: "실패", killed: "중단", stopped: "중단" }[n.status.toLowerCase()] || n.status;
@@ -1691,7 +1693,18 @@ function dvHunkRows(h, split) {
   }).join("");
   return head + rows;
 }
+// 이미지 파일은 바뀌기 전·후를 그림으로(새 파일은 후, 지운 파일은 전만). 누르면 크게(팝업)
+const DV_IMG = /\.(png|jpe?g|gif|webp)$/i;
+function dvImageBody(f) {
+  const url = (side, p) => `/api/sessions/${encodeURIComponent(S.diff.sid)}/diff-image?side=${side}` +
+    `&mode=${encodeURIComponent((S.diff.data && S.diff.data.mode) || "work")}&path=${encodeURIComponent(p)}`;
+  const fig = (label, u) => `<figure class="dv-img"><figcaption>${label}</figcaption>` +
+    `<a class="zoom-img" href="${u}" target="_blank" rel="noopener" title="눌러서 크게 보기"><img src="${u}" alt="" loading="lazy"></a></figure>`;
+  return `<div class="dv-imgs">${f.status !== "A" ? fig(f.status === "D" ? "삭제 전" : "이전", url("old", f.old || f.path)) : ""}` +
+    `${f.status !== "D" ? fig(f.status === "A" ? "새 파일" : "이후", url("new", f.path)) : ""}</div>`;
+}
 function dvFileBody(f) {
+  if (f.binary && DV_IMG.test(f.path)) return dvImageBody(f);
   if (f.binary) return '<div class="dv-note">바이너리 파일 — 내용은 보이지 않습니다</div>';
   if (!f.hunks.length) return `<div class="dv-note">${f.status === "R" ? "내용은 그대로이고 이름만 바뀌었습니다" : "바뀐 내용이 없습니다(권한·모드 변경)"}</div>`;
   if (f.hunks.every(h => !h.lines.length)) return `<div class="dv-note">${esc(f.hunks[0].ctx || "내용 없음")}</div>`;
@@ -1793,7 +1806,7 @@ async function openDiff(sid, mode) {
   S.diff.data = d;
   S.diff.dir = d.dir;
   S.diff.cur = 0;
-  S.diff.files = parseDiff(d.diff).map(f => ({ ...f, collapsed: f.binary || DV_LOCK.test(f.path) || f.add + f.del > DV_BIG }));
+  S.diff.files = parseDiff(d.diff).map(f => ({ ...f, collapsed: (f.binary && !DV_IMG.test(f.path)) || DV_LOCK.test(f.path) || f.add + f.del > DV_BIG }));
   drawDiff(d);
 }
 function dvRedraw() {   // 보기만 바꿀 때 — 다시 읽지 않고, 스크롤 자리(지금 파일)는 지킨다

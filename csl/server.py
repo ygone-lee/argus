@@ -218,6 +218,42 @@ def _base_ref(d):
     return None
 
 
+DIFF_IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
+DIFF_IMAGE_MAX = 20 * 1024 * 1024
+
+
+def diff_image(d, rel, side, mode):
+    """변경 보기의 이미지 파일 한쪽: (형식, 바이트) 또는 None. 읽기만 한다.
+
+    old = 비교 기준(커밋 안 한 변경이면 HEAD, 브랜치 전체면 기본 브랜치와 갈라진 곳)의 그 파일,
+    new = 지금 작업 트리의 그 파일. 경로는 저장소 맨 위 기준(git diff)이거나 세션 폴더 기준(추적 안 된 새 파일).
+    SVG 는 같은 출처에서 열면 스크립트가 돌 수 있어 다루지 않는다(글이라 diff 로 보인다)."""
+    ctype = DIFF_IMAGE_TYPES.get(os.path.splitext(rel or "")[1].lower())
+    if not ctype or rel.startswith(("/", "-")) or "\0" in rel or ".." in rel.split("/"):
+        return None
+    top = _git(d, "rev-parse", "--show-toplevel").strip() or d
+    if side == "old":
+        against = "HEAD"
+        if mode == "branch":
+            base = _base_ref(d)
+            against = (base and _git(d, "merge-base", "HEAD", base).strip()) or "HEAD"
+        try:
+            r = subprocess.run(["git", "-C", top, "show", "%s:%s" % (against, rel)], capture_output=True, timeout=15)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return (ctype, r.stdout) if r.returncode == 0 and 0 < len(r.stdout) <= DIFF_IMAGE_MAX else None
+    for root in (top, d):
+        root = os.path.realpath(root)
+        full = os.path.realpath(os.path.join(root, rel))
+        if full.startswith(root + os.sep) and os.path.isfile(full) and os.path.getsize(full) <= DIFF_IMAGE_MAX:
+            try:
+                with open(full, "rb") as f:
+                    return ctype, f.read()
+            except OSError:
+                return None
+    return None
+
+
 def git_diff(d, mode="work"):
     """변경 보기 데이터: diff(통합 형식)·바뀐 파일 수 기준·브랜치 모드면 기준과 커밋 목록."""
     out = {"mode": "work", "base": None, "commits": [], "note": None}
@@ -1892,6 +1928,15 @@ class Handler(BaseHTTPRequestHandler):
             mode = (query.get("mode") or ["work"])[0]
             out = git_diff(row["dir"], mode)
             return self._send(200, {"dir": row["dir"], "branch": row["branch"], **out})
+        m = re.fullmatch(r"/api/sessions/([\w\-]+)/diff-image", path)
+        if m and method == "GET":
+            # 변경 보기에서 이미지 파일을 그림으로(바뀌기 전·후)
+            row = conn.execute("SELECT COALESCE(worktree, cwd) AS dir FROM sessions WHERE session_id=?", (m.group(1),)).fetchone()
+            if row is None or not row["dir"] or not os.path.isdir(row["dir"]):
+                return self._send(404, {"error": "폴더가 없습니다"})
+            img = diff_image(row["dir"], (query.get("path") or [""])[0], (query.get("side") or ["new"])[0],
+                             (query.get("mode") or ["work"])[0])
+            return self._send(200, img[1], img[0]) if img else self._send(404, {"error": "이미지를 찾지 못했습니다"})
         m = re.fullmatch(r"/api/sessions/([\w\-]+)/close-branch", path)
         if m and method == "POST":
             # 갈래 탭 닫기: 보드에서 보관(숨김). 백그라운드 갈래(/fork)면 Claude Code 쪽 세션도 멈추고 목록에서 뺀다.
