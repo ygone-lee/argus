@@ -334,18 +334,20 @@ def main():
         say("  Backup       %s" % home(backup))
     for w in warnings:
         say("\n! " + w)
+    # 저장소 밖(한 줄 설치 등)에서 실행했으면 명령을 저장소 경로로 적는다 — 그대로 붙여 넣어 쓸 수 있게
+    here = "" if os.path.realpath(os.getcwd()) == os.path.realpath(HERE) else home(HERE).rstrip("/") + "/"
     say("""
 Next
-  1. Open the board:   ./ctl.sh open   (http://127.0.0.1:%d)
+  1. Open the board:   %(ctl)s open   (http://127.0.0.1:%(port)d)
   2. Send any prompt in Claude Code — its session shows up on the board.
      Sessions that are already open appear from their next prompt; no restart needed.
   3. Optional: import the last week of conversations:
-       /usr/bin/python3 csl/backfill.py --days 7
-  4. Optional: run sessions in the Orca terminal to reply and answer prompts from the board
-     (see "Working with sessions" in the README).
+       /usr/bin/python3 %(h)scsl/backfill.py --days 7
+  4. Optional: run sessions in the Orca terminal, or inside tmux in any terminal app, to reply and
+     answer prompts from the board (see "Working with sessions" in the README).
 
-Check the install any time:  /usr/bin/python3 install.py --check
-Remove it:                   /usr/bin/python3 install.py --uninstall""" % PORT)
+Check the install any time:  /usr/bin/python3 %(h)sinstall.py --check
+Remove it:                   /usr/bin/python3 %(h)sinstall.py --uninstall""" % {"h": here, "ctl": (here or "./") + "ctl.sh", "port": PORT})
 
     want = args.open
     if not want and not args.no_open and sys.stdin.isatty() and sys.stdout.isatty():

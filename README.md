@@ -81,19 +81,27 @@ The board UI is available in 한국어, 日本語 and English — it follows you
 
 **You need:** macOS, [Claude Code](https://docs.anthropic.com/en/docs/claude-code) signed in with your Claude account (a subscription plan is enough — no API key), the system Python 3 (`/usr/bin/python3`, 3.9 or later — nothing to `pip install`) and a modern browser (tested in Chrome).
 
-> **First time using developer tools on this Mac?** The first `git` or `/usr/bin/python3` command opens a macOS prompt to
-> install the *Command Line Tools*. Click **Install**, wait a few minutes, then run the command again.
+```sh
+curl -fsSL https://raw.githubusercontent.com/ygone-lee/argus/main/install.sh | sh
+```
+
+That downloads Argus into `~/.argus` and runs its installer, which adds Argus's hooks to Claude Code (a backup of your
+settings is saved first) and offers to open the board. Run the same line again to update.
+
+> **First time using developer tools on this Mac?** Argus needs Apple's *Command Line Tools* (git and Python 3). If they
+> are missing, the command opens the macOS installer for them — click **Install**, wait a few minutes, then run it again.
+
+Prefer to see what runs first? [`install.sh`](install.sh) is about 40 lines. Or install from a clone of your own:
 
 ```sh
 git clone https://github.com/ygone-lee/argus.git
 cd argus
-
-/usr/bin/python3 install.py                 # add Argus hooks to Claude Code (a backup is saved first), then open the board
+/usr/bin/python3 install.py
 ```
 
 The installer checks that you're on macOS with Claude Code installed, creates `~/.claude/settings.json` if you don't have
 one yet (and stops without changing anything if the file isn't valid JSON), prints what it changed and the next steps,
-and offers to open the board at http://127.0.0.1:7799. Later, `./ctl.sh open` opens it again, and
+and offers to open the board at http://127.0.0.1:7799. Later, `./ctl.sh open` (in the Argus folder) opens it again, and
 `/usr/bin/python3 install.py --check` shows whether everything is installed and running.
 
 Optional: `/usr/bin/python3 csl/backfill.py --days 7` brings in the last week of conversations from before the install.
@@ -108,7 +116,7 @@ That's it. Keep working in Claude Code as usual — every open session shows up 
 - **Argus Brain** — click the 브레인 (Brain) icon next to the Argus logo, or press `B`, and start it. See [Argus Brain](#feature-reference) in the feature reference.
 - **Connectors** — ⋮ → 🔌 커넥터 (Connectors) to collect Slack mentions/DMs and Gmail into the Brain's inbox. Secrets go into the macOS Keychain.
 
-**To remove Argus:** `/usr/bin/python3 install.py --uninstall` removes the hooks and restores your original status line. Your data stays in `~/.claude/session-log` until you delete that folder.
+**To remove Argus:** `/usr/bin/python3 ~/.argus/install.py --uninstall` (or `install.py --uninstall` in your clone) removes the hooks and restores your original status line, then delete the Argus folder. Your data stays in `~/.claude/session-log` until you delete that folder.
 
 ## A tour of the board
 
