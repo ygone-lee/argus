@@ -1,0 +1,120 @@
+# Argus
+
+[English](README.md) · [日本語](README.ja.md) · **한국어**
+
+**Claude Code 세션 전부를 브라우저 탭 하나에서.**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey)
+![Python 3.9+ (standard library only)](https://img.shields.io/badge/python-3.9%2B%20stdlib-3776AB)
+![Runs locally](https://img.shields.io/badge/runs-100%25%20local-success)
+![Works with your Claude subscription — no API key](https://img.shields.io/badge/Claude-subscription%20only%2C%20no%20API%20key-c96442)
+
+![40초로 보는 Argus: 세션을 나란히 놓고, 권한 확인에 답하고, 보드에서 답장하고, 지난 대화를 검색하는 모습](docs/promo.gif)
+
+<sub>데모 속 세션은 모두 지어낸 것입니다 · [고화질 보기 (MP4)](docs/promo.mp4)</sub>
+
+Argus 는 열어 둔 Claude Code 세션을 전부 지켜보는 로컬 웹 보드입니다. 터미널·프로젝트·git 워크트리를 가리지 않고,
+세션 하나에 칸 하나씩 나란히 보여 줍니다. 이름은 눈을 한꺼번에 다 감은 적이 없다는 그리스 신화의 눈 백 개 달린 거인에서 왔습니다.
+
+Claude Code 는 지금처럼 쓰시면 됩니다. Argus 는 Claude Code 자체의 훅으로 상황을 받아 Mac 안의 작은 SQLite 에 기록하고,
+**http://127.0.0.1:7799** 에 페이지를 띄웁니다. 어느 세션이 무엇을 하는지, 어느 세션이 나를 기다리는지, 마지막에 뭐라고
+답했는지 한눈에 보이고, 맞는 터미널 탭을 찾지 않고 바로 답할 수 있습니다.
+
+> **Claude Code 만으로 돌아갑니다 — Claude 구독이면 충분합니다.** Argus 는 Anthropic API 를 부르지 않고 API 키도 요구하지
+> 않습니다. 보드 자체는 모델을 전혀 부르지 않습니다. Claude 를 쓰는 기능(브레인·일일 업무 일지·카드 대화)은 모두 이미
+> 로그인한 `claude` CLI 를 거치므로, Claude Code 와 같은 요금제 안에서 돌아갑니다.
+
+## 왜 만들었나
+
+Claude Code 세션을 여러 개 동시에 돌리면(저장소마다, 워크트리마다, 작업마다) 금세 따라가기 어려워집니다.
+
+- **어느 세션이 뭘 했지?** 터미널 탭은 다 비슷해 보이고, 뭘 시켰는지 스크롤로 찾기는 번거롭습니다.
+- **어디까지 했더라?** 잠깐 다른 일을 하고 오면 무엇이 끝났고 무엇이 아직 도는지, 마지막 답이 뭐였는지 알기 어렵습니다.
+- **놓친 답변.** 다른 탭을 보는 사이 어떤 세션이 끝나거나 권한 확인에서 멈춰 그대로 기다립니다.
+- **「다음에 할 일」이 머릿속에만 있다.** 아직 Claude 에게 보낼 때가 아닌, 세션별로 이어 할 일을 둘 곳이 없습니다.
+
+## 할 수 있는 것
+
+| | |
+|---|---|
+| 👀 **한눈에 보기** | 세션마다 칸 하나, 최근 것부터. 프로젝트·워크트리·브랜치·모델·컨텍스트 사용량 표시. 상태(*작업 중*·*확인 필요*·*새 응답*·*오류*·*종료*)와 위쪽의 상태별 개수. 확인이 필요하면 브라우저 알림과 소리. 5시간·주간 사용량 막대와 권장 속도. |
+| 💬 **터미널을 찾지 않고 조작** | 답장(이미지·끌어 놓은 파일 경로 포함), 권한 확인·질문에 답하기, 작업 중단, 이름 바꾸기, 이 세션만 모델·effort 바꾸기, 권한 모드, 되돌리기, 갈래(branch·fork), 슬래시 명령, 세션 종료. *Orca 또는 tmux 필요.* |
+| 📝 **다음 할 일 챙기기** | 세션별 「넥스트 액션」: Claude 에 보내지 않는 메모, 또는 지금 답이 끝나면 자동으로 보내는 예약. 끝난 세션에 남은 할 일과 놓친 git 작업(커밋 안 한 변경·푸시 안 한 커밋·PR 없는 브랜치) 보고서. |
+| 🔎 **나눈 대화 전부 검색** | 모든 세션의 모든 질문·답 전문 검색(한국어·일본어 포함). `argus-recall` 스킬로 어느 세션에서든 Claude 가 지난 대화를 직접 찾아봅니다(「지난번에 이거 어떻게 고쳤지?」). |
+| 🧾 **변경 보기** | 세션 폴더별 diff 보기(커밋 안 한 변경 또는 브랜치 전체, 한 줄·양쪽 나란히). |
+| 📅 **돌아보기** | 모든 세션을 시간순으로 모은 활동 보기와, 매일 아침 쓰이는 업무 일지(선택). |
+| 🧠 **브레인에게 묻기** *(선택)* | 보드를 읽는 Claude Code 세션과 대화: 「나 기다리는 거 뭐 있어?」「오늘 뭐 했지?」「api 세션에 테스트 돌리라고 해 줘」. 슬랙·지메일 멘션을 인박스 칸반에 모으고, 누가 맡을지 제안하고, 카드를 세션에 맡길 수도 있습니다. |
+
+보드 화면은 한국어·日本語·English 를 지원합니다. 브라우저 언어를 따르고, ⋮ → 🌐 에서 바꿀 수 있습니다.
+
+## 빠른 시작
+
+**필요한 것:** macOS, Claude 계정으로 로그인한 [Claude Code](https://docs.anthropic.com/en/docs/claude-code)(구독 요금제면
+충분, API 키 불필요), 시스템 Python 3(`/usr/bin/python3`, 3.9 이상 — `pip install` 할 것 없음), 최신 브라우저(Chrome 에서 확인).
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ygone-lee/argus/main/install.sh | sh
+```
+
+Argus 를 `~/.argus` 에 내려받고 설치 프로그램을 실행합니다. 설치 프로그램은 Claude Code 에 Argus 훅을 넣고(먼저 설정을
+백업) 보드를 열지 묻습니다. 같은 줄을 다시 실행하면 업데이트됩니다.
+
+> **이 Mac 에서 개발 도구를 처음 쓰신다면:** Argus 에는 Apple 의 *Command Line Tools*(git 과 Python 3)가 필요합니다.
+> 없으면 이 명령이 설치 창을 띄웁니다. **설치** 를 누르고 몇 분 기다린 뒤 다시 실행하세요.
+
+무엇이 실행되는지 먼저 보고 싶다면 [`install.sh`](install.sh)(약 40줄)를 읽거나, 직접 clone 해서 설치할 수 있습니다.
+
+```sh
+git clone https://github.com/ygone-lee/argus.git
+cd argus
+/usr/bin/python3 install.py
+```
+
+이제 Claude Code 를 평소처럼 쓰면 됩니다. 열려 있던 세션은 다음 요청부터, 새 세션은 시작하자마자 보드에 나타납니다.
+재부팅한 뒤에도 훅이 서버를 알아서 띄웁니다.
+
+**먼저 구경만 하고 싶다면:** `/usr/bin/python3 demo/run.py` 를 실행하면 지어낸 프로젝트와 세션이 움직이는 진짜 보드가
+http://127.0.0.1:7798 에 열립니다. 따로 쓰는 임시 폴더와 포트를 써서 내 Claude Code 설정은 건드리지 않고, Ctrl+C 로 끄면 정리됩니다.
+
+**선택 사항**
+
+- **Orca 또는 tmux** — 세션을 Orca 에서, 또는 아무 터미널 앱(iTerm2, Ghostty, 터미널.app …) 안의 tmux 에서 돌리면 보드에서
+  답장·응답·조작을 할 수 있습니다. 없어도 기록과 표시는 모두 되고, iTerm2·터미널.app 탭은 앞으로 가져올 수 있습니다.
+- **Argus 브레인** — Argus 로고 옆 브레인 아이콘을 누르거나 `B` 를 눌러 시작합니다.
+- **커넥터** — ⋮ → 🔌 커넥터에서 슬랙 멘션·DM 과 지메일을 브레인 인박스로 모읍니다. 비밀값은 macOS 키체인에 저장됩니다.
+
+**지우려면:** `/usr/bin/python3 ~/.argus/install.py --uninstall`(clone 했다면 그 폴더에서 `install.py --uninstall`)로 훅을 빼고
+원래 상태줄로 되돌린 뒤 Argus 폴더를 지우세요. 기록한 데이터는 `~/.claude/session-log` 에 남습니다.
+
+## 개인정보와 안전
+
+Argus 는 Claude Code 대화를 저장하므로, 그 대화를 내 컴퓨터 안에 두고 작업을 방해하지 않도록 만들었습니다.
+
+- **로컬 전용.** 서버는 `127.0.0.1` 에서만 열리고, `Host` 헤더를 확인하며 JSON 요청만 받으므로 다른 웹 페이지가 읽거나
+  조작할 수 없습니다. 데이터는 모두 `~/.claude/session-log`(SQLite 와 올린 이미지)에 있습니다.
+- **비밀값은 저장 전에 가립니다.** 알려진 토큰 형식(GitHub, Slack, Google, JWT), `Bearer …`, URL 속 비밀번호, `password=…`
+  형태의 값은 `[MASKED]` 로 바뀝니다. 그 밖의 것은 요청에서 `<private>…</private>` 로 감싸면 Claude 는 보고 Argus 는 `[private]` 로 저장합니다.
+- **숨은 모델 호출도, API 키도 없습니다.** 보드를 보는 데는 토큰이 들지 않습니다. 직접 켜거나 요청한 기능(업무 일지·브레인·카드 대화)만 내 Claude Code 계정으로 Claude 를 씁니다.
+- **Claude Code 는 건드리지 않습니다.** 대화 기록을 고치지 않습니다. `install.py` 는 다른 훅을 그대로 두고 `settings.json` 을
+  백업하며, `--uninstall` 로 되돌립니다. 훅이 실패해도 Claude Code 를 막지 않습니다.
+- **터미널 입력은 안전장치를 거칩니다.** 세션이 확인을 기다릴 때, 끝났을 때, 그 터미널의 전면에 `claude` 가 없을 때, 글이
+  `!` 로 시작할 때(셸 명령으로 실행됨)는 입력하지 않습니다. 여러 단계를 밟는 조작은 단계마다 화면을 확인하고, 어긋나면 Esc 로 물립니다.
+- **커넥터는 읽기 전용입니다.** 슬랙은 읽기 권한만, 지메일·캘린더는 제목·보낸 사람·시각만 읽습니다(본문은 읽지 않음).
+
+## 한계와 자주 묻는 질문
+
+- **아직은 macOS 전용입니다.** 터미널 조작·키체인·Spotlight 가 macOS 기능입니다.
+- **세션 조작에는 Orca 나 tmux 가 필요합니다.** 다른 터미널은 앞으로 가져오기만 되고 입력은 안 됩니다 — tmux 안에서 Claude Code 를
+  돌리면 어느 터미널 앱에서든 조작할 수 있습니다. 터미널 추가는 파일 하나입니다([Adding a terminal](docs/terminals.md)).
+- **Claude Code 내부를 따라갑니다.** 제목·요약·진행 상황은 대화 기록 파일에서, 터미널 조작은 화면에서 읽습니다. 공개 API 가 아니라서
+  버전에 따라 바뀔 수 있습니다. Claude Code 2.1.x 기준으로 개발합니다. 업데이트 뒤 문제가 생기면 [이슈](CONTRIBUTING.md)로 알려 주세요.
+- **Anthropic API 키가 필요한가요?** 아니요. Claude 가 필요한 일은 모두 `claude` CLI 를 거칩니다.
+- **Claude 사용량을 쓰나요?** 보드를 보는 데는 쓰지 않습니다. 업무 일지·브레인·카드 대화만 다른 Claude Code 사용처럼 요금제 사용량에 잡힙니다.
+- **VS Code 나 Claude 데스크톱 앱의 세션도 되나요?** 훅이 도는 세션은 기록됩니다. 앱을 앞으로 가져올 수는 있지만 입력은 안 됩니다.
+
+기능 상세, 동작 방식, 확장 방법은 [영어 README](README.md#feature-reference) 를 보세요.
+
+## 기여·라이선스
+
+이슈와 PR 을 환영합니다(한국어로 써도 괜찮습니다). [CONTRIBUTING.md](CONTRIBUTING.md) · [MIT License](LICENSE)

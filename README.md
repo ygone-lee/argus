@@ -1,5 +1,7 @@
 # Argus
 
+**English** · [日本語](README.ja.md) · [한국어](README.ko.md)
+
 **One browser tab for all of your Claude Code sessions.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
