@@ -7,6 +7,10 @@
 ![Python 3.9+ (standard library only)](https://img.shields.io/badge/python-3.9%2B%20stdlib-3776AB)
 ![Runs locally](https://img.shields.io/badge/runs-100%25%20local-success)
 
+![Argus board: five Claude Code sessions side by side — live tool calls, a question waiting for an answer, new replies, and a message sent from the board](docs/demo.gif)
+
+<sub>Recorded with the built-in demo (`/usr/bin/python3 demo/run.py`) — every project, session and conversation in it is made up.</sub>
+
 Argus is a local web board that watches every Claude Code session you have open — across terminals, projects and git worktrees — and lays them out side by side, one column per session. It is named after the hundred-eyed giant of Greek myth who never closed all his eyes.
 
 You keep using Claude Code exactly as before. Argus listens through Claude Code's own hooks, keeps a small SQLite database on your Mac, and serves a page at **http://127.0.0.1:7799** where you can see what every session is doing, which ones are waiting for you, and what they last said — and reply to them without hunting for the right terminal tab.
@@ -84,6 +88,8 @@ cd argus
 ```
 
 That's it. Keep working in Claude Code as usual — every open session shows up on the board from its next prompt, and new sessions appear as soon as they start. The server starts itself from the hooks after a reboot, so you rarely need `ctl.sh` again.
+
+**Just want to look first?** `/usr/bin/python3 demo/run.py` opens the real board at http://127.0.0.1:7798 with made-up projects and sessions that change while you watch (you can send them messages too). It uses its own temporary data folder and port, never touches your Claude Code setup, and cleans up when you stop it with Ctrl+C.
 
 **Optional extras**
 
@@ -365,6 +371,7 @@ Sessions in terminals with no implementation (iTerm2, Terminal.app, Claude deskt
 | `skills/argus-recall/` | Skill linked into `~/.claude/skills` by `install.py` so every session can search past conversations |
 | `brain/` | The Brain's folder: `CLAUDE.md` (role and rules), `.claude/settings.json` (permissions), `channels.txt` |
 | `ctl.sh` | Server control |
+| `demo/run.py` | Demo: the real board with made-up sessions and a scripted timeline, on its own data folder and port |
 
 ## Performance notes
 

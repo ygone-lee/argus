@@ -1280,7 +1280,7 @@ select {
 .sc-meta { display: flex; gap: 4px; flex-wrap: nowrap; overflow: hidden; }
 .sc-meta .chip { font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
 .sc-wait { font-size: 11.5px; color: var(--waiting); background: var(--waiting-soft); border-radius: 6px; padding: 3px 7px; }
-.sc-recap { font-size: 12px; line-height: 1.45; color: var(--text-2); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.sc-recap, .sc-recap-none { font-size: 12px; line-height: 1.45; color: var(--text-2); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 .sc-recap b { color: var(--accent); font-weight: 650; margin-right: 2px; }
 .sc-foot { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-3); min-width: 0; }
 .sc-last { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

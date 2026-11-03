@@ -5111,7 +5111,7 @@ function actDetailHtml(x) {
   if (!x.turn_id) {
     const s = sessionById(x.session_id);
     return `<div class="act-dbody"><div class="md">${mdCached(x.text || "")}</div>${s && s.state === "waiting" && s.state_detail
-      ? `<div class="sc-wait">⏳ ${esc(s.state_detail)}</div>` : ""}</div>${go}`;
+      ? `<div class="sc-wait"><span aria-hidden="true">⏳</span> ${esc(s.state_detail)}</div>` : ""}</div>${go}`;
   }
   const d = S.actDetail[x.turn_id];
   if (!d) return `<div class="act-dbody muted"><span class="ibc-spin"></span> 불러오는 중…</div>${go}`;
@@ -5520,7 +5520,7 @@ function sessionCardHtml(s, rank) {
   const d = displayState(s);
   const body = s.recap ? `<div class="sc-recap"><b>recap</b> ${esc(clamp(s.recap, 220))}</div>`
     : s.last_response ? `<div class="sc-recap">${esc(plainOneLine(s.last_response.response, 220))}</div>`
-    : '<div class="sc-recap muted">아직 응답이 없습니다</div>';
+    : '<div class="sc-recap-none muted">아직 응답이 없습니다</div>';
   const lp = s.last_prompt && s.last_prompt.prompt;
   const notes = +s.open_notes || 0;
   const key = rank <= 9 ? `<span class="sc-key">⌘${rank}</span>` : "";
@@ -5530,7 +5530,7 @@ function sessionCardHtml(s, rank) {
       ${remoteBadge(s, d)}${s.pinned ? '<span class="sc-pin" title="고정됨">📌</span>' : ""}${key}</div>
     <div class="sc-title">${esc(sessionTitle(s))}</div>
     <div class="sc-meta"><span class="chip proj">${esc(s.project_name || base(s.project_root))}</span>${placeChips(s)}${s._fam ? `<span class="chip fam" title="갈래 ${s._fam.members.length - 1}개 — 칸 보기의 탭에서 고릅니다">⑂ ${s._fam.members.length - 1}</span>` : ""}</div>
-    ${d === "waiting" && s.state_detail ? `<div class="sc-wait">⏳ ${esc(clamp(s.state_detail, 120))}</div>` : ""}
+    ${d === "waiting" && s.state_detail ? `<div class="sc-wait"><span aria-hidden="true">⏳</span> ${esc(clamp(s.state_detail, 120))}</div>` : ""}
     ${body}
     <div class="sc-foot">${lp ? `<span class="sc-last" title="${esc(clamp(lp, 400))}">▶ ${esc(plainOneLine(lp, 90))}</span>` : '<span></span>'}
       ${notes ? `<span class="sc-notes" title="남은 넥스트 액션">할 일 ${notes}</span>` : ""}</div>

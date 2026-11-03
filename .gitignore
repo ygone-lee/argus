@@ -28,3 +28,6 @@ CLAUDE.local.md
 .idea/
 .vscode/
 *.swp
+
+# Demo runs (demo/run.py --dir demo/.run)
+/demo/.run/

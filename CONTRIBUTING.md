@@ -15,6 +15,8 @@ Thanks for your interest! Issues and pull requests are welcome. 한국어·日�
 2. `/usr/bin/python3 install.py` adds the hooks, the status line tap and the `argus-recall` skill (`/usr/bin/python3 install.py --uninstall` removes them).
 3. `./ctl.sh start` (or `restart`) and open http://127.0.0.1:7799.
 
+For UI work you can also run `/usr/bin/python3 demo/run.py` (port 7798, made-up sessions, add `--loop` to replay the live part) — it never touches your own data, and it's a safe way to take screenshots for a PR.
+
 Argus uses only the macOS system Python 3 (3.9+) standard library and plain HTML/CSS/JS — no package manager, build step or framework. Please keep it that way; a change that needs a new dependency should be discussed in an issue first.
 
 ## Pull requests

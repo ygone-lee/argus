@@ -7,15 +7,21 @@ const LANG = (() => { try { return JSON.parse(localStorage.getItem("csl.lang")) 
 const I18N_SKIP = ".md, .bubble, .col-title, .title-text, .rename-input, .col-recap, .recap-clamp, .steps, .tdetail, .mid-text, " +
   ".ib-summary, .ib-rec b, .ib-rec .muted, .ib-meta b, .ib-prompt, .ask-qhead, .ask-opt b, .ask-opt .muted, .nm-folder b, " +
   ".note-text, .daily-body, .sr-text, .sr-title, .sr-scope, .msg-notice .muted, .notice-sum, .ib-target, #langSel, " +
-  ".chip.proj, .pm-name, .col-detail, .cmp-text, .note-input, .ctx-note, .nm-prompt, textarea, script, style, code, pre, " +
+  ".chip.proj, .pm-name, .cmp-text, .note-input, .ctx-note, .nm-prompt, textarea, script, style, code, pre, " +
   // 카드 보기·곁질문·활동·인박스 칸반·카드 기록·카드 대화의 사용자 내용
-  ".fam-tab-t, .goal-t, .ag-main b, .ag-last, .ib-run-sum, .ib-file, .pc-head, .pc-opt, .bgt-desc, .task-title, .task-meta, .task-body, .dv-tbl, .dv-fname, .dv-commit, .diff-title, .sc-title, .sc-recap, .sc-last, .sc-wait, .sc-meta .chip, .aside-q, .aside-a, .act-main b, .act-text, .ib-todo, .ibl-text, " +
+  ".fam-tab-t, .goal-t, .ag-main b, .ag-last, .ib-run-sum, .ib-file, .pc-head, .pc-opt, .bgt-desc, .task-title, .task-meta, .task-body, .dv-tbl, .dv-fname, .dv-commit, .diff-title, .sc-title, .sc-recap, .sc-last, .sc-meta .chip, .aside-q, .aside-a, .act-main b, .act-text, .ib-todo, .ibl-text, " +
   ".sp-desc:not(.board), .kb-h > div, .ibc-u, .ibc-err, .cmp-rich, .sref, .chip.wt, .chip.br, .ib-stage .muted, .ib-reply-text, .cn-name, .act-main .muted, .act-ask-t, .sw-title, .sw-where";
 
 // [한국어, 日本語, English]
 const I18N_ROWS = [
   // ---- 상단·공통
   ["확인 필요", "要確認", "Needs you"], ["새 응답", "新しい応答", "New reply"], ["작업 중", "作業中", "Working"],
+  // 훅이 붙이는 대기 사유(칸 머리·작업 줄). 사전에 없는 알림 글(Claude Code 가 준 문장)은 그대로 둔다
+  ["질문에 답변 대기", "質問への回答待ち", "Waiting for your answer"], ["질문에 답변 대기 ·", "質問への回答待ち ·", "Waiting for your answer ·"],
+  ["계획 승인 대기", "計画の承認待ち", "Waiting for plan approval"], ["계획 승인 대기 ·", "計画の承認待ち ·", "Waiting for plan approval ·"],
+  ["권한 승인 대기", "権限の承認待ち", "Waiting for permission"], ["권한 승인 대기 ·", "権限の承認待ち ·", "Waiting for permission ·"],
+  ["권한 승인 대기: {*}", "権限の承認待ち: {*}", "Waiting for permission: {*}"], ["권한 승인 대기: {*} ·", "権限の承認待ち: {*} ·", "Waiting for permission: {*} ·"],
+  ["입력 대기", "入力待ち", "Waiting for input"], ["브라우저 입력 대기", "ブラウザでの入力待ち", "Waiting for browser input"],
   ["오류", "エラー", "Error"], ["완료", "完了", "Done"], ["대기", "待機", "Idle"], ["종료", "終了", "Ended"],
   ["5시간", "5時間", "5h"], ["주간", "週間", "Week"], ["권장 {}%", "推奨 {}%", "pace {}%"],
   ["대화 검색 — 내 요청·Claude 응답 ( / )", "会話検索 — 自分の依頼・Claude の応答 ( / )", "Search conversations — my prompts · Claude replies ( / )"],
