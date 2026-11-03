@@ -10,9 +10,9 @@
 ![Runs locally](https://img.shields.io/badge/runs-100%25%20local-success)
 ![Works with your Claude subscription — no API key](https://img.shields.io/badge/Claude-subscription%20only%2C%20no%20API%20key-c96442)
 
-![Argus in 40 seconds: sessions side by side, answering a permission prompt and replying from the board, searching past conversations, and the Brain sorting Slack and handing work to sessions](docs/promo.gif)
+![Argus in 50 seconds: sessions side by side, answering a permission prompt and replying from the board, picking up a session from its next actions, searching past conversations, and the Brain catching what you missed in sessions and Slack and handing work to sessions](docs/promo.gif)
 
-<sub>Argus in 40 seconds · [watch in full quality (MP4)](docs/promo.mp4) · made with `demo/promo/` — all sessions in it are made up.</sub>
+<sub>Argus in 50 seconds · [watch in full quality (MP4)](docs/promo.mp4) · made with `demo/promo/` — all sessions in it are made up.</sub>
 
 Argus is a local web board that watches every Claude Code session you have open — across terminals, projects and git worktrees — and lays them out side by side, one column per session. It is named after the hundred-eyed giant of Greek myth who never closed all his eyes.
 

@@ -10,7 +10,7 @@
 ![Runs locally](https://img.shields.io/badge/runs-100%25%20local-success)
 ![Works with your Claude subscription — no API key](https://img.shields.io/badge/Claude-subscription%20only%2C%20no%20API%20key-c96442)
 
-![Argus を 40 秒で: セッションを横に並べて表示し、権限確認に答え、ボードから返信し、過去の会話を検索する様子](docs/promo.gif)
+![Argus を 50 秒で: セッションを横に並べて表示し、権限確認に答え、ボードから返信し、ネクストアクションから作業を再開し、過去の会話を検索し、ブレインがセッションと Slack で見逃したことを拾って各セッションに仕事を渡す様子](docs/promo.gif)
 
 <sub>デモに出てくるセッションはすべて架空のものです · [高画質版 (MP4)](docs/promo.mp4)</sub>
 

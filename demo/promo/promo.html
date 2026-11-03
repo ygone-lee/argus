@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>Argus promo</title>
 <!--
-  A 41-second motion piece made of Argus-style UI components. Every frame is a pure function of time:
+  A 50-second motion piece made of Argus-style UI components. Every frame is a pure function of time:
   render(t) draws the moment t (seconds), so demo/promo/render.mjs can capture it frame by frame.
   Open the file in a browser to watch it play in real time (?t=12 to freeze at 12 s).
 -->
@@ -114,6 +114,21 @@
   .notes { padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 13.5px; color: var(--text-2); display: flex; align-items: center; gap: 8px; }
   .notes i { width: 15px; height: 15px; border: 1.5px solid var(--border-strong); border-radius: 4px; flex: none; }
 
+  /* ---------- next actions (column 2) */
+  .na { border-bottom: 1px solid var(--border); font-size: 13.5px; color: var(--text-2); }
+  .na-h { display: flex; align-items: center; gap: 8px; padding: 9px 16px; font-weight: 650; color: var(--text-2); }
+  .na-n { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+  .na-list { overflow: hidden; height: 0; }
+  .na-i { display: flex; align-items: center; gap: 9px; padding: 7px 16px; font-size: 14px; color: var(--text); }
+  .na-i i { width: 16px; height: 16px; border: 1.5px solid var(--border-strong); border-radius: 4px; flex: none; font-style: normal;
+            font-size: 11px; display: inline-flex; align-items: center; justify-content: center; color: #fff; }
+  .na-i span { flex: 1; min-width: 0; }
+  .na-i em { font-style: normal; font-size: 12px; color: var(--text-3); }
+  .na-i.done span { color: var(--text-3); text-decoration: line-through; }
+  .na-i.done i { background: var(--working); border-color: var(--working); }
+  .na-send { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: #fff; font-size: 14px; font-weight: 700;
+             display: inline-flex; align-items: center; justify-content: center; }
+
   /* ---------- Brain drawer */
   .brainbtn { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; color: var(--text-2); padding: 6px 12px; border-radius: 9px; border: 1px solid var(--border); }
   .brainbtn.on { background: var(--accent-soft); color: var(--accent); border-color: #efc9b9; font-weight: 650; }
@@ -177,7 +192,7 @@
   </div>
 
   <!-- scene 2: terminals -->
-  <div id="termCap" class="abs caption-top">Five sessions. Five terminals.<small>Which one finished? Which one is waiting for you?</small></div>
+  <div id="termCap" class="abs caption-top">Five sessions. Five terminals.<small>Which one finished? Which one is waiting for you? And what was I doing in that one?</small></div>
   <div id="terms"></div>
 
   <!-- scene 3–5: the board -->
@@ -198,7 +213,7 @@
     <div class="cols" id="cols"></div>
     <div class="brain" id="brain">
       <div class="bh">🧠 <b>Argus Brain</b><span class="muted">a Claude Code session that can see — and drive — the board</span></div>
-      <div class="quick"><span>Overview</span><span>Needs me</span><span id="qSlack">Check Slack</span><span>What I did today</span></div>
+      <div class="quick"><span>Overview</span><span>Needs me</span><span id="qSlack">What did I miss?</span><span>What I did today</span></div>
       <div class="bbody" id="bbody"></div>
       <div class="composer bcomp" id="bcomp"><span class="txt">Ask the Brain…</span><span class="send">↑</span></div>
     </div>
@@ -218,8 +233,8 @@
   <!-- scene 7: end card -->
   <div id="outro" class="abs hero">
     <div class="row"><div class="logo"></div><h1>Argus</h1></div>
-    <p>Watch every Claude Code session at once.</p>
-    <div class="tags"><span class="tag">macOS</span><span class="tag">100% local</span><span class="tag">No extra LLM calls</span><span class="tag">MIT</span></div>
+    <p>Every Claude Code session in one place. Nothing forgotten.</p>
+    <div class="tags"><span class="tag">macOS</span><span class="tag">100% local</span><span class="tag">No API key</span><span class="tag">MIT</span></div>
     <div class="url">github.com/ygone-lee/argus</div>
   </div>
 
@@ -230,7 +245,10 @@
 
 <script>
 // ------------------------------------------------------------------ helpers
-const DURATION = 41;
+const DURATION = 50;
+// The next-actions scene is spliced into the board scene: at T0 the original timeline pauses for D seconds
+// while it plays, then continues (render(G) maps the global time G to the original time t)
+const T0 = 19.2, D = 8.5;
 const $ = (id) => document.getElementById(id);
 const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
 const prog = (t, a, b) => clamp((t - a) / (b - a));
@@ -282,13 +300,17 @@ const COLS = [
   { proj: "shop-api", pc: "#fbe8de", pt: "#a5492a", branch: "main", model: "Opus 5.5 · high", title: "Webhook retries with backoff",
     states: [[0, "working"], [13.2, "new"]],
     since: -41,
-    notes: "Mention the retry change in the release notes",
+    nextActions: true,
+    gstates: [[T0 + 5.0, "working"], [T0 + D + 3.65, "new"]],   // global times (the spliced scene and after)
     items: [
       { at: 0, html: `<div class="bubble">Add exponential backoff with jitter to webhook retries, and cover it with tests.</div>` },
       { at: 0, html: `<div class="who">Claude</div>` },
       { at: 0, html: `<div class="tool"><span>Edit</span>src/webhooks/retry.py</div>` },
       { at: 9.0, html: `<div class="tool"><span>Bash</span>pytest -q</div>` },
       { at: 13.2, html: `<div class="reply">Done. <code>deliver()</code> waits <code>backoff(attempt)</code> — exponential, full jitter, capped at 30 s.<br><b>12 passed.</b> Not committed yet.</div>` },
+      { g: true, at: T0 + 5.1, html: `<div class="bubble"><span class="via">📝 from next actions</span>Load-test the retries against staging.</div>` },
+      { g: true, at: T0 + 5.9, html: `<div class="tool"><span>Bash</span>k6 run load/webhook-retry.js</div>` },
+      { g: true, at: T0 + D + 3.65, html: `<div class="reply">Load test done — <b>2,000 webhooks, 0 lost</b>, p99 retry delay 28 s.</div>` },
     ] },
   { proj: "mobile", pc: "#ece5f8", pt: "#6a48a8", branch: "main", model: "Sonnet 5.5 · medium", title: "Upgrade push SDK to v5",
     states: [[0, "waiting"]],
@@ -324,7 +346,10 @@ const colNodes = COLS.map((c, i) => {
       <div class="ctitle">${c.title}</div>
       <div class="chips"><span class="chip proj" style="background:${c.pc};color:${c.pt}">${c.proj}</span><span class="chip">${c.branch}</span><span class="chip">${c.model} ▾</span></div>
     </div>
-    ${c.notes ? `<div class="notes"><i></i>${c.notes}</div>` : ""}
+    ${c.nextActions ? `<div class="na"><div class="na-h">▾ Next actions <span class="na-n" id="naN">to do 2</span></div><div class="na-list" id="naList">
+      <div class="na-i" id="naLoad"><i></i><span>Load-test the retries against staging</span><em>2h ago</em><b class="na-send" id="naSend">↑</b></div>
+      <div class="na-i"><i></i><span>Mention the retry change in the release notes</span><em>2h ago</em></div>
+      <div class="na-i done"><i>✓</i><span>Ask payments to review the 30 s cap</span><em>yesterday</em></div></div></div>` : ""}
     <div class="cbody"></div>
     <div class="composer"><span class="txt">Message Claude · Enter to send</span><span class="send">↑</span></div>
   </div>`);
@@ -335,7 +360,13 @@ const colNodes = COLS.map((c, i) => {
   $("cols").appendChild(n);
   return n;
 });
-const stateAt = (c, t) => { let s = c.states[0][1], at = 0; for (const [k, v] of c.states) if (t >= k) { s = v; at = k; } return [s, at]; };
+// [state, since, since-is-global]: the original timeline, overridden by global-time states (column 2 after the splice)
+const stateAt = (c, t, G) => {
+  let s = c.states[0][1], at = 0, g = false;
+  for (const [k, v] of c.states) if (t >= k) { s = v; at = k; }
+  for (const [k, v] of c.gstates || []) if (G >= k) { s = v; at = k; g = true; }
+  return [s, at, g];
+};
 
 // ------------------------------------------------------------------ scene 5: search results
 const RESULTS = [
@@ -351,14 +382,14 @@ const resNodes = RESULTS.map(([p, title, text, when]) => {
 
 // ------------------------------------------------------------------ scene 6: the Brain
 const BRAIN = [
-  { at: 23.9, html: `<div class="bubble">Check Slack</div>` },
+  { at: 23.9, html: `<div class="bubble">What did I miss?</div>` },
   { at: 24.3, html: `<div class="who">Claude</div>` },
-  { at: 24.3, html: `<div class="tool"><span>Slack</span>mentions · DMs · @here since 09:12</div>` },
-  { at: 24.7, html: `<div class="tool"><span>./argus</span>sessions</div>` },
-  { at: 25.1, html: `<div class="reply">3 new since this morning:</div>` },
-  { at: 25.3, html: `<div class="icard me"><div class="ih"><span class="kind">🧑 For you</span>#payments · alex<span class="urg">by 3 pm</span></div><div class="is">Approve the refund-limit change.</div><div class="ix">Reply drafted: “Approved — go ahead with 500.”</div></div>` },
-  { at: 25.6, html: `<div class="icard ses"><div class="ih"><span class="kind">🤖 For a session</span>#web-team · sam</div><div class="is">Login fails on Safari 17 after the validation change.</div><div class="ix">Best fit: 「Login form validation」</div></div>` },
-  { at: 25.9, html: `<div class="icard fyi"><div class="ih"><span class="kind">📎 FYI</span>2 messages</div><div class="is">Release notes shared · design review moved to Thursday.</div></div>` },
+  { at: 24.3, html: `<div class="tool"><span>./argus</span>sessions · next actions · Slack since 09:12</div>` },
+  { at: 24.8, html: `<div class="reply">While you were away:</div>` },
+  { at: 25.0, html: `<div class="icard me"><div class="ih"><span class="kind">⏳ Waiting on you</span>mobile<span class="urg">12 min</span></div><div class="is">Push SDK v5 — needs your call on how existing installs migrate.</div></div>` },
+  { at: 25.3, html: `<div class="icard fyi"><div class="ih"><span class="kind">📝 Left undone</span>shop-api</div><div class="is">Load test passed. Your next action is still open: mention the retry change in the release notes.</div></div>` },
+  { at: 25.6, html: `<div class="icard ses"><div class="ih"><span class="kind">💬 Slack → session</span>#web-team · sam</div><div class="is">Login fails on Safari 17 after the validation change.</div><div class="ix">Best fit: 「Login form validation」</div></div>` },
+  { at: 25.9, html: `<div class="icard me"><div class="ih"><span class="kind">💬 Slack → you</span>#payments · alex<span class="urg">by 3 pm</span></div><div class="is">Approve the refund-limit change.</div></div>` },
   { at: 29.4, html: `<div class="bubble">Give the Safari bug to the login session, and ask infra to open a PR.</div>` },
   { at: 29.8, html: `<div class="who">Claude</div>` },
   { at: 29.8, html: `<div class="tool"><span>./argus</span>send 1f3a 'Login fails on Safari 17 …'</div>` },
@@ -370,7 +401,7 @@ const BTYPED = "Give the Safari bug to the login session, and ask infra to open 
 
 // ------------------------------------------------------------------ scene 7: tiles
 const TILES = [
-  ["📝", "Next actions", "Your own to-dos per session — or queue one to send when the reply ends."],
+  ["🖥", "tmux or Orca", "Drive sessions in tmux from any terminal app, or in Orca."],
   ["🧾", "Changes", "Uncommitted work per session, unified or side by side."],
   ["📊", "Usage pace", "5-hour and weekly limits, with how fast you're burning them."],
   ["📅", "Daily log", "What you did yesterday, across every session — written each morning."],
@@ -384,10 +415,10 @@ const CAPS = [
   [7.9, 10.5, "Every session, side by side — live."],
   [10.9, 13.0, "See who needs you. Answer right from the board."],
   [13.2, 15.0, "Never miss a reply."],
-  [15.2, 19.6, "Reply without hunting for the right terminal."],
+  [15.2, 18.8, "Reply without hunting for the right terminal."],
   [19.9, 22.6, "Search every prompt and every reply."],
-  [23.7, 27.4, "The Brain reads your Slack and sorts what needs you."],
-  [29.3, 32.8, "…and hops between sessions to get them working."],
+  [23.7, 27.4, "The Brain catches what you missed — in sessions and in Slack."],
+  [29.3, 32.8, "…and drives every session for you."],
 ];
 const winX = 100, winY = 70, colX = (i) => winX + 22 + i * 418, colTop = winY + 130;
 // measured on the rendered 1920×1080 frame: Yes button, column 4 composer and send button, search box
@@ -398,13 +429,13 @@ const PTR = [   // [t, x, y]
   [23.4, 357, 249], [23.7, 357, 249], [27.0, 300, 910], [27.3, 300, 910], [28.95, 300, 910], [29.2, 699, 910], [29.6, 699, 910],
 ];
 const CLICKS = [12.2, 15.1, 17.3, 19.6, 23.7, 27.3, 29.2];
-function pointer(t) {
-  if (t < PTR[0][0] - .4 || t > PTR[PTR.length - 1][0] + .3) return null;
-  let p = PTR[0];
-  for (let i = 0; i < PTR.length - 1; i++) {
-    const [a, ax, ay] = PTR[i], [b, bx, by] = PTR[i + 1];
+function pointer(t, path = PTR) {
+  if (t < path[0][0] - .4 || t > path[path.length - 1][0] + .3) return null;
+  let p = path[0];
+  for (let i = 0; i < path.length - 1; i++) {
+    const [a, ax, ay] = path[i], [b, bx, by] = path[i + 1];
     if (t >= a && t <= b) { const k = inOut(prog(t, a, b)); return [lerp(ax, bx, k), lerp(ay, by, k)]; }
-    if (t > b) p = PTR[i + 1];
+    if (t > b) p = path[i + 1];
   }
   return [p[1], p[2]];
 }
@@ -413,7 +444,8 @@ function pointer(t) {
 const TYPED = "Yes — switch to for_each and write the state mv commands.";
 function fmt(sec) { sec = Math.max(0, Math.floor(sec)); return `${Math.floor(sec / 60)}m ${String(sec % 60).padStart(2, "0")}s`; }
 
-function render(t) {
+function renderOriginal(t, G) {
+  const ins = G >= T0 && G < T0 + D;   // the spliced next-actions scene is playing
   // scene 1 — intro
   const ki = window_(t, 0.1, 2.7, .6);
   show($("intro"), ki > 0); place($("intro"), { o: ki, y: (1 - ease(prog(t, .1, .9))) * 30 - ease(prog(t, 2.7, 3.3)) * 40 });
@@ -442,34 +474,36 @@ function render(t) {
 
   let nWait = 0, nNew = 0, nWork = 0;
   COLS.forEach((c, i) => {
-    const n = colNodes[i], [st, since] = stateAt(c, t);
+    const n = colNodes[i], [st, since, gs] = stateAt(c, t, G), clk = gs ? G : t;
     if (st === "waiting") nWait++; else if (st === "new") nNew++; else if (st === "working") nWork++;
     const kin = ease(prog(t, 7.3 + i * .14, 7.9 + i * .14));
     place(n, { o: kin, y: (1 - kin) * 50 });
     // state pill with a little pop when it changes
     const pill = n.querySelector(".pill"), [cls, label] = PILL[st];
     pill.className = "pill " + cls;
-    const pop = since > 0 ? 1 + .18 * Math.sin(Math.PI * prog(t, since, since + .35)) : 1;
-    pill.innerHTML = (st === "working" ? `<span class="ring" style="transform:rotate(${t * 360}deg)"></span>` : `<span class="dot"></span>`) + label;
+    const pop = since > 0 ? 1 + .18 * Math.sin(Math.PI * prog(clk, since, since + .35)) : 1;
+    pill.innerHTML = (st === "working" ? `<span class="ring" style="transform:rotate(${G * 360}deg)"></span>` : `<span class="dot"></span>`) + label;
     pill.style.transform = `scale(${pop})`;
     const slot = n.querySelector(".slot");
-    slot.innerHTML = st === "new" ? `<span class="bell" style="transform:scale(${back(prog(t, since, since + .4))})">🔔</span>` : "";
+    slot.innerHTML = st === "new" ? `<span class="bell" style="transform:scale(${back(prog(clk, since, since + .4))})">🔔</span>` : "";
     n.querySelector(".ago").textContent = st === "done" ? "48m ago" : "just now";
     n.querySelector(".chead").style.background = st === "waiting" ? "#fff7e8" : st === "new" ? "#fdf0ee" : "var(--surface-2)";
     // body items
     c.items.forEach((it, j) => {
-      const node = c.itemNodes[j], on = t >= it.at && !(it.until && t >= it.until);
+      const it_t = it.g ? G : t, node = c.itemNodes[j], on = it_t >= it.at && !(it.until && it_t >= it.until);
       show(node, on);
-      if (on) { const k = it.at ? ease(prog(t, it.at, it.at + .35)) : 1; place(node, { o: k, y: (1 - k) * 12, s: node.classList.contains("perm") ? lerp(.94, 1, back(prog(t, it.at, it.at + .45))) : 1 }); }
+      if (on) { const k = it.at ? ease(prog(it_t, it.at, it.at + .35)) : 1; place(node, { o: k, y: (1 - k) * 12, s: node.classList.contains("perm") ? lerp(.94, 1, back(prog(t, it.at, it.at + .45))) : 1 }); }
     });
     const working = st === "working";
     show(c.working, working);
     if (working) {
-      c.working.querySelector(".ring").style.transform = `rotate(${t * 360}deg)`;
+      c.working.querySelector(".ring").style.transform = `rotate(${G * 360}deg)`;
       // since < 0: already running for -since seconds when the board appears (t = 7)
-      c.working.querySelector(".wt").textContent = "working · " + fmt(since >= 30 ? t - since : c.since < 0 ? t - 7 - c.since : t - c.since);
+      c.working.querySelector(".wt").textContent = "working · " + fmt(gs ? G - since : since >= 30 ? t - since : c.since < 0 ? t - 7 - c.since : t - c.since);
     }
-    n.classList.toggle("sel", i === 3 && t > 14.9 && t < 19.8);
+    n.classList.toggle("sel", ins ? i === 1 : i === 3 && t > 14.9 && t < 19.8);
+    // during the spliced scene the other columns step back
+    if (i !== 1) n.style.opacity = kin * lerp(1, .32, dimK(G));
     const body = n.querySelector(".cbody"); body.scrollTop = body.scrollHeight;
   });
   // composer typing in column 4
@@ -543,6 +577,54 @@ function render(t) {
   const c = CLICKS.find((c) => t >= c && t < c + .5);
   show($("ripple"), !!c && !!p);
   if (c && p) { const k = prog(t, c, c + .5); $("ripple").style.left = p[0] + "px"; $("ripple").style.top = p[1] + "px"; $("ripple").style.opacity = 1 - k; $("ripple").style.transform = `scale(${.4 + k * 1.2})`; }
+}
+
+// ------------------------------------------------------------------ spliced scene: next actions (global time)
+const dimK = (G) => G < T0 || G > T0 + D ? 0 : ease(prog(G, T0 + .1, T0 + .6)) * (1 - ease(prog(G, T0 + 7.5, T0 + 8.2)));
+const NA_CAPS = [
+  [0.2, 2.2, "Wait — what was I doing in this one?"],
+  [2.5, 4.6, "Next actions remember it for you, per session."],
+  [5.0, 8.0, "Pick up right where you left off."],
+];
+let NA_PTR = null, NA_CLICKS = [1.9, 4.9];   // pointer path is measured from the layout on first use
+function naPath() {
+  const r = (id) => $(id).getBoundingClientRect(), st = $("stage").getBoundingClientRect(), k = st.width / 1920;
+  const at = (id, dx = .5, dy = .5) => { const b = r(id); return [(b.left - st.left + b.width * dx) / k, (b.top - st.top + b.height * dy) / k]; };
+  const head = at("naN", -0.6, .5), send = at("naSend");
+  const home = pointer(T0) || [1630, 156];
+  return [[0, ...home], [1.0, ...home], [1.7, ...head], [2.2, ...head], [3.4, head[0] + 40, head[1] + 80], [4.5, ...send], [5.2, ...send],
+          [7.4, send[0] + 60, send[1] + 120], [8.3, ...home]];
+}
+function renderNext(G) {
+  const u = G - T0, ins = u >= 0 && u < D;
+  // the list opens on the click and folds again at the end; the sent item stays checked off
+  const list = $("naList"), open = ease(prog(u, 1.95, 2.45)) * (1 - ease(prog(u, 7.3, 7.9)));
+  list.style.height = (open * list.scrollHeight) + "px";
+  const sent = u >= 4.95;
+  $("naLoad").classList.toggle("done", sent);
+  $("naLoad").querySelector("i").textContent = sent ? "✓" : "";
+  $("naSend").style.visibility = sent ? "hidden" : "visible";
+  $("naSend").style.transform = `scale(${1 - .2 * Math.sin(Math.PI * prog(u, 4.85, 5.1))})`;
+  $("naN").textContent = sent ? "to do 1" : "to do 2";
+  if (!ins) return;
+  const cap = NA_CAPS.find(([a, b]) => u >= a - .1 && u <= b + .4);
+  show($("cap"), !!cap);
+  if (cap) { $("cap").textContent = cap[2]; const k = window_(u, cap[0], cap[1], .3); $("cap").style.opacity = k; $("cap").style.transform = `translateX(-50%) translateY(${(1 - k) * 16}px)`; }
+  if (!NA_PTR) { const h = list.style.height; list.style.height = list.scrollHeight + "px"; NA_PTR = naPath(); list.style.height = h; }
+  const p = pointer(u, NA_PTR);
+  show($("cursor"), !!p);
+  if (p) {
+    const press = NA_CLICKS.some((c) => u > c && u < c + .15);
+    $("cursor").style.opacity = 1; $("cursor").style.transform = `translate(${p[0] - 6}px, ${p[1] - 3}px) scale(${press ? .85 : 1})`;
+  }
+  const c = NA_CLICKS.find((c) => u >= c && u < c + .5);
+  show($("ripple"), !!c && !!p);
+  if (c && p) { const k = prog(u, c, c + .5); $("ripple").style.left = p[0] + "px"; $("ripple").style.top = p[1] + "px"; $("ripple").style.opacity = 1 - k; $("ripple").style.transform = `scale(${.4 + k * 1.2})`; }
+}
+function render(G) {
+  const t = G < T0 ? G : G < T0 + D ? T0 : G - D;
+  renderOriginal(t, G);
+  renderNext(G);
 }
 window.render = render;
 window.DURATION = DURATION;
