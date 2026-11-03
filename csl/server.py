@@ -1467,15 +1467,36 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(403, {"error": why})
             if sess["state"] == "ended":
                 return self._send(409, {"error": "이미 종료된 세션입니다"})
-            if sess.get("bg") and not focus.handle_of(sess):
-                # 터미널 없는 백그라운드 세션 — claude stop
-                x = next((a for a in agents_list(fresh=True) if a.get("sessionId") == sess["session_id"] and a.get("pid")), None)
-                if not x:
-                    return self._send(409, {"error": "그 백그라운드 세션의 프로세스를 찾지 못했습니다"})
-                r = subprocess.run([daily._claude_bin(), "stop", x["id"]], capture_output=True, text=True, timeout=20, env=daily._clean_env())
+            bg = conn.execute("SELECT bg FROM sessions WHERE session_id=?", (sess["session_id"],)).fetchone()["bg"]   # session_row 엔 없다
+            x = live_agent(sess["session_id"]) if bg else None
+            if x:
+                # 백그라운드 세션 — 탭에 `claude attach` 로 붙어 있어도 거기서 /exit 를 치면 보기만 떨어지고 세션은 계속 돈다
+                # (칸이 그대로 남았다). claude stop 으로 멈추고, 붙어 있던 탭이 있으면 그 탭도 닫는다
+                if (sess["state"] == "working" or x.get("state") == "working") and not body.get("force"):
+                    return self._send(409, {"error": "작업 중입니다", "need_force": True})
+                try:
+                    r = subprocess.run([daily._claude_bin(), "stop", x["id"]], capture_output=True, text=True, timeout=20,
+                                       env=daily._clean_env())
+                except (OSError, subprocess.SubprocessError) as e:
+                    return self._send(502, {"error": str(e)[:200]})
                 AGENTS["at"] = 0
-                return self._send(200 if r.returncode == 0 else 502, {"ok": r.returncode == 0, "message": "백그라운드 세션을 멈췄습니다"}
-                                  if r.returncode == 0 else {"error": (r.stderr or r.stdout or "멈추지 못했습니다").strip()[:300]})
+                if r.returncode != 0:
+                    return self._send(502, {"error": (r.stderr or r.stdout or "멈추지 못했습니다").strip()[:300]})
+                # 멈춘 백그라운드 세션은 SessionEnd 훅이 오지 않을 수 있다 — 여기서 종료로 둔다
+                t = store.now()
+                conn.execute("UPDATE sessions SET state='ended', state_detail='stopped', state_at=?, ended_at=? WHERE session_id=?",
+                             (t, t, sess["session_id"]))
+                store.add_event(conn, sess["session_id"], "end", "stopped")
+                conn.commit()
+                tg = focus.target_of(sess)
+                closed = False
+                if tg:
+                    REAPED.add(tg.handle)
+                    LAUNCHED.pop(tg.handle, None)
+                    closed = tg.terminal.close(tg.handle)
+                return self._send(200, {"ok": True, "message": "백그라운드 세션을 멈췄습니다" + (" · 터미널 탭도 닫았습니다" if closed else "")})
+            if bg and not focus.handle_of(sess):
+                return self._send(409, {"error": "그 백그라운드 세션의 프로세스를 찾지 못했습니다"})
             handle, err = terminal_target(conn, sess)
             if not handle:
                 return self._send(409, {"error": err})
