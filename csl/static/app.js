@@ -1321,6 +1321,14 @@ function openForkMenu(btn) {
       <div class="xm-row"><input name="v" placeholder="곁일" required><button class="btn" ${busy ? "disabled" : ""}>맡기기</button></div></form>`);
 }
 $("#xMenu").addEventListener("click", e => {
+  const so = e.target.closest("[data-sendopt]");
+  if (so) {
+    closeXMenu();
+    const el = visibleFirst(`.composer[data-sid="${CSS.escape(so.dataset.sid)}"]`);
+    if (!el) return;
+    if (!composerText(el).trim() && !(S.compose.get(so.dataset.sid) || []).length) { toast("입력창이 비어 있습니다"); return; }
+    return so.dataset.sendopt === "now" ? sendCompose(el) : queueCompose(el, so.dataset.sendopt === "queue");
+  }
   const rw = e.target.closest("[data-rw]");
   if (rw) return doRewind(rw);
   const pm = e.target.closest("[data-perm]");
@@ -3324,7 +3332,7 @@ function composerHtml(sid) {
       <textarea class="cmp-text" rows="1" placeholder="${CMP_PLACEHOLDER}"></textarea>
       <div class="cmp-rich md" contenteditable="true" hidden title="서식 모드 — 붙여넣은 서식이 보이는 그대로. 보낼 때 마크다운으로 바뀝니다 · Enter 전송 · Shift+Enter 줄바꿈(빈 목록 항목에선 목록 나가기, 코드·인용 끝에서 두 번이면 블록 밖으로) · 목록·인용·코드 맨 앞 Backspace 서식 풀기 · Tab/⇧Tab 목록 들여쓰기 · ⌘\\ 서식 끄기(마크다운 글로)"></div>
       <button type="button" class="cmp-stop" data-action="cmp-stop" data-sid="${esc(sid)}" title="Claude 작업 중단(터미널의 Esc)" hidden>■</button>
-      <button type="button" class="cmp-send" data-action="cmp-send" title="보내기">↑</button>
+      <span class="cmp-sendgrp"><button type="button" class="cmp-send" data-action="cmp-send" title="보내기 ( Enter )">↑</button><button type="button" class="cmp-more" data-action="cmp-more" title="보내기 방법 — 응답이 끝나면 보내기 · 넥스트 액션에만 넣기" aria-haspopup="true"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M3.5 6 8 10.5 12.5 6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button></span>
     </div>
     <div class="cmp-hint"></div>
     <input class="cmp-file" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
@@ -3653,6 +3661,51 @@ async function sendCompose(el) {
     if (!sent) (richOn(el) ? richOf(el) : ta).focus();
   }
 }
+// 보내기 ▾ (슬랙의 보내기 옆 메뉴처럼): 지금 보내기 · 응답이 끝나면 보내기 · 넥스트 액션에만 넣기
+function openSendMenu(btn) {
+  const el = btn.closest(".composer"), sid = el.dataset.sid;
+  const det = S.boardCache.get(sid);
+  const waiting = det && det.detail ? det.detail.notes.filter(n => n.queued_at && !n.done).length : 0;
+  const s = sessionById(sid), working = s && displayState(s) === "working";
+  const opt = (k, label, hint) => `<button class="cm-item xm-opt" data-sendopt="${k}" data-sid="${esc(sid)}"><span>${label}</span><span class="muted">${hint}</span></button>`;
+  openXMenu(btn, `<div class="xm-head">보내기</div>` +
+    opt("now", "↑ 지금 보내기 <kbd>Enter</kbd>", working ? "작업 중이면 지금 단계가 끝나는 대로 Claude 가 읽어 이번 작업에 반영합니다" : "바로 보냅니다") +
+    opt("queue", "⏭ 응답이 끝나면 보내기 <kbd>⌘Enter</kbd>", "넥스트 액션에 넣고 응답이 끝나면 보낼 대기열의 다음 순서로" + (waiting ? ` — 지금 ${waiting}개 대기` : "")) +
+    opt("note", "📝 넥스트 액션에만 넣기", "보내지 않고 이 세션의 할 일로 남깁니다"), "right");
+}
+// 응답이 끝나면 보내기(⌘Enter · ▾): 입력창 글·이미지를 그 세션의 넥스트 액션으로 만들고 바로 예약한다 — 보내기는 예약 보내기
+// (csl/sendqueue.py)가 그 세션의 응답이 끝났을 때 한다. 예약은 넥스트 액션 목록에 「⏭ 응답 끝나면 N번째로 보냄」으로 보여
+// 풀거나 고칠 수 있다. 보내지면 그 할 일은 완료로 바뀐다. queue=false 면 넥스트 액션에만 넣는다
+async function queueCompose(el, queue = true) {
+  const sid = el.dataset.sid;
+  const ta = el.querySelector(".cmp-text");
+  const text = composerText(el).trim();
+  const images = S.compose.get(sid) || [];
+  if ((!text && !images.length) || el.classList.contains("sending")) return;
+  if (queue && /^\/diff\s*$/.test(text)) return sendCompose(el);   // 보드 창 명령은 예약할 것이 없다
+  el.classList.add("sending");
+  try {
+    const r = await api("POST", "/api/notes", { text, images, session_id: sid });
+    if (queue) {
+      try { await api("PATCH", "/api/notes/" + r.id, { queued: true }); }
+      catch (err) { await api("DELETE", "/api/notes/" + r.id).catch(() => {}); throw err; }   // 예약이 거절되면(! 로 시작 등) 만든 할 일도 지운다
+    }
+    ta.value = "";
+    exitRich(el, false);
+    autoGrow(ta);
+    S.drafts.delete(sid);
+    S.compose.delete(sid);
+    renderComposerImages(sid);
+    const s = sessionById(sid);
+    toast(!queue ? "넥스트 액션에 넣었습니다" : s && ["done", "idle"].includes(s.state) ? "예약했습니다 — 지금 쉬고 있어 곧 보냅니다"
+      : "예약했습니다 — 응답이 끝나면 보냅니다(넥스트 액션에서 풀거나 고칠 수 있습니다)");
+    refresh(sid);
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    el.classList.remove("sending");
+  }
+}
 // 넥스트 액션을 그 세션 입력창에 넣는다(전송은 사용자가 직접)
 async function fillComposer(sid, text, imagePaths = []) {
   const col = await focusCol(sid);   // 보드에 그 칸이 없으면 꺼내 온다
@@ -3839,7 +3892,8 @@ document.addEventListener("keydown", e => {
   }
   if (e.key === "Enter" && !e.shiftKey && !imeBusy(e)) {
     e.preventDefault();
-    sendCompose(e.target.closest(".composer"));
+    if (e.metaKey || e.ctrlKey) queueCompose(e.target.closest(".composer"));   // ⌘Enter: 응답이 끝나면 보내기
+    else sendCompose(e.target.closest(".composer"));
   }
   // 첫 줄에서 ↑: 입력창을 빠져나와 칸 선택 상태로(쓰던 글은 그대로). 이어서 ← → 로 칸 이동
   if (e.key === "ArrowUp" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && !imeBusy(e) &&
@@ -4269,6 +4323,7 @@ document.addEventListener("click", async e => {
     return fillComposer(el.dataset.sid, li.querySelector(".note-text").textContent, noteImages(findNote(el.dataset.nid) || {}));
   }
   if (a === "cmp-send") return sendCompose(el.closest(".composer"));
+  if (a === "cmp-more") return openSendMenu(el);
   if (a === "cmp-attach") return el.closest(".composer").querySelector(".cmp-file").click();
   if (a === "cmp-remove") {
     const arr = S.compose.get(el.dataset.sid) || [];
@@ -5453,7 +5508,12 @@ document.addEventListener("keydown", e => {
   if (!e.target.classList || !e.target.classList.contains("cmp-rich")) return;
   if (imeBusy(e)) return;
   const rich = e.target;
-  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendCompose(rich.closest(".composer")); return; }
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    if (e.metaKey || e.ctrlKey) queueCompose(rich.closest(".composer"));
+    else sendCompose(rich.closest(".composer"));
+    return;
+  }
   if (e.key === "Escape") { e.preventDefault(); rich.blur(); return; }
   if (e.key === "\\" && (e.metaKey || e.ctrlKey) && !e.altKey) {
     // 서식 끄기: 마크다운 글로 바꿔 보통 입력창에(코드 블록은 ``` 로 둘러싼 글 — 마음대로 고치거나 지운다)

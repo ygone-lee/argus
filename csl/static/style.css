@@ -1040,9 +1040,12 @@ body.bp-resizing, body.bp-resizing * { cursor: col-resize !important; user-selec
 .code-copy {
   position: absolute; top: 6px; right: 6px; z-index: 1; height: 22px; padding: 0 8px; border: 1px solid var(--border-strong);
   border-radius: 6px; background: var(--surface); color: var(--text-2); font: inherit; font-size: 11px; font-weight: 600;
-  cursor: pointer; opacity: .75;
+  cursor: pointer; opacity: 0; transition: opacity .12s;
 }
-.code-wrap:hover .code-copy { opacity: 1; }
+.code-wrap:hover .code-copy, .code-copy:focus-visible { opacity: 1; }
+/* 코드를 끌어 선택하는 동안(코드 쪽을 누르고 있는 동안)은 버튼을 감추고 마우스가 통과하게 — 첫 줄 오른쪽 글자 위에 떠 있어
+   그쪽으로 끌면 선택이 버튼에 걸렸다. 버튼 자체를 누를 때(:active)는 그대로 */
+.code-wrap:active .code-copy:not(:active) { opacity: 0; pointer-events: none; }
 .code-copy:hover { border-color: var(--accent); color: var(--text); }
 .code-copy.done { color: var(--working); border-color: var(--working); opacity: 1; }
 /* 브레인 칸: 패널 머리에 「Argus Brain」이 있으니 세션 제목 줄은 숨긴다(상태·컨텍스트·모델 칩은 그대로) */
@@ -1210,6 +1213,14 @@ select {
   color: var(--error); font-size: 12px; line-height: 1; cursor: pointer; margin-right: 4px; }
 .cmp-stop:hover { background: var(--error-soft); border-color: var(--error); }
 .cmp-stop[hidden] { display: none; }
+/* 보내기 ↑ ▾ 한 덩어리(슬랙처럼) — ▾ 는 보내기 방법 메뉴. ↑ 가 막혀도(확인 대기 등) ▾ 의 예약·할 일 넣기는 쓸 수 있다 */
+.cmp-sendgrp { display: inline-flex; flex: none; }
+.cmp-sendgrp .cmp-send { border-radius: 8px 0 0 8px; }
+.cmp-more { flex: none; width: 21px; height: 30px; border: 0; border-left: 1px solid color-mix(in srgb, #fff 35%, transparent);
+  border-radius: 0 8px 8px 0; background: var(--accent); color: #fff; line-height: 0; cursor: pointer; padding: 0; display: inline-grid; place-items: center; }
+.cmp-more:hover { filter: brightness(1.08); }
+.cmp-send:disabled + .cmp-more { background: var(--surface-hover); color: var(--text-2); border-left-color: var(--border); }
+.xm-opt kbd { font-size: 10.5px; margin-left: 6px; padding: 0 4px; vertical-align: 1px; }
 .cmp-stop:disabled { opacity: .5; cursor: wait; }
 /* 브레인 답 속 세션 링크: 누르면 그 칸으로, 옆에 지금 단축키 */
 .sref { color: var(--accent); cursor: pointer; text-decoration: none; border-bottom: 1px dotted currentColor; font-weight: 600; }
