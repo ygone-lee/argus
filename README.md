@@ -1,8 +1,47 @@
 # Argus
 
-Argus watches every Claude Code session at once — named after the hundred-eyed giant who never closed all his eyes. A local web board for keeping track of many Claude Code sessions running across terminals, projects and git worktrees.
+**One browser tab for all of your Claude Code sessions.**
 
-Open http://127.0.0.1:7799 — each session is a column, the most recently active one on the far left.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey)
+![Python 3.9+ (standard library only)](https://img.shields.io/badge/python-3.9%2B%20stdlib-3776AB)
+![Runs locally](https://img.shields.io/badge/runs-100%25%20local-success)
+
+Argus is a local web board that watches every Claude Code session you have open — across terminals, projects and git worktrees — and lays them out side by side, one column per session. It is named after the hundred-eyed giant of Greek myth who never closed all his eyes.
+
+You keep using Claude Code exactly as before. Argus listens through Claude Code's own hooks, keeps a small SQLite database on your Mac, and serves a page at **http://127.0.0.1:7799** where you can see what every session is doing, which ones are waiting for you, and what they last said — and reply to them without hunting for the right terminal tab.
+
+- [What is Argus?](#what-is-argus)
+- [Why](#why)
+- [What you can do](#what-you-can-do)
+- [Quick start](#quick-start)
+- [A tour of the board](#a-tour-of-the-board)
+- [Privacy and safety](#privacy-and-safety)
+- [Limitations and FAQ](#limitations-and-faq)
+- [Feature reference](#feature-reference) · [How it works](#how-it-works) · [Install and uninstall](#install-and-uninstall) · [Files](#files)
+- [Contributing](#contributing) · [License](#license)
+
+## What is Argus?
+
+If you run more than two or three Claude Code sessions at the same time — one per repository, worktree or task — you have probably lost track of one: a session that finished ten minutes ago, one that has been sitting on a permission prompt, or one whose answer you never read.
+
+Argus solves that by giving every session a column on a single board:
+
+```
+ ┌──────────── Claude Code sessions (any terminal, any project) ────────────┐
+ │  api · main        web · feat/login       infra · worktree-3      …       │
+ └────────┬──────────────────┬───────────────────────┬────────────────────────┘
+          │  hooks: prompt sent, reply finished, needs permission, ended …
+          ▼
+   ~/.claude/session-log/board.db  (SQLite, on your Mac)
+          │
+          ▼
+   small Python server on 127.0.0.1:7799  ──▶  the board in your browser
+```
+
+- **It is passive by default.** Argus only records what Claude Code already reports through hooks and transcripts. It makes no LLM calls of its own to show the board.
+- **It can also drive sessions.** With the [Orca](#working-with-sessions-orca) terminal, the board can type into a session for you: send a message or image, answer a permission or question prompt, stop, rename, switch model, rewind, branch or end a session.
+- **It has an optional assistant, the Brain.** A Claude Code session that reads the board and can answer "what's going on?", sort your Slack and Gmail mentions into an inbox, and hand work to the right session — only when you ask it to.
 
 ## Why
 
@@ -17,14 +56,97 @@ Argus puts every session side by side in one browser tab, built from Claude Code
 
 Everything stays on your machine: a small Python server bound to 127.0.0.1 and a SQLite file. It makes no extra LLM calls.
 
-## Requirements
+## What you can do
+
+| | |
+|---|---|
+| 👀 **See everything at once** | One column per session, most recent first, with project, worktree, branch, model and context usage. Each one shows its state — *working*, *needs you*, *new reply*, *error*, *ended* — and the counters at the top tell you how many sessions are in each. Browser notifications and a sound when a session needs you. 5-hour and weekly usage bars with a recommended pace. |
+| 💬 **Act without finding the terminal** | Reply (with images or dropped file paths), answer permission and question prompts, stop a running turn, rename, change model and effort for one session, change permission mode, rewind, branch or fork, run slash commands, end a session. *Requires Orca.* |
+| 📝 **Keep track of what's next** | Personal *next actions* per session that are never sent to Claude — or queued to be sent automatically when the current reply finishes. A report of to-dos left in ended sessions, and of missed git work (uncommitted changes, unpushed commits, branches without a PR). |
+| 🔎 **Find anything you discussed** | Full-text search across every prompt and reply in every session (Korean and Japanese included). The `argus-recall` skill lets any Claude Code session search past conversations too ("how did we fix this last time?"). |
+| 🧾 **Review changes** | A diff viewer per session folder — uncommitted changes or the whole branch, unified or side by side. |
+| 📅 **Look back** | An activity feed of every session in time order, and an optional daily work log written each morning. |
+| 🧠 **Ask the Brain** *(optional)* | Chat with a Claude Code session that can read the board: "what's waiting for me?", "what did I do today?", "tell the api session to run the tests". It can collect Slack and Gmail mentions into an inbox kanban, suggest who should handle each one, and delegate cards to sessions. |
+
+The board UI is available in 한국어, 日本語 and English (⋮ → 🌐).
+
+## Quick start
+
+**You need:** macOS, [Claude Code](https://docs.anthropic.com/en/docs/claude-code), the system Python 3 (`/usr/bin/python3`, 3.9 or later — nothing to `pip install`) and a modern browser (tested in Chrome).
+
+```sh
+git clone https://github.com/ygone-lee/argus.git
+cd argus
+
+/usr/bin/python3 install.py                 # add Argus hooks to ~/.claude/settings.json (a backup is saved first)
+/usr/bin/python3 csl/backfill.py --days 7   # optional: import the last 7 days of conversations
+./ctl.sh open                               # start the board and open http://127.0.0.1:7799
+```
+
+That's it. Keep working in Claude Code as usual — every open session shows up on the board from its next prompt, and new sessions appear as soon as they start. The server starts itself from the hooks after a reboot, so you rarely need `ctl.sh` again.
+
+**Optional extras**
+
+- **[Orca](#working-with-sessions-orca) terminal** — run your Claude Code sessions in Orca to reply, answer prompts and control sessions from the board. Without it the board still records and shows everything, and iTerm2 / Terminal.app tabs can still be brought to the front.
+- **Argus Brain** — click the 브레인 (Brain) icon next to the Argus logo, or press `B`, and start it. See [Argus Brain](#feature-reference) in the feature reference.
+- **Connectors** — ⋮ → 🔌 커넥터 (Connectors) to collect Slack mentions/DMs and Gmail into the Brain's inbox. Secrets go into the macOS Keychain.
+
+**To remove Argus:** `/usr/bin/python3 install.py --uninstall` removes the hooks and restores your original status line. Your data stays in `~/.claude/session-log` until you delete that folder.
+
+## A tour of the board
+
+```
+┌ Argus  [Brain]   확인 필요 1 · 새 응답 2 · 작업 중 3 · 오류 0      5h ▓▓▓░░ 42%   🔍 search   ⋮ ┐
+├──────────────────────┬──────────────────────┬──────────────────────┬──────────────────────┤
+│ ● needs you          │ ● new reply          │ ● working · 2m 06s   │ ○ idle               │
+│ api · main           │ web · feat/login     │ infra · worktree-3   │ docs · main          │
+│ Opus · high   ◔ 34%  │ Sonnet · medium      │ Opus · xhigh  ◕ 71%  │ Haiku · low          │
+│ ☐ next actions …     │ ☐ check the e2e test │                      │                      │
+│ 🔐 Allow Bash: npm … │                      │ ▸ Read src/app.ts    │                      │
+│   [Yes] [No]         │ Claude: Login now …  │ ▸ Edit src/app.ts    │ Claude: Done. …      │
+│ ──────────────────── │ ──────────────────── │ ──────────────────── │ ──────────────────── │
+│ [ message box     ⏎ ]│ [ message box     ⏎ ]│ [ message box   ■  ]│ [ message box     ⏎ ]│
+└──────────────────────┴──────────────────────┴──────────────────────┴──────────────────────┘
+```
+
+- **Columns.** The most recently active session is on the left. Each column has a header (state, project, worktree, branch, model, effort, context usage), your next actions and Claude's recap, the conversation (newest at the bottom, live tool calls while working), and a message box.
+- **States.** *Working* (with elapsed time), *needs you* (a permission prompt or a question is open), *new reply* (red bell until you look at it), *error*, *ended*. The counters at the top count each state; click one to jump to that session.
+- **Views.** The top bar switches between **세션** (sessions — the columns, or a compact card grid), **인박스** (the Brain's inbox kanban) and **활동** (activity feed).
+- **Keyboard first.** `⌘1–9` jumps to a column, `← →` (or `H L`) moves between columns, `C` or `Enter` focuses the message box, `N` adds a next action, `T` jumps to the terminal, `P` pins, `/` searches every conversation, `G` opens a quick session switcher. Press `?` on the board for the full list.
+- **Everything else** — settings, languages, ended and archived sessions, the daily log, connectors — is in the ⋮ menu at the far right.
+
+## Privacy and safety
+
+Argus stores your Claude Code conversations, so it is built to keep them on your machine and to stay out of your way.
+
+- **Local only.** The server listens on `127.0.0.1` only, checks the `Host` header and accepts only JSON requests, so other web pages can't read or drive it. All data is in `~/.claude/session-log` (SQLite + uploaded images).
+- **Secrets are masked before they are stored.** Known token formats (GitHub, Slack, Google, JWTs), `Bearer …`, passwords in URLs and `password=…`-style values become `[MASKED]`. Wrap anything else in `<private>…</private>` in your prompt: Claude still sees it, Argus stores `[private]`.
+- **No hidden model calls.** Showing the board costs no tokens. Only features you turn on or ask for — the daily log, the Brain, card chat — run Claude, using your own Claude Code account.
+- **Claude Code itself is left alone.** Argus never edits Claude Code's transcripts. `install.py` keeps your other hooks, backs up `settings.json`, and `--uninstall` puts it back. Hooks never block Claude Code: if one fails it logs the error and exits normally.
+- **Typing into terminals is guarded.** The board refuses to type when a session is waiting on a prompt, has ended, when `claude` is no longer the foreground process of that terminal, or when the text starts with `!` (which would run a shell command). Every multi-step terminal action checks the screen at each step and backs out with Esc if anything doesn't match.
+- **Connectors are read-only.** Slack uses read scopes only, Gmail and Calendar read subjects, senders and times only (no mail bodies). Tokens go into the macOS Keychain, never into settings or logs. The Brain is not allowed to write to Slack or edit files, and it only messages other sessions when you ask it to.
+
+## Limitations and FAQ
+
+- **macOS only, for now.** Terminal control, the Keychain and Spotlight are macOS features.
+- **Driving sessions needs Orca.** Other terminals can be brought to the front but not typed into. Adding one is a single module — see [Adding a terminal](#adding-a-terminal).
+- **It follows Claude Code's internals.** Titles, recaps and live progress are read from Claude Code's transcript files, and terminal actions read Claude Code's screen. These are not public APIs and can change between versions; Argus is developed against Claude Code 2.1.x. If something breaks after an update, please [open an issue](CONTRIBUTING.md).
+- **The UI is written in Korean first.** Japanese and English are provided by a translation layer; some labels in this README are quoted in Korean because that is what the code uses. Code comments are in Korean.
+- **Does it use my Claude quota?** Not for the board. Only the optional daily log, the Brain and card chat run Claude.
+- **Does it work with sessions in VS Code or the Claude desktop app?** Sessions that run Claude Code hooks are recorded; the board can bring those apps to the front but can't type into them.
+- **Where is my data, and how long is it kept?** In `~/.claude/session-log`. Empty sessions are dropped after a day and inactive ones after 90 days (pinned sessions and sessions with open next actions are kept). See [Data retention](#data-retention).
+
+## Feature reference
+
+The rest of this README is a detailed reference. UI labels are given in Korean as they appear in the code, with their meaning.
+
+**Detailed requirements**
 
 - macOS, Claude Code (developed on 2.1.312), and the system Python 3 (`/usr/bin/python3`, 3.9+, standard library only)
 - A modern browser for the board (tested in Chrome)
 - Optional: [Orca](#working-with-sessions-orca) terminal for sending messages, renaming, model/effort changes and tab switching. Without it the board still records and shows every session.
 - Status line tap (set up by `install.py`): exact context % and usage limits come from Claude Code's status line input, saved by `csl/statusline_tap.py`. With no status line, the installer makes the tap the status line (it prints nothing). With an existing one, it wraps that command (`statusline_tap.py --wrap '<original>'` passes the same input through and returns its output). If your status line script already contains the tap line (e.g. `printf '%s' "$stdin_data" | /usr/bin/python3 <repo>/csl/statusline_tap.py >/dev/null 2>&1 &`), it is left alone. Errors never affect the status line; without the tap the window size is estimated and the usage bars are hidden. No status line plugin is needed.
 
-## Features
 
 ### Board
 
