@@ -8,9 +8,9 @@
 ![Runs locally](https://img.shields.io/badge/runs-100%25%20local-success)
 ![Works with your Claude subscription — no API key](https://img.shields.io/badge/Claude-subscription%20only%2C%20no%20API%20key-c96442)
 
-![Argus board: five Claude Code sessions side by side — live tool calls, a question waiting for an answer, new replies, and a message sent from the board](docs/demo.gif)
+![Argus in 40 seconds: sessions side by side, answering a permission prompt and replying from the board, searching past conversations, and the Brain sorting Slack and handing work to sessions](docs/promo.gif)
 
-<sub>Recorded with the built-in demo (`/usr/bin/python3 demo/run.py`) — every project, session and conversation in it is made up.</sub>
+<sub>Argus in 40 seconds · [watch in full quality (MP4)](docs/promo.mp4) · made with `demo/promo/` — all sessions in it are made up.</sub>
 
 Argus is a local web board that watches every Claude Code session you have open — across terminals, projects and git worktrees — and lays them out side by side, one column per session. It is named after the hundred-eyed giant of Greek myth who never closed all his eyes.
 
@@ -103,6 +103,10 @@ That's it. Keep working in Claude Code as usual — every open session shows up 
 **To remove Argus:** `/usr/bin/python3 install.py --uninstall` removes the hooks and restores your original status line. Your data stays in `~/.claude/session-log` until you delete that folder.
 
 ## A tour of the board
+
+![Argus board: five Claude Code sessions side by side — live tool calls, a question waiting for an answer, new replies, and a message sent from the board](docs/demo.gif)
+
+<sub>The real board, recorded with the built-in demo (`/usr/bin/python3 demo/run.py`) — every project, session and conversation in it is made up.</sub>
 
 ```
 ┌ Argus  [Brain]   확인 필요 1 · 새 응답 2 · 작업 중 3 · 오류 0      5h ▓▓▓░░ 42%   🔍 search   ⋮ ┐
@@ -376,6 +380,7 @@ Sessions in terminals with no implementation (iTerm2, Terminal.app, Claude deskt
 | `brain/` | The Brain's folder: `CLAUDE.md` (role and rules), `.claude/settings.json` (permissions), `channels.txt` |
 | `ctl.sh` | Server control |
 | `demo/run.py` | Demo: the real board with made-up sessions and a scripted timeline, on its own data folder and port |
+| `demo/promo/` | The intro video at the top of this README: `promo.html` (animation, open it to play) and `render.mjs` (renders it to MP4 with headless Chrome and ffmpeg) |
 
 ## Performance notes
 

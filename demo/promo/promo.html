@@ -1,0 +1,560 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Argus promo</title>
+<!--
+  A 41-second motion piece made of Argus-style UI components. Every frame is a pure function of time:
+  render(t) draws the moment t (seconds), so demo/promo/render.mjs can capture it frame by frame.
+  Open the file in a browser to watch it play in real time (?t=12 to freeze at 12 s).
+-->
+<style>
+  :root {
+    --bg: #f6f5f2; --surface: #fff; --surface-2: #faf9f7; --border: #e6e2da; --border-strong: #d6d0c4;
+    --text: #22201c; --text-2: #5e5a52; --text-3: #8d887d; --accent: #c96442; --accent-soft: #f7e7df;
+    --working: #2f9e66; --working-soft: #e2f4ea; --waiting: #d98a10; --waiting-soft: #fdf0d8;
+    --unread: #d0453a; --unread-soft: #fbe4e1; --idle: #a39e93; --code-bg: #f3f1ec;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    --mono: "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #ece9e3; overflow: hidden; }
+  #stage { position: relative; width: 1920px; height: 1080px; overflow: hidden; font-family: var(--font); color: var(--text);
+           background: radial-gradient(1200px 700px at 30% 20%, #faf8f4 0%, #efebe4 60%, #e7e2da 100%); }
+  .abs { position: absolute; }
+  .hide { display: none !important; }
+
+  /* ---------- intro / outro */
+  .logo { width: 84px; height: 84px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #e48a68, var(--accent) 60%, #a94f31);
+          box-shadow: 0 10px 30px rgba(201,100,66,.35); position: relative; }
+  .logo::after { content: ""; position: absolute; inset: 27px; border-radius: 50%; background: #fff; box-shadow: inset 0 0 0 9px #22201c; }
+  .hero { left: 0; right: 0; top: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px; }
+  .hero h1 { margin: 0; font-size: 112px; letter-spacing: -3px; font-weight: 750; }
+  .hero p { margin: 0; font-size: 40px; color: var(--text-2); letter-spacing: -.5px; }
+  .hero .row { display: flex; align-items: center; gap: 30px; }
+  .tags { display: flex; gap: 14px; margin-top: 10px; }
+  .tag { font-size: 24px; padding: 10px 20px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); color: var(--text-2); }
+  .url { font-family: var(--mono); font-size: 30px; color: var(--accent); background: var(--accent-soft); padding: 12px 26px; border-radius: 14px; }
+
+  /* ---------- terminals */
+  .term { width: 560px; height: 330px; border-radius: 14px; background: #1f1e1b; color: #d8d4cb; box-shadow: 0 24px 60px rgba(0,0,0,.28);
+          font-family: var(--mono); font-size: 17px; overflow: hidden; }
+  .term .bar { height: 38px; background: #2b2a26; display: flex; align-items: center; gap: 8px; padding: 0 14px; font-family: var(--font); font-size: 15px; color: #9d988e; }
+  .term .bar i { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+  .term .bar span { margin-left: 10px; }
+  .term pre { margin: 0; padding: 16px 18px; white-space: pre-wrap; line-height: 1.55; font-family: inherit; }
+  .term .g { color: #7fd1a3; } .term .y { color: #f0b54a; } .term .d { color: #807b71; } .term .o { color: #e8906d; }
+  .caption-top { left: 0; right: 0; top: 70px; text-align: center; font-size: 52px; font-weight: 700; letter-spacing: -1px; }
+  .caption-top small { display: block; font-size: 30px; font-weight: 450; color: var(--text-2); margin-top: 12px; letter-spacing: 0; }
+
+  /* ---------- browser window + board */
+  .win { left: 100px; top: 70px; width: 1720px; height: 880px; border-radius: 16px; background: var(--bg); border: 1px solid var(--border-strong);
+         box-shadow: 0 30px 80px rgba(34,32,28,.18); overflow: hidden; }
+  .chrome { height: 46px; background: #ebe7e0; display: flex; align-items: center; gap: 9px; padding: 0 18px; border-bottom: 1px solid var(--border); }
+  .chrome i { width: 13px; height: 13px; border-radius: 50%; display: inline-block; }
+  .addr { margin-left: 22px; width: 520px; height: 28px; border-radius: 8px; background: #fff; font-size: 15px; color: var(--text-3);
+          display: flex; align-items: center; padding: 0 12px; }
+  .topbar { height: 62px; display: flex; align-items: center; gap: 14px; padding: 0 22px; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 750; font-size: 21px; margin-right: 10px; }
+  .brand b { width: 18px; height: 18px; border-radius: 50%; background: var(--accent); display: inline-block; }
+  .seg { display: flex; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; font-size: 15px; }
+  .seg span { padding: 7px 14px; color: var(--text-2); } .seg span.on { background: var(--surface-2); color: var(--text); font-weight: 600; }
+  .counter { display: inline-flex; align-items: center; gap: 7px; padding: 6px 13px; border-radius: 999px; font-size: 15px; font-weight: 600; }
+  .counter .n { min-width: 12px; display: inline-block; text-align: center; }
+  .c-wait { background: var(--waiting-soft); color: #9a5f05; } .c-new { background: var(--unread-soft); color: #a8322a; } .c-work { background: var(--working-soft); color: #1f7a4c; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: currentColor; }
+  .usage { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-3); margin-left: 8px; }
+  .ubar { width: 120px; height: 7px; border-radius: 9px; background: #ece8e1; position: relative; overflow: hidden; }
+  .ubar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--working); border-radius: 9px; }
+  .ubar u { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--text-3); }
+  .search { margin-left: auto; width: 330px; height: 36px; border: 1px solid var(--border); border-radius: 9px; color: var(--text-3);
+            font-size: 15px; display: flex; align-items: center; padding: 0 12px; background: var(--surface-2); }
+  .cols { position: absolute; left: 22px; top: 130px; display: flex; gap: 18px; }
+  .col { width: 400px; height: 728px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+         box-shadow: 0 1px 2px rgba(34,32,28,.05), 0 2px 8px rgba(34,32,28,.04); display: flex; flex-direction: column; position: relative; }
+  .col.sel { outline: 2px solid #bdb6a9; outline-offset: -1px; }
+  .chead { padding: 14px 16px 12px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+  .chead .r1 { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--text-3); }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 650; }
+  .p-working { background: var(--working-soft); color: #1f7a4c; } .p-waiting { background: var(--waiting-soft); color: #9a5f05; }
+  .p-new { background: var(--unread-soft); color: #a8322a; } .p-done { background: #efece6; color: var(--text-2); }
+  .ring { width: 15px; height: 15px; border-radius: 50%; border: 2.5px solid #d9d4ca; border-top-color: var(--working); display: inline-block; }
+  .bell { width: 22px; height: 22px; border-radius: 50%; background: var(--unread); color: #fff; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; }
+  .ctitle { font-size: 19px; font-weight: 700; margin: 9px 0 9px; letter-spacing: -.2px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { font-size: 12.5px; padding: 3px 8px; border-radius: 6px; background: #f0ede7; color: var(--text-2); font-family: var(--mono); }
+  .chip.proj { font-family: var(--font); font-weight: 650; }
+  .cbody { flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden; font-size: 15px; line-height: 1.5; }
+  .bubble { align-self: flex-end; max-width: 88%; background: var(--accent-soft); padding: 10px 14px; border-radius: 14px 14px 4px 14px; }
+  .who { font-size: 13px; font-weight: 700; color: var(--accent); }
+  .reply { color: var(--text); }
+  .reply b { font-weight: 700; }
+  code { font-family: var(--mono); font-size: 13px; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  .tool { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-2); }
+  .tool span { font-family: var(--mono); font-size: 12px; background: #efece6; padding: 2px 7px; border-radius: 5px; color: var(--text); }
+  .working-line { font-size: 13.5px; color: #1f7a4c; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .perm { border: 1.5px solid #efc47a; background: #fffaf0; border-radius: 12px; padding: 12px 14px; }
+  .perm h4 { margin: 0 0 6px; font-size: 14px; color: #9a5f05; }
+  .perm .cmd { font-family: var(--mono); font-size: 13px; background: #fff; border: 1px solid var(--border); padding: 6px 9px; border-radius: 7px; }
+  .perm .btns { display: flex; gap: 8px; margin-top: 10px; }
+  .btn { padding: 7px 16px; border-radius: 8px; font-size: 14px; font-weight: 650; border: 1px solid var(--border-strong); background: #fff; }
+  .btn.pri { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .ask { border: 1.5px solid #efc47a; background: #fffaf0; border-radius: 12px; padding: 12px 14px; font-size: 14px; }
+  .ask h4 { margin: 0 0 8px; font-size: 14px; }
+  .opt { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; color: var(--text-2); font-size: 13.5px; }
+  .opt i { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--border-strong); margin-top: 3px; flex: none; }
+  .opt b { color: var(--text); font-weight: 650; }
+  .composer { margin: 0 12px 12px; height: 50px; border: 1px solid var(--border); border-radius: 11px; display: flex; align-items: center; padding: 0 8px 0 14px;
+              font-size: 14.5px; color: var(--text-3); gap: 8px; background: #fff; }
+  .composer .txt { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: clip; }
+  .composer .txt.typed { color: var(--text); }
+  .composer .send { width: 32px; height: 32px; border-radius: 8px; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 700; }
+  .composer.focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(201,100,66,.15); }
+  .caret { display: inline-block; width: 2px; height: 18px; background: var(--accent); vertical-align: -3px; margin-left: 1px; }
+  .notes { padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 13.5px; color: var(--text-2); display: flex; align-items: center; gap: 8px; }
+  .notes i { width: 15px; height: 15px; border: 1.5px solid var(--border-strong); border-radius: 4px; flex: none; }
+
+  /* ---------- Brain drawer */
+  .brainbtn { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; color: var(--text-2); padding: 6px 12px; border-radius: 9px; border: 1px solid var(--border); }
+  .brainbtn.on { background: var(--accent-soft); color: var(--accent); border-color: #efc9b9; font-weight: 650; }
+  .brainbtn i { font-style: normal; background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; border-radius: 999px; padding: 1px 7px; }
+  .brain { position: absolute; left: 0; top: 108px; width: 640px; height: 772px; background: #fff; border-right: 1px solid var(--border);
+           box-shadow: 18px 0 50px rgba(34,32,28,.16); display: flex; flex-direction: column; z-index: 5; }
+  .bh { display: flex; align-items: center; gap: 10px; padding: 16px 20px 10px; font-size: 19px; }
+  .bh .muted { font-size: 13.5px; color: var(--text-3); margin-left: 4px; }
+  .quick { display: flex; gap: 8px; padding: 0 20px 12px; border-bottom: 1px solid var(--border); }
+  .quick span { font-size: 13.5px; padding: 6px 12px; border-radius: 999px; background: #f3f0ea; color: var(--text-2); }
+  .quick span.hot { background: var(--accent); color: #fff; }
+  .bbody { flex: 1; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; overflow: hidden; font-size: 15px; line-height: 1.5; }
+  .icard { border: 1px solid var(--border); border-radius: 12px; padding: 10px 13px; background: var(--surface-2); }
+  .icard .ih { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--text-3); }
+  .icard .kind { font-weight: 700; font-size: 12.5px; padding: 2px 8px; border-radius: 999px; }
+  .icard.me .kind { background: var(--waiting-soft); color: #9a5f05; } .icard.ses .kind { background: var(--working-soft); color: #1f7a4c; }
+  .icard.fyi .kind { background: #efece6; color: var(--text-2); }
+  .icard .urg { margin-left: auto; color: var(--unread); font-weight: 700; }
+  .icard .is { font-size: 14.5px; margin-top: 5px; color: var(--text); }
+  .icard .ix { font-size: 13px; color: var(--text-2); margin-top: 4px; }
+  .via { display: block; font-size: 12px; font-weight: 700; color: var(--accent); margin-bottom: 2px; }
+  .bcomp { margin: 0 16px 16px; }
+
+  /* ---------- caption pill */
+  .cap { left: 50%; bottom: 38px; transform: translateX(-50%); background: #22201c; color: #fff; font-size: 30px; font-weight: 600; letter-spacing: -.3px;
+         padding: 16px 34px; border-radius: 999px; white-space: nowrap; box-shadow: 0 14px 40px rgba(0,0,0,.22); }
+
+  /* ---------- search palette */
+  .shade { left: 0; top: 0; right: 0; bottom: 0; background: rgba(34,32,28,.28); }
+  .palette { left: 50%; top: 190px; width: 900px; margin-left: -450px; background: #fff; border-radius: 16px; box-shadow: 0 30px 80px rgba(0,0,0,.25); overflow: hidden; }
+  .palette .in { height: 70px; display: flex; align-items: center; padding: 0 26px; font-size: 26px; border-bottom: 1px solid var(--border); gap: 14px; }
+  .palette .in .q { color: var(--text); } .palette .in .ph { color: var(--text-3); }
+  .palette .tabs { display: flex; gap: 8px; padding: 12px 22px 4px; font-size: 14px; }
+  .palette .tabs span { padding: 5px 12px; border-radius: 999px; background: #f0ede7; color: var(--text-2); }
+  .palette .tabs span.on { background: var(--accent); color: #fff; }
+  .res { padding: 14px 26px; border-bottom: 1px solid #f0ede7; }
+  .res.sel { background: var(--accent-soft); }
+  .res .meta { font-size: 13px; color: var(--text-3); display: flex; gap: 8px; align-items: center; }
+  .res .t { font-size: 18px; margin-top: 4px; }
+  mark { background: #ffe08a; padding: 0 2px; border-radius: 3px; }
+
+  /* ---------- feature tiles */
+  .grid { left: 160px; top: 250px; width: 1600px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px; }
+  .tile { background: #fff; border: 1px solid var(--border); border-radius: 18px; padding: 30px 32px; box-shadow: 0 10px 30px rgba(34,32,28,.08); min-height: 196px; }
+  .tile .ic { font-size: 40px; }
+  .tile h3 { margin: 14px 0 8px; font-size: 30px; letter-spacing: -.5px; }
+  .tile p { margin: 0; font-size: 21px; color: var(--text-2); line-height: 1.4; }
+
+  /* ---------- pointer */
+  #cursor { width: 34px; height: 34px; left: 0; top: 0; z-index: 50; filter: drop-shadow(0 3px 5px rgba(0,0,0,.3)); }
+  #ripple { width: 60px; height: 60px; margin: -30px 0 0 -30px; border-radius: 50%; border: 3px solid var(--accent); z-index: 49; }
+</style>
+</head>
+<body>
+<div id="stage">
+
+  <!-- scene 1: intro -->
+  <div id="intro" class="abs hero">
+    <div class="row"><div class="logo"></div><h1>Argus</h1></div>
+    <p>One browser tab for all of your Claude Code sessions.</p>
+  </div>
+
+  <!-- scene 2: terminals -->
+  <div id="termCap" class="abs caption-top">Five sessions. Five terminals.<small>Which one finished? Which one is waiting for you?</small></div>
+  <div id="terms"></div>
+
+  <!-- scene 3–5: the board -->
+  <div id="win" class="abs win">
+    <div class="chrome"><i style="background:#ee6a5f"></i><i style="background:#f5be4f"></i><i style="background:#62c554"></i>
+      <div class="addr">127.0.0.1:7799</div></div>
+    <div class="topbar">
+      <div class="brand"><b></b>Argus</div>
+      <span class="brainbtn" id="brainBtn">🧠 Brain <i>3</i></span>
+      <div class="seg"><span class="on">Sessions</span><span>Inbox</span><span>Activity</span></div>
+      <span class="counter c-wait"><span class="dot"></span>Needs you <span class="n" id="nWait">1</span></span>
+      <span class="counter c-new"><span class="dot"></span>New reply <span class="n" id="nNew">0</span></span>
+      <span class="counter c-work"><span class="dot"></span>Working <span class="n" id="nWork">2</span></span>
+      <div class="usage">5h <div class="ubar"><i id="u5" style="width:38%"></i><u style="left:46%"></u></div><span id="u5t">38%</span>
+        &nbsp;Week <div class="ubar" style="width:70px"><i style="width:21%"></i></div></div>
+      <div class="search" id="searchBox">🔎&nbsp; Search conversations</div>
+    </div>
+    <div class="cols" id="cols"></div>
+    <div class="brain" id="brain">
+      <div class="bh">🧠 <b>Argus Brain</b><span class="muted">a Claude Code session that can see — and drive — the board</span></div>
+      <div class="quick"><span>Overview</span><span>Needs me</span><span id="qSlack">Check Slack</span><span>What I did today</span></div>
+      <div class="bbody" id="bbody"></div>
+      <div class="composer bcomp" id="bcomp"><span class="txt">Ask the Brain…</span><span class="send">↑</span></div>
+    </div>
+  </div>
+
+  <div id="shade" class="abs shade"></div>
+  <div id="palette" class="abs palette">
+    <div class="in">🔎 <span class="q" id="q"></span><span class="caret" id="qcaret"></span></div>
+    <div class="tabs"><span class="on">All</span><span>My prompts</span><span>Claude replies</span></div>
+    <div id="results"></div>
+  </div>
+
+  <!-- scene 6: features -->
+  <div id="featCap" class="abs caption-top">And everything around it</div>
+  <div id="grid" class="abs grid"></div>
+
+  <!-- scene 7: end card -->
+  <div id="outro" class="abs hero">
+    <div class="row"><div class="logo"></div><h1>Argus</h1></div>
+    <p>Watch every Claude Code session at once.</p>
+    <div class="tags"><span class="tag">macOS</span><span class="tag">100% local</span><span class="tag">No extra LLM calls</span><span class="tag">MIT</span></div>
+    <div class="url">github.com/ygone-lee/argus</div>
+  </div>
+
+  <div id="cap" class="abs cap"></div>
+  <div id="ripple" class="abs"></div>
+  <svg id="cursor" class="abs" viewBox="0 0 24 24"><path d="M4 2.5 L4 19.5 L8.6 15.4 L11.6 22 L14.6 20.6 L11.7 14.2 L18 14.2 Z" fill="#fff" stroke="#22201c" stroke-width="1.6" stroke-linejoin="round"/></svg>
+</div>
+
+<script>
+// ------------------------------------------------------------------ helpers
+const DURATION = 41;
+const $ = (id) => document.getElementById(id);
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+const ease = (x) => 1 - Math.pow(1 - x, 3);
+const inOut = (x) => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const back = (x) => { const c = 1.6; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+const lerp = (a, b, k) => a + (b - a) * k;
+function el(html) { const d = document.createElement("div"); d.innerHTML = html.trim(); return d.firstChild; }
+function show(node, on) { node.classList.toggle("hide", !on); }
+function place(node, { o = 1, x = 0, y = 0, s = 1, r = 0, blur = 0 } = {}) {
+  node.style.opacity = o;
+  node.style.transform = `translate(${x}px, ${y}px) scale(${s}) rotate(${r}deg)`;
+  node.style.filter = blur ? `blur(${blur}px)` : "";
+}
+// fade in over [a, a+d], out over [b, b+d]
+const window_ = (t, a, b, d = .45) => Math.min(ease(prog(t, a, a + d)), 1 - ease(prog(t, b, b + d)));
+const typed = (text, t, a, cps = 30) => text.slice(0, Math.max(0, Math.floor((t - a) * cps)));
+
+// ------------------------------------------------------------------ scene 2: terminals
+const TERMS = [
+  { x: 150, y: 250, r: -3, title: "~/web — claude", body: `<span class="d">⏺ Bash(npm test -- LoginForm)</span>\n<span class="y">Do you want to proceed?\n❯ 1. Yes\n  2. No</span>` },
+  { x: 760, y: 220, r: 2, title: "~/shop-api — claude", body: `<span class="d">⏺ Edit(src/webhooks/retry.py)</span>\n<span class="d">⏺ Bash(pytest -q)</span>\n<span class="g">  12 passed in 0.41s</span>\n\n<span class="o">⏺</span> Done. deliver() now uses backoff…` },
+  { x: 1300, y: 300, r: -1.5, title: "~/mobile — claude", body: `<span class="y">☐ Migration</span>\nv5 removes the legacy token API.\nHow should existing installs migrate?\n❯ 1. Re-register on next launch\n  2. Keep a v4 fallback` },
+  { x: 420, y: 560, r: 1.5, title: "~/infra — claude", body: `<span class="o">⏺</span> The NAT gateway is replaced because\n  count re-indexes when the AZ list\n  changes order. Want me to fix it?\n\n<span class="d">></span> ` },
+  { x: 1030, y: 600, r: -2, title: "~/docs — claude", body: `<span class="d">✻ Thinking…</span>\n<span class="d">⏺ Read(CHANGELOG.md)</span>` },
+];
+const termNodes = TERMS.map((d) => {
+  const n = el(`<div class="abs term"><div class="bar"><i style="background:#ee6a5f"></i><i style="background:#f5be4f"></i><i style="background:#62c554"></i><span>${d.title}</span></div><pre>${d.body}</pre></div>`);
+  $("terms").appendChild(n); return n;
+});
+
+// ------------------------------------------------------------------ scene 3: columns
+// each column: header data, state timeline [[t, state]], body items [{at, until?, html}]
+const COLS = [
+  { proj: "web", pc: "#e3ecfc", pt: "#2f5fb8", branch: "feat/login-validation", model: "Opus 5.5 · high", title: "Login form validation",
+    states: [[0, "working"], [10.8, "waiting"], [12.6, "working"], [14.0, "new"], [31.0, "working"]],
+    since: -128,
+    items: [
+      { at: 0, html: `<div class="bubble">Add client-side validation to the login form — valid email, 8+ char password, accessible errors.</div>` },
+      { at: 0, html: `<div class="who">Claude</div>` },
+      { at: 8.6, html: `<div class="tool"><span>Read</span>src/LoginForm.tsx</div>` },
+      { at: 9.3, html: `<div class="tool"><span>Edit</span>src/LoginForm.tsx</div>` },
+      { at: 10.0, html: `<div class="tool"><span>Bash</span>npm test -- LoginForm</div>` },
+      { at: 10.8, until: 12.6, html: `<div class="perm"><h4>🔐 Allow this command?</h4><div class="cmd">npm test -- LoginForm</div><div class="btns"><span class="btn pri" id="yesBtn">Yes</span><span class="btn">No</span><span class="btn">Always</span></div></div>` },
+      { at: 14.0, html: `<div class="reply">Validation added — email format, 8+ characters, errors announced with <code>role="alert"</code>.<br><b>6 tests pass</b> (3 new).</div>` },
+      { at: 31.0, html: `<div class="bubble"><span class="via">🧠 via Brain</span>Login fails on Safari 17 after the validation change (#web-team, sam). Find the cause and fix it.</div>` },
+      { at: 31.6, html: `<div class="tool"><span>Grep</span>Safari · LoginForm</div>` },
+    ] },
+  { proj: "shop-api", pc: "#fbe8de", pt: "#a5492a", branch: "main", model: "Opus 5.5 · high", title: "Webhook retries with backoff",
+    states: [[0, "working"], [13.2, "new"]],
+    since: -41,
+    notes: "Mention the retry change in the release notes",
+    items: [
+      { at: 0, html: `<div class="bubble">Add exponential backoff with jitter to webhook retries, and cover it with tests.</div>` },
+      { at: 0, html: `<div class="who">Claude</div>` },
+      { at: 0, html: `<div class="tool"><span>Edit</span>src/webhooks/retry.py</div>` },
+      { at: 9.0, html: `<div class="tool"><span>Bash</span>pytest -q</div>` },
+      { at: 13.2, html: `<div class="reply">Done. <code>deliver()</code> waits <code>backoff(attempt)</code> — exponential, full jitter, capped at 30 s.<br><b>12 passed.</b> Not committed yet.</div>` },
+    ] },
+  { proj: "mobile", pc: "#ece5f8", pt: "#6a48a8", branch: "main", model: "Sonnet 5.5 · medium", title: "Upgrade push SDK to v5",
+    states: [[0, "waiting"]],
+    items: [
+      { at: 0, html: `<div class="bubble">Upgrade the push notification SDK to v5.</div>` },
+      { at: 0, html: `<div class="who">Claude</div>` },
+      { at: 0, html: `<div class="tool"><span>WebSearch</span>push-sdk v5 migration guide</div>` },
+      { at: 0, html: `<div class="ask"><h4>❓ v5 removes the legacy token API. How should existing installs migrate?</h4>
+        <div class="opt"><i></i><div><b>Re-register on next launch</b> — tokens refresh silently</div></div>
+        <div class="opt"><i></i><div><b>Keep a v4 fallback</b> — safer, more code</div></div>
+        <div class="opt"><i></i><div><b>Force re-login</b> — clean, but users notice</div></div></div>` },
+    ] },
+  { proj: "infra", pc: "#e2f4ea", pt: "#1f7a4c", branch: "main", model: "Opus 5.5 · xhigh", title: "NAT gateway replaced on every plan",
+    states: [[0, "done"], [17.4, "working"], [19.0, "new"], [31.0, "working"]],
+    since: 17.4,
+    items: [
+      { at: 0, html: `<div class="bubble">Why does <code>terraform plan</code> want to replace the NAT gateway every time?</div>` },
+      { at: 0, html: `<div class="who">Claude</div>` },
+      { at: 0, html: `<div class="reply"><code>count = var.az_count</code> re-indexes the gateways when the AZ list changes order. Switch to <code>for_each</code> and move the state?</div>` },
+      { at: 17.4, html: `<div class="bubble">Yes — switch to for_each and write the state mv commands.</div>` },
+      { at: 17.9, html: `<div class="tool"><span>Edit</span>modules/network/nat.tf</div>` },
+      { at: 18.4, html: `<div class="tool"><span>Bash</span>terraform plan -no-color</div>` },
+      { at: 19.0, html: `<div class="reply">Done — <code>for_each</code> by AZ name, plus 3 <code>terraform state mv</code> commands. <b>Plan: 0 to add, 0 to destroy.</b></div>` },
+      { at: 31.0, html: `<div class="bubble"><span class="via">🧠 via Brain</span>Open a PR for the for_each change.</div>` },
+      { at: 31.7, html: `<div class="tool"><span>Bash</span>gh pr create --fill</div>` },
+    ] },
+];
+const PILL = { working: ["p-working", "Working"], waiting: ["p-waiting", "Needs you"], new: ["p-new", "New reply"], done: ["p-done", "Done"] };
+const colNodes = COLS.map((c, i) => {
+  const n = el(`<div class="col">
+    <div class="chead">
+      <div class="r1"><span class="slot"></span><span>${i + 1}</span><span class="pill"></span><span class="ago">just now</span></div>
+      <div class="ctitle">${c.title}</div>
+      <div class="chips"><span class="chip proj" style="background:${c.pc};color:${c.pt}">${c.proj}</span><span class="chip">${c.branch}</span><span class="chip">${c.model} ▾</span></div>
+    </div>
+    ${c.notes ? `<div class="notes"><i></i>${c.notes}</div>` : ""}
+    <div class="cbody"></div>
+    <div class="composer"><span class="txt">Message Claude · Enter to send</span><span class="send">↑</span></div>
+  </div>`);
+  const body = n.querySelector(".cbody");
+  c.itemNodes = c.items.map((it) => { const x = el(it.html); body.appendChild(x); return x; });
+  c.working = el(`<div class="working-line"><span class="ring"></span><span class="wt"></span></div>`);
+  body.appendChild(c.working);
+  $("cols").appendChild(n);
+  return n;
+});
+const stateAt = (c, t) => { let s = c.states[0][1], at = 0; for (const [k, v] of c.states) if (t >= k) { s = v; at = k; } return [s, at]; };
+
+// ------------------------------------------------------------------ scene 5: search results
+const RESULTS = [
+  ["shop-api", "Webhook retries with backoff", "Add exponential <mark>backoff</mark> with jitter to webhook retries, and cover it with tests.", "today 16:07"],
+  ["shop-api", "Webhook retries with backoff", "Done. deliver() waits <mark>backoff</mark>(attempt) — exponential, full jitter, capped at 30 s.", "today 16:12"],
+  ["payments", "Retry storm after outage", "Add a circuit breaker in front of the <mark>backoff</mark> so retries stop when the provider is down.", "Oct 28"],
+  ["web", "Polling the job status", "Use <mark>backoff</mark> between status polls instead of a fixed 1 s interval.", "Oct 21"],
+];
+const resNodes = RESULTS.map(([p, title, text, when]) => {
+  const n = el(`<div class="res"><div class="meta"><span class="chip proj">${p}</span>${title}<span style="margin-left:auto">${when}</span></div><div class="t">${text}</div></div>`);
+  $("results").appendChild(n); return n;
+});
+
+// ------------------------------------------------------------------ scene 6: the Brain
+const BRAIN = [
+  { at: 23.9, html: `<div class="bubble">Check Slack</div>` },
+  { at: 24.3, html: `<div class="who">Claude</div>` },
+  { at: 24.3, html: `<div class="tool"><span>Slack</span>mentions · DMs · @here since 09:12</div>` },
+  { at: 24.7, html: `<div class="tool"><span>./argus</span>sessions</div>` },
+  { at: 25.1, html: `<div class="reply">3 new since this morning:</div>` },
+  { at: 25.3, html: `<div class="icard me"><div class="ih"><span class="kind">🧑 For you</span>#payments · alex<span class="urg">by 3 pm</span></div><div class="is">Approve the refund-limit change.</div><div class="ix">Reply drafted: “Approved — go ahead with 500.”</div></div>` },
+  { at: 25.6, html: `<div class="icard ses"><div class="ih"><span class="kind">🤖 For a session</span>#web-team · sam</div><div class="is">Login fails on Safari 17 after the validation change.</div><div class="ix">Best fit: 「Login form validation」</div></div>` },
+  { at: 25.9, html: `<div class="icard fyi"><div class="ih"><span class="kind">📎 FYI</span>2 messages</div><div class="is">Release notes shared · design review moved to Thursday.</div></div>` },
+  { at: 29.4, html: `<div class="bubble">Give the Safari bug to the login session, and ask infra to open a PR.</div>` },
+  { at: 29.8, html: `<div class="who">Claude</div>` },
+  { at: 29.8, html: `<div class="tool"><span>./argus</span>send 1f3a 'Login fails on Safari 17 …'</div>` },
+  { at: 30.1, html: `<div class="tool"><span>./argus</span>send 9c2e 'Open a PR for the for_each change.'</div>` },
+  { at: 30.4, html: `<div class="reply">Sent to both — I'll tell you when they answer.</div>` },
+];
+const brainNodes = BRAIN.map((it) => { const x = el(it.html); $("bbody").appendChild(x); return x; });
+const BTYPED = "Give the Safari bug to the login session, and ask infra to open a PR.";
+
+// ------------------------------------------------------------------ scene 7: tiles
+const TILES = [
+  ["📝", "Next actions", "Your own to-dos per session — or queue one to send when the reply ends."],
+  ["🧾", "Changes", "Uncommitted work per session, unified or side by side."],
+  ["📊", "Usage pace", "5-hour and weekly limits, with how fast you're burning them."],
+  ["📅", "Daily log", "What you did yesterday, across every session — written each morning."],
+  ["⏪", "Rewind, branch, model", "Run Claude Code commands from the board, checked step by step."],
+  ["🔒", "Stays on your Mac", "127.0.0.1 only, secrets masked before they're stored."],
+];
+const tileNodes = TILES.map(([ic, h, p]) => { const n = el(`<div class="tile"><div class="ic">${ic}</div><h3>${h}</h3><p>${p}</p></div>`); $("grid").appendChild(n); return n; });
+
+// ------------------------------------------------------------------ captions & pointer
+const CAPS = [
+  [7.9, 10.5, "Every session, side by side — live."],
+  [10.9, 13.0, "See who needs you. Answer right from the board."],
+  [13.2, 15.0, "Never miss a reply."],
+  [15.2, 19.6, "Reply without hunting for the right terminal."],
+  [19.9, 22.6, "Search every prompt and every reply."],
+  [23.7, 27.4, "The Brain reads your Slack and sorts what needs you."],
+  [29.3, 32.8, "…and hops between sessions to get them working."],
+];
+const winX = 100, winY = 70, colX = (i) => winX + 22 + i * 418, colTop = winY + 130;
+// measured on the rendered 1920×1080 frame: Yes button, column 4 composer and send button, search box
+const PTR = [   // [t, x, y]
+  [10.6, 1500, 980], [11.9, 184, 692], [12.6, 184, 692],
+  [14.6, 1470, 870], [15.1, 1470, 891], [17.0, 1470, 891], [17.3, 1738, 891],
+  [18.2, 1630, 320], [19.5, 1630, 148], [22.7, 1630, 148],
+  [23.4, 357, 249], [23.7, 357, 249], [27.0, 300, 910], [27.3, 300, 910], [28.95, 300, 910], [29.2, 699, 910], [29.6, 699, 910],
+];
+const CLICKS = [12.2, 15.1, 17.3, 19.6, 23.7, 27.3, 29.2];
+function pointer(t) {
+  if (t < PTR[0][0] - .4 || t > PTR[PTR.length - 1][0] + .3) return null;
+  let p = PTR[0];
+  for (let i = 0; i < PTR.length - 1; i++) {
+    const [a, ax, ay] = PTR[i], [b, bx, by] = PTR[i + 1];
+    if (t >= a && t <= b) { const k = inOut(prog(t, a, b)); return [lerp(ax, bx, k), lerp(ay, by, k)]; }
+    if (t > b) p = PTR[i + 1];
+  }
+  return [p[1], p[2]];
+}
+
+// ------------------------------------------------------------------ render(t)
+const TYPED = "Yes — switch to for_each and write the state mv commands.";
+function fmt(sec) { sec = Math.max(0, Math.floor(sec)); return `${Math.floor(sec / 60)}m ${String(sec % 60).padStart(2, "0")}s`; }
+
+function render(t) {
+  // scene 1 — intro
+  const ki = window_(t, 0.1, 2.7, .6);
+  show($("intro"), ki > 0); place($("intro"), { o: ki, y: (1 - ease(prog(t, .1, .9))) * 30 - ease(prog(t, 2.7, 3.3)) * 40 });
+
+  // scene 2 — terminals (and their flight into the columns)
+  const kc = window_(t, 3.0, 6.9, .5);
+  show($("termCap"), kc > 0); place($("termCap"), { o: kc, y: (1 - ease(prog(t, 3, 3.5))) * -20 });
+  const fly = inOut(prog(t, 6.9, 7.8));
+  termNodes.forEach((n, i) => {
+    const d = TERMS[i], kin = back(prog(t, 3.2 + i * .22, 3.75 + i * .22));
+    const on = t > 3.2 + i * .22 && fly < 1;
+    show(n, on);
+    if (!on) return;
+    const tx = i < 4 ? colX(i) : colX(4 % 4) + 60, ty = colTop;
+    // the one waiting for permission blinks
+    const glow = i === 0 || i === 2 ? (Math.sin(t * 6) * .5 + .5) * prog(t, 4.6, 5) : 0;
+    n.style.boxShadow = `0 24px 60px rgba(0,0,0,.28)${glow ? `, 0 0 0 ${3 + glow * 3}px rgba(240,181,74,${.35 + glow * .4})` : ""}`;
+    place(n, { o: clamp(kin) * Math.pow(1 - fly, 2.5), x: lerp(d.x, tx, fly), y: lerp(d.y + (1 - kin) * 60, ty, fly), s: lerp(1, .72, fly), r: lerp(d.r, 0, fly) });
+  });
+
+  // scene 3–5 — the board window
+  const kw = ease(prog(t, 7.0, 7.9)), kwOut = ease(prog(t, 33.0, 33.8));
+  const winOn = t > 7 && kwOut < 1;
+  show($("win"), winOn);
+  if (winOn) place($("win"), { o: kw * (1 - kwOut), y: (1 - kw) * 40, s: lerp(1, .92, kwOut), blur: kwOut * 6 });
+
+  let nWait = 0, nNew = 0, nWork = 0;
+  COLS.forEach((c, i) => {
+    const n = colNodes[i], [st, since] = stateAt(c, t);
+    if (st === "waiting") nWait++; else if (st === "new") nNew++; else if (st === "working") nWork++;
+    const kin = ease(prog(t, 7.3 + i * .14, 7.9 + i * .14));
+    place(n, { o: kin, y: (1 - kin) * 50 });
+    // state pill with a little pop when it changes
+    const pill = n.querySelector(".pill"), [cls, label] = PILL[st];
+    pill.className = "pill " + cls;
+    const pop = since > 0 ? 1 + .18 * Math.sin(Math.PI * prog(t, since, since + .35)) : 1;
+    pill.innerHTML = (st === "working" ? `<span class="ring" style="transform:rotate(${t * 360}deg)"></span>` : `<span class="dot"></span>`) + label;
+    pill.style.transform = `scale(${pop})`;
+    const slot = n.querySelector(".slot");
+    slot.innerHTML = st === "new" ? `<span class="bell" style="transform:scale(${back(prog(t, since, since + .4))})">🔔</span>` : "";
+    n.querySelector(".ago").textContent = st === "done" ? "48m ago" : "just now";
+    n.querySelector(".chead").style.background = st === "waiting" ? "#fff7e8" : st === "new" ? "#fdf0ee" : "var(--surface-2)";
+    // body items
+    c.items.forEach((it, j) => {
+      const node = c.itemNodes[j], on = t >= it.at && !(it.until && t >= it.until);
+      show(node, on);
+      if (on) { const k = it.at ? ease(prog(t, it.at, it.at + .35)) : 1; place(node, { o: k, y: (1 - k) * 12, s: node.classList.contains("perm") ? lerp(.94, 1, back(prog(t, it.at, it.at + .45))) : 1 }); }
+    });
+    const working = st === "working";
+    show(c.working, working);
+    if (working) {
+      c.working.querySelector(".ring").style.transform = `rotate(${t * 360}deg)`;
+      // since < 0: already running for -since seconds when the board appears (t = 7)
+      c.working.querySelector(".wt").textContent = "working · " + fmt(since >= 30 ? t - since : c.since < 0 ? t - 7 - c.since : t - c.since);
+    }
+    n.classList.toggle("sel", i === 3 && t > 14.9 && t < 19.8);
+    const body = n.querySelector(".cbody"); body.scrollTop = body.scrollHeight;
+  });
+  // composer typing in column 4
+  const comp = colNodes[3].querySelector(".composer"), txt = comp.querySelector(".txt");
+  const typing = t > 15.15 && t < 17.35;
+  comp.classList.toggle("focus", t > 15.1 && t < 17.45);
+  if (typing) { txt.classList.add("typed"); txt.innerHTML = typed(TYPED, t, 15.4, 32) + `<span class="caret" style="opacity:${Math.sin(t * 12) > 0 ? 1 : .2}"></span>`; }
+  else { txt.classList.remove("typed"); txt.textContent = "Message Claude · Enter to send"; }
+  comp.querySelector(".send").style.transform = `scale(${1 - .15 * Math.sin(Math.PI * prog(t, 17.25, 17.5))})`;
+  // counters
+  [["nWait", nWait], ["nNew", nNew], ["nWork", nWork]].forEach(([id, v]) => {
+    const node = $(id); if (node.textContent !== String(v)) { node.textContent = v; node.dataset.at = t; }
+    const at = +node.dataset.at || -9; node.style.display = "inline-block"; node.style.transform = `scale(${1 + .45 * Math.sin(Math.PI * prog(t, at, at + .35))})`;
+  });
+  const u = 38 + Math.round(prog(t, 8, 22) * 3); $("u5").style.width = u + "%"; $("u5t").textContent = u + "%";
+
+  // scene 6 — the Brain drawer
+  const kb = Math.min(ease(prog(t, 22.9, 23.4)), 1 - ease(prog(t, 30.7, 31.1)));
+  show($("brain"), kb > 0);
+  $("brain").style.transform = `translateX(${(kb - 1) * 660}px)`;
+  $("brainBtn").classList.toggle("on", kb > 0);
+  $("qSlack").classList.toggle("hot", t > 23.65 && t < 24.4);
+  BRAIN.forEach((it, j) => {
+    const node = brainNodes[j], on = t >= it.at; show(node, on);
+    if (on) { const k = ease(prog(t, it.at, it.at + .35)); place(node, { o: k, y: (1 - k) * 12 }); }
+  });
+  $("bbody").scrollTop = $("bbody").scrollHeight;
+  const bcomp = $("bcomp"), btxt = bcomp.querySelector(".txt");
+  bcomp.classList.toggle("focus", t > 27.3 && t < 29.3);
+  if (t > 27.35 && t < 29.25) { btxt.classList.add("typed"); btxt.innerHTML = typed(BTYPED, t, 27.4, 46) + `<span class="caret" style="opacity:${Math.sin(t * 12) > 0 ? 1 : .2}"></span>`; }
+  else { btxt.classList.remove("typed"); btxt.textContent = "Ask the Brain…"; }
+
+  // scene 5 — search palette
+  const ks = window_(t, 19.65, 22.5, .35);
+  show($("shade"), ks > 0); $("shade").style.opacity = ks;
+  show($("palette"), ks > 0); place($("palette"), { o: ks, y: (1 - ks) * -30, s: lerp(.97, 1, ks) });
+  $("q").textContent = typed("backoff", t, 19.95, 14);
+  $("qcaret").style.opacity = Math.sin(t * 12) > 0 ? 1 : .2;
+  resNodes.forEach((n, i) => {
+    const k = ease(prog(t, 20.55 + i * .12, 20.9 + i * .12)); place(n, { o: k, y: (1 - k) * 10 });
+    n.classList.toggle("sel", (t < 21.7 && i === 0) || (t >= 21.7 && i === 1));
+  });
+
+  // scene 6 — feature tiles
+  const kf = window_(t, 33.4, 37.4, .5);
+  show($("featCap"), kf > 0); place($("featCap"), { o: kf, y: (1 - ease(prog(t, 33.4, 34))) * -20 });
+  tileNodes.forEach((n, i) => {
+    const kin = back(prog(t, 33.7 + i * .16, 34.25 + i * .16)), kout = ease(prog(t, 37.4, 37.9));
+    const on = t > 33.7 + i * .16 && kout < 1; show(n, on);
+    if (on) place(n, { o: clamp(kin * 1.2) * (1 - kout), y: (1 - kin) * 40 - kout * 20, s: lerp(.9, 1, clamp(kin)) });
+  });
+  show($("grid"), t > 33.6 && t < 38);
+
+  // scene 7 — end card
+  const ko = ease(prog(t, 37.9, 38.6));
+  show($("outro"), ko > 0); place($("outro"), { o: ko * (1 - ease(prog(t, 40.5, 41))), y: (1 - ko) * 30 });
+
+  // captions
+  const cap = CAPS.find(([a, b]) => t >= a - .1 && t <= b + .4);
+  show($("cap"), !!cap);
+  if (cap) { $("cap").textContent = cap[2]; const k = window_(t, cap[0], cap[1], .3); $("cap").style.opacity = k; $("cap").style.transform = `translateX(-50%) translateY(${(1 - k) * 16}px)`; }
+
+  // pointer + click ripple
+  const p = pointer(t);
+  show($("cursor"), !!p);
+  if (p) {
+    const fade = Math.min(prog(t, PTR[0][0] - .4, PTR[0][0]), 1 - prog(t, PTR[PTR.length - 1][0], PTR[PTR.length - 1][0] + .3));
+    const press = CLICKS.some((c) => t > c && t < c + .15);
+    $("cursor").style.opacity = fade; $("cursor").style.transform = `translate(${p[0] - 6}px, ${p[1] - 3}px) scale(${press ? .85 : 1})`;
+  }
+  const c = CLICKS.find((c) => t >= c && t < c + .5);
+  show($("ripple"), !!c && !!p);
+  if (c && p) { const k = prog(t, c, c + .5); $("ripple").style.left = p[0] + "px"; $("ripple").style.top = p[1] + "px"; $("ripple").style.opacity = 1 - k; $("ripple").style.transform = `scale(${.4 + k * 1.2})`; }
+}
+window.render = render;
+window.DURATION = DURATION;
+
+// real-time playback when opened directly (the renderer drives render(t) itself)
+const fixed = new URLSearchParams(location.search).get("t");
+if (fixed !== null) render(+fixed);
+else if (!navigator.webdriver && !window.__capture) {
+  const start = performance.now();
+  const loop = () => { render(((performance.now() - start) / 1000) % (DURATION + 1)); requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+} else render(0);
+</script>
+</body>
+</html>
