@@ -611,24 +611,62 @@ def dirty_of(d):
     return DIRTY.get(d)
 
 
+_LINES_SEEN = {}   # 새 파일 경로 → (크기, 수정 시각, 줄 수) — 20초마다 다시 읽지 않게
+
+
+def _untracked_stats(d):
+    """새 파일(추적 안 됨) 수와 줄 수 — 변경 보기(_untracked_diff)와 같은 기준: 파일 하나하나, 최대 개수까지,
+    너무 큰 파일·바이너리는 줄 수 0."""
+    names = [n for n in _git(d, "ls-files", "--others", "--exclude-standard", "-z", timeout=10).split("\0") if n]
+    root = os.path.realpath(d)
+    lines = 0
+    for n in names[:UNTRACKED_MAX[0]]:
+        full = os.path.realpath(os.path.join(d, n))
+        if not full.startswith(root + os.sep):
+            continue
+        try:
+            st = os.stat(full)
+        except OSError:
+            continue
+        seen = _LINES_SEEN.get(full)
+        if seen and seen[:2] == (st.st_size, st.st_mtime):
+            lines += seen[2]
+            continue
+        k = 0
+        if st.st_size <= UNTRACKED_MAX[1]:
+            try:
+                with open(full, "rb") as f:
+                    raw = f.read(UNTRACKED_MAX[1] + 1)
+            except OSError:
+                raw = b"\0"
+            if b"\0" not in raw[:8192] and raw:
+                k = raw.count(b"\n") + (0 if raw.endswith(b"\n") else 1)
+        _LINES_SEEN[full] = (st.st_size, st.st_mtime, k)
+        lines += k
+    if len(_LINES_SEEN) > 5000:
+        _LINES_SEEN.clear()
+    return len(names), lines
+
+
 def _dirty_check(d):
     if not os.path.isdir(d):
         return None
     try:
-        r = subprocess.run(["git", "-C", d, "status", "--porcelain=v1", "--untracked-files=normal"],
+        r = subprocess.run(["git", "-C", d, "status", "--porcelain=v1", "--untracked-files=no"],
                            capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
         return DIRTY.get(d)
     if r.returncode != 0:
         return None
-    lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
-    files, new = len(lines), sum(1 for ln in lines if ln.startswith("??"))   # ?? = 추적 안 된 새 파일(폴더는 한 줄)
+    # 변경 보기와 같은 수로: 바뀐 추적 파일 + 새 파일 하나하나(git status 는 새 폴더를 한 줄로 묶어 적게 보였다)
+    changed = len([ln for ln in r.stdout.splitlines() if ln.strip()])
+    new, new_lines = _untracked_stats(d)
     add = dele = 0
-    if files:
+    if changed:
         st = _git(d, "diff", "HEAD", "--shortstat", timeout=10)
         m1, m2 = re.search(r"(\d+) insertion", st), re.search(r"(\d+) deletion", st)
         add, dele = int(m1.group(1)) if m1 else 0, int(m2.group(1)) if m2 else 0
-    return {"files": files, "new": new, "add": add, "del": dele, "at": store.now()}
+    return {"files": changed + new, "new": new, "add": add + new_lines, "del": dele, "at": store.now()}
 
 
 def _dirty_loop():
