@@ -259,21 +259,31 @@ function mdCached(text) {
   }
   return html;
 }
+// ``` 코드 블록 — 들여 쓴 것도(목록 항목 안의 코드 블록은 항목 글만큼 들여 쓴다). 줄마다 여는 ``` 만큼의 들여쓰기를 걷는다.
+// [html, 다음 줄 번호]
+const FENCE = /^(\s*)```/;
+function fenceBlock(L, i) {
+  const ind = L[i].match(FENCE)[1].replace(/\t/g, "    ").length;
+  const lang = L[i].trim().slice(3).trim();
+  const strip = new RegExp("^ {0," + ind + "}");
+  const buf = []; i++;
+  while (i < L.length && !/^\s*```\s*$/.test(L[i])) buf.push(L[i++].replace(strip, ""));
+  i++;
+  // 코드 블록 오른쪽 위 「복사」(가로로 스크롤돼도 버튼은 제자리)
+  return [`<div class="code-wrap"><button class="code-copy" data-action="copy-code" title="코드 복사">복사</button>` +
+    `<pre${lang ? ` data-lang="${esc(lang)}"` : ""}><code>` + esc(buf.join("\n")) + "</code></pre></div>", i];
+}
 function md(src) {
   const L = String(src || "").replace(/[\r\u0000]/g, "").split("\n");   // NUL 은 inline 의 자리표시와 겹친다
   const out = [];
   let i = 0;
-  const isBlockStart = l => /^```|^#{1,6}\s|^\s*[-*+]\s|^\s*\d+[.)]\s|^>|^\s*\|/.test(l);
+  const isBlockStart = l => /^\s*```|^#{1,6}\s|^\s*[-*+]\s|^\s*\d+[.)]\s|^>|^\s*\|/.test(l);
   while (i < L.length) {
     const l = L[i];
-    if (/^```/.test(l)) {
-      const lang = l.slice(3).trim();
-      const buf = []; i++;
-      while (i < L.length && !/^```/.test(L[i])) buf.push(L[i++]);
-      i++;
-      // 코드 블록 오른쪽 위 「복사」(가로로 스크롤돼도 버튼은 제자리)
-      out.push(`<div class="code-wrap"><button class="code-copy" data-action="copy-code" title="코드 복사">복사</button>` +
-        `<pre${lang ? ` data-lang="${esc(lang)}"` : ""}><code>` + esc(buf.join("\n")) + "</code></pre></div>");
+    if (FENCE.test(l)) {
+      const [html, next] = fenceBlock(L, i);
+      out.push(html);
+      i = next;
       continue;
     }
     if (!l.trim()) { i++; continue; }
@@ -293,7 +303,14 @@ function md(src) {
       // 들여쓰기 깊이대로 진짜 중첩 목록으로 — 「1. … / 3칸 들여 쓴 - …」 의 글머리표가 바깥 번호 목록의 항목이 되어
       // 번호가 이어지고(2·3) 바깥 번호가 밀리던(4·5) 것. 수준마다 번호·글머리표를 따로, 3. 으로 시작하면 3부터
       const items = [];
-      while (i < L.length && (listRe.test(L[i]) || (/^\s{2,}\S/.test(L[i]) && !isBlockStart(L[i].trim())))) {
+      while (i < L.length) {
+        if (items.length && /^\s+```/.test(L[i])) {   // 항목 아래 들여 쓴 코드 블록은 그 항목 안에
+          const [html, next] = fenceBlock(L, i);
+          items[items.length - 1].html += html;
+          i = next;
+          continue;
+        }
+        if (!(listRe.test(L[i]) || (/^\s{2,}\S/.test(L[i]) && !isBlockStart(L[i].trim())))) break;
         const m = L[i].match(listRe);
         if (m) items.push({ indent: m[1].replace(/\t/g, "    ").length, ordered: /\d/.test(m[2]), num: parseInt(m[2], 10), html: inline(m[3]) });
         else items[items.length - 1].html += "<br>" + inline(L[i].trim());   // 항목 아래 들여 쓴 이어지는 줄
