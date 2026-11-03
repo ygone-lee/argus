@@ -10,9 +10,9 @@
 ![Runs locally](https://img.shields.io/badge/runs-100%25%20local-success)
 ![Works with your Claude subscription — no API key](https://img.shields.io/badge/Claude-subscription%20only%2C%20no%20API%20key-c96442)
 
-![50초로 보는 Argus: 세션을 나란히 놓고, 권한 확인에 답하고, 보드에서 답장하고, 넥스트 액션에서 하던 일을 이어 가고, 지난 대화를 검색하고, 브레인이 세션과 슬랙에서 놓친 것을 잡아 세션들에 일을 넘기는 모습](docs/promo.gif)
+![50초로 보는 Argus: 세션을 나란히 놓고, 권한 확인에 답하고, 보드에서 답장하고, 넥스트 액션에서 하던 일을 이어 가고, 지난 대화를 검색하고, 브레인이 세션과 슬랙에서 놓친 것을 잡아 세션들에 일을 넘기는 모습](docs/promo.ko.gif)
 
-<sub>데모 속 세션은 모두 지어낸 것입니다 · [고화질 보기 (MP4)](docs/promo.mp4)</sub>
+<sub>데모 속 세션은 모두 지어낸 것입니다 · [고화질 보기 (MP4)](docs/promo.ko.mp4)</sub>
 
 Argus 는 열어 둔 Claude Code 세션을 전부 지켜보는 로컬 웹 보드입니다. 터미널·프로젝트·git 워크트리를 가리지 않고,
 세션 하나에 칸 하나씩 나란히 보여 줍니다. 이름은 눈을 한꺼번에 다 감은 적이 없다는 그리스 신화의 눈 백 개 달린 거인에서 왔습니다.

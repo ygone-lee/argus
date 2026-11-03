@@ -6,7 +6,8 @@
 <!--
   A 50-second motion piece made of Argus-style UI components. Every frame is a pure function of time:
   render(t) draws the moment t (seconds), so demo/promo/render.mjs can capture it frame by frame.
-  Open the file in a browser to watch it play in real time (?t=12 to freeze at 12 s).
+  Open the file in a browser to watch it play in real time (?t=12 to freeze at 12 s, ?lang=ja or ?lang=ko for the
+  Japanese and Korean versions — render.mjs --lang ja).
 -->
 <style>
   :root {
@@ -244,6 +245,36 @@
 </div>
 
 <script>
+// ------------------------------------------------------------------ language
+// ?lang=ja|ko: captions, board labels (the board's own translations, csl/static/i18n.js) and the conversations.
+// Claude Code's own terminal UI, code and commands stay in English, as they are on screen.
+const LANG = ["ja", "ko"].includes(new URLSearchParams(location.search).get("lang")) ? new URLSearchParams(location.search).get("lang") : "en";
+const tr = (en, ja, ko) => LANG === "ja" ? ja : LANG === "ko" ? ko : en;
+document.documentElement.lang = LANG;
+
+const T_ASK = tr("Ask the Brain…", "ブレインに聞く…", "브레인에게 묻기…");
+const STATIC = () => [   // a function: some entries use strings defined further down
+  ["#intro p", tr("One browser tab for all of your Claude Code sessions.", "Claude Code のセッションを、ブラウザのタブひとつで。", "Claude Code 세션 전부를 브라우저 탭 하나에서.")],
+  ["#termCap", tr("Five sessions. Five terminals.<small>Which one finished? Which one is waiting for you? And what was I doing in that one?</small>",
+    "5 つのセッション。5 つのターミナル。<small>どれが終わった? どれがあなたを待っている? そしてあそこでは何をしようとしてたっけ?</small>",
+    "세션 다섯 개. 터미널 다섯 개.<small>어느 게 끝났지? 어느 게 나를 기다리지? 그리고 저기선 뭘 하려고 했더라?</small>")],
+  ["#brainBtn", tr("🧠 Brain <i>3</i>", "🧠 ブレイン <i>3</i>", "🧠 브레인 <i>3</i>")],
+  ["#win .seg", tr(`<span class="on">Sessions</span><span>Inbox</span><span>Activity</span>`, `<span class="on">セッション</span><span>受信箱</span><span>アクティビティ</span>`, `<span class="on">세션</span><span>인박스</span><span>활동</span>`)],
+  [".c-wait", `<span class="dot"></span>${tr("Needs you", "要確認", "확인 필요")} <span class="n" id="nWait">1</span>`],
+  [".c-new", `<span class="dot"></span>${tr("New reply", "新しい応答", "새 응답")} <span class="n" id="nNew">0</span>`],
+  [".c-work", `<span class="dot"></span>${tr("Working", "作業中", "작업 중")} <span class="n" id="nWork">2</span>`],
+  [".usage", `${tr("5h", "5時間", "5시간")} <div class="ubar"><i id="u5" style="width:38%"></i><u style="left:46%"></u></div><span id="u5t">38%</span>
+    &nbsp;${tr("Week", "週間", "주간")} <div class="ubar" style="width:70px"><i style="width:21%"></i></div>`],
+  ["#searchBox", "🔎&nbsp; " + tr("Search conversations", "会話検索", "대화 검색")],
+  [".bh", `🧠 <b>${tr("Argus Brain", "Argus ブレイン", "Argus 브레인")}</b><span class="muted">${tr("a Claude Code session that can see — and drive — the board", "ボードを見て、動かすこともできる Claude Code セッション", "보드를 보고, 움직일 수도 있는 Claude Code 세션")}</span>`],
+  [".quick", `<span>${tr("Overview", "概要", "개요")}</span><span>${tr("Needs me", "自分の確認事項", "나 확인할 것")}</span><span id="qSlack">${T_MISS}</span><span>${tr("What I did today", "今日やったこと", "오늘 한 일")}</span>`],
+  ["#bcomp .txt", T_ASK],
+  ["#palette .tabs", tr(`<span class="on">All</span><span>My prompts</span><span>Claude replies</span>`, `<span class="on">すべて</span><span>自分の依頼</span><span>Claude の応答</span>`, `<span class="on">전체</span><span>내 요청</span><span>Claude 응답</span>`)],
+  ["#featCap", tr("And everything around it", "ほかにも", "그 밖에도")],
+  ["#outro p", tr("Every Claude Code session in one place. Nothing forgotten.", "すべての Claude Code セッションを一か所に。もう忘れない。", "모든 Claude Code 세션을 한곳에서. 잊는 일 없이.")],
+  ["#outro .tags", `<span class="tag">macOS</span><span class="tag">${tr("100% local", "100% ローカル", "100% 로컬")}</span><span class="tag">${tr("No API key", "API キー不要", "API 키 불필요")}</span><span class="tag">MIT</span>`],
+];
+
 // ------------------------------------------------------------------ helpers
 const DURATION = 50;
 // The next-actions scene is spliced into the board scene: at T0 the original timeline pauses for D seconds
@@ -270,9 +301,15 @@ const typed = (text, t, a, cps = 30) => text.slice(0, Math.max(0, Math.floor((t 
 // ------------------------------------------------------------------ scene 2: terminals
 const TERMS = [
   { x: 150, y: 250, r: -3, title: "~/web — claude", body: `<span class="d">⏺ Bash(npm test -- LoginForm)</span>\n<span class="y">Do you want to proceed?\n❯ 1. Yes\n  2. No</span>` },
-  { x: 760, y: 220, r: 2, title: "~/shop-api — claude", body: `<span class="d">⏺ Edit(src/webhooks/retry.py)</span>\n<span class="d">⏺ Bash(pytest -q)</span>\n<span class="g">  12 passed in 0.41s</span>\n\n<span class="o">⏺</span> Done. deliver() now uses backoff…` },
-  { x: 1300, y: 300, r: -1.5, title: "~/mobile — claude", body: `<span class="y">☐ Migration</span>\nv5 removes the legacy token API.\nHow should existing installs migrate?\n❯ 1. Re-register on next launch\n  2. Keep a v4 fallback` },
-  { x: 420, y: 560, r: 1.5, title: "~/infra — claude", body: `<span class="o">⏺</span> The NAT gateway is replaced because\n  count re-indexes when the AZ list\n  changes order. Want me to fix it?\n\n<span class="d">></span> ` },
+  { x: 760, y: 220, r: 2, title: "~/shop-api — claude", body: `<span class="d">⏺ Edit(src/webhooks/retry.py)</span>\n<span class="d">⏺ Bash(pytest -q)</span>\n<span class="g">  12 passed in 0.41s</span>\n\n<span class="o">⏺</span> ${tr("Done. deliver() now uses backoff…", "完了。deliver() は backoff を使うように…", "완료. deliver() 가 이제 backoff 를…")}` },
+  { x: 1300, y: 300, r: -1.5, title: "~/mobile — claude", body: tr(
+      `<span class="y">☐ Migration</span>\nv5 removes the legacy token API.\nHow should existing installs migrate?\n❯ 1. Re-register on next launch\n  2. Keep a v4 fallback`,
+      `<span class="y">☐ 移行</span>\nv5 で旧トークン API が廃止されます。\n既存のインストールはどう移行しますか?\n❯ 1. 次回起動時に再登録\n  2. v4 のフォールバックを残す`,
+      `<span class="y">☐ 마이그레이션</span>\nv5 에서 기존 토큰 API 가 빠집니다.\n이미 설치된 앱은 어떻게 옮길까요?\n❯ 1. 다음 실행 때 다시 등록\n  2. v4 대비책 유지`) },
+  { x: 420, y: 560, r: 1.5, title: "~/infra — claude", body: `<span class="o">⏺</span> ` + tr(
+      `The NAT gateway is replaced because\n  count re-indexes when the AZ list\n  changes order. Want me to fix it?`,
+      `NAT ゲートウェイが置き換わるのは、AZ の\n  並びが変わると count が番号を\n  振り直すからです。直しましょうか?`,
+      `NAT 게이트웨이가 교체되는 건 AZ 목록\n  순서가 바뀌면 count 가 번호를\n  다시 매기기 때문입니다. 고칠까요?`) + `\n\n<span class="d">></span> ` },
   { x: 1030, y: 600, r: -2, title: "~/docs — claude", body: `<span class="d">✻ Thinking…</span>\n<span class="d">⏺ Read(CHANGELOG.md)</span>` },
 ];
 const termNodes = TERMS.map((d) => {
@@ -282,76 +319,107 @@ const termNodes = TERMS.map((d) => {
 
 // ------------------------------------------------------------------ scene 3: columns
 // each column: header data, state timeline [[t, state]], body items [{at, until?, html}]
+const VIA_BRAIN = tr("🧠 via Brain", "🧠 ブレイン経由", "🧠 브레인이 보냄");
+const T_SAFARI = tr("Login fails on Safari 17 after the validation change.", "検証の変更後、Safari 17 でログインできません。", "검증 변경 뒤 Safari 17 에서 로그인이 안 됩니다.");
 const COLS = [
-  { proj: "web", pc: "#e3ecfc", pt: "#2f5fb8", branch: "feat/login-validation", model: "Opus 5.5 · high", title: "Login form validation",
+  { proj: "web", pc: "#e3ecfc", pt: "#2f5fb8", branch: "feat/login-validation", model: "Opus 5.5 · high", title: tr("Login form validation", "ログインフォームの検証", "로그인 폼 검증"),
     states: [[0, "working"], [10.8, "waiting"], [12.6, "working"], [14.0, "new"], [31.0, "working"]],
     since: -128,
     items: [
-      { at: 0, html: `<div class="bubble">Add client-side validation to the login form — valid email, 8+ char password, accessible errors.</div>` },
+      { at: 0, html: `<div class="bubble">${tr("Add client-side validation to the login form — valid email, 8+ char password, accessible errors.",
+        "ログインフォームにクライアント側の検証を入れて — メール形式、8 文字以上のパスワード、アクセシブルなエラー表示。",
+        "로그인 폼에 클라이언트 검증을 넣어 줘 — 이메일 형식, 8자 이상 비밀번호, 접근성 있는 오류 표시.")}</div>` },
       { at: 0, html: `<div class="who">Claude</div>` },
       { at: 8.6, html: `<div class="tool"><span>Read</span>src/LoginForm.tsx</div>` },
       { at: 9.3, html: `<div class="tool"><span>Edit</span>src/LoginForm.tsx</div>` },
       { at: 10.0, html: `<div class="tool"><span>Bash</span>npm test -- LoginForm</div>` },
-      { at: 10.8, until: 12.6, html: `<div class="perm"><h4>🔐 Allow this command?</h4><div class="cmd">npm test -- LoginForm</div><div class="btns"><span class="btn pri" id="yesBtn">Yes</span><span class="btn">No</span><span class="btn">Always</span></div></div>` },
-      { at: 14.0, html: `<div class="reply">Validation added — email format, 8+ characters, errors announced with <code>role="alert"</code>.<br><b>6 tests pass</b> (3 new).</div>` },
-      { at: 31.0, html: `<div class="bubble"><span class="via">🧠 via Brain</span>Login fails on Safari 17 after the validation change (#web-team, sam). Find the cause and fix it.</div>` },
+      { at: 10.8, until: 12.6, html: `<div class="perm"><h4>${tr("🔐 Allow this command?", "🔐 このコマンドを許可しますか?", "🔐 이 명령을 허용할까요?")}</h4><div class="cmd">npm test -- LoginForm</div><div class="btns"><span class="btn pri" id="yesBtn">${tr("Yes", "はい", "예")}</span><span class="btn">${tr("No", "いいえ", "아니요")}</span><span class="btn">${tr("Always", "常に", "항상")}</span></div></div>` },
+      { at: 14.0, html: `<div class="reply">${tr(`Validation added — email format, 8+ characters, errors announced with <code>role="alert"</code>.<br><b>6 tests pass</b> (3 new).`,
+        `検証を追加しました — メール形式、8 文字以上、エラーは <code>role="alert"</code> で読み上げます。<br><b>テスト 6 件が成功</b>(新規 3 件)。`,
+        `검증을 넣었습니다 — 이메일 형식, 8자 이상, 오류는 <code>role="alert"</code> 로 읽어 줍니다.<br><b>테스트 6개 통과</b>(새로 3개).`)}</div>` },
+      { at: 31.0, html: `<div class="bubble"><span class="via">${VIA_BRAIN}</span>${tr("Login fails on Safari 17 after the validation change (#web-team, sam). Find the cause and fix it.",
+        "検証の変更後、Safari 17 でログインできません(#web-team、sam)。原因を見つけて直してください。",
+        "검증 변경 뒤 Safari 17 에서 로그인이 안 됩니다(#web-team, sam). 원인을 찾아 고쳐 주세요.")}</div>` },
       { at: 31.6, html: `<div class="tool"><span>Grep</span>Safari · LoginForm</div>` },
     ] },
-  { proj: "shop-api", pc: "#fbe8de", pt: "#a5492a", branch: "main", model: "Opus 5.5 · high", title: "Webhook retries with backoff",
+  { proj: "shop-api", pc: "#fbe8de", pt: "#a5492a", branch: "main", model: "Opus 5.5 · high", title: tr("Webhook retries with backoff", "Webhook 再試行に backoff", "웹훅 재시도에 backoff 적용"),
     states: [[0, "working"], [13.2, "new"]],
     since: -41,
     nextActions: true,
     gstates: [[T0 + 5.0, "working"], [T0 + D + 3.65, "new"]],   // global times (the spliced scene and after)
     items: [
-      { at: 0, html: `<div class="bubble">Add exponential backoff with jitter to webhook retries, and cover it with tests.</div>` },
+      { at: 0, html: `<div class="bubble">${tr("Add exponential backoff with jitter to webhook retries, and cover it with tests.",
+        "Webhook の再試行にジッター付きの指数 backoff を入れて、テストも書いて。",
+        "웹훅 재시도에 지터를 넣은 지수 backoff 를 적용하고 테스트도 써 줘.")}</div>` },
       { at: 0, html: `<div class="who">Claude</div>` },
       { at: 0, html: `<div class="tool"><span>Edit</span>src/webhooks/retry.py</div>` },
       { at: 9.0, html: `<div class="tool"><span>Bash</span>pytest -q</div>` },
-      { at: 13.2, html: `<div class="reply">Done. <code>deliver()</code> waits <code>backoff(attempt)</code> — exponential, full jitter, capped at 30 s.<br><b>12 passed.</b> Not committed yet.</div>` },
-      { g: true, at: T0 + 5.1, html: `<div class="bubble"><span class="via">📝 from next actions</span>Load-test the retries against staging.</div>` },
+      { at: 13.2, html: `<div class="reply">${tr(`Done. <code>deliver()</code> waits <code>backoff(attempt)</code> — exponential, full jitter, capped at 30 s.<br><b>12 passed.</b> Not committed yet.`,
+        `完了。<code>deliver()</code> は <code>backoff(attempt)</code> だけ待ちます — 指数・フルジッター・最大 30 秒。<br><b>12 件成功。</b>まだコミットしていません。`,
+        `완료. <code>deliver()</code> 가 <code>backoff(attempt)</code> 만큼 기다립니다 — 지수, 풀 지터, 최대 30초.<br><b>12개 통과.</b> 아직 커밋 전입니다.`)}</div>` },
+      { g: true, at: T0 + 5.1, html: `<div class="bubble"><span class="via">${tr("📝 from next actions", "📝 ネクストアクションから", "📝 넥스트 액션에서")}</span>${tr("Load-test the retries against staging.", "ステージングで再試行の負荷テストをして。", "스테이징에서 재시도 부하 테스트를 해 줘.")}</div>` },
       { g: true, at: T0 + 5.9, html: `<div class="tool"><span>Bash</span>k6 run load/webhook-retry.js</div>` },
-      { g: true, at: T0 + D + 3.65, html: `<div class="reply">Load test done — <b>2,000 webhooks, 0 lost</b>, p99 retry delay 28 s.</div>` },
+      { g: true, at: T0 + D + 3.65, html: `<div class="reply">${tr("Load test done — <b>2,000 webhooks, 0 lost</b>, p99 retry delay 28 s.",
+        "負荷テスト完了 — <b>Webhook 2,000 件、損失 0</b>、p99 再試行遅延 28 秒。",
+        "부하 테스트 완료 — <b>웹훅 2,000개, 유실 0</b>, p99 재시도 지연 28초.")}</div>` },
     ] },
-  { proj: "mobile", pc: "#ece5f8", pt: "#6a48a8", branch: "main", model: "Sonnet 5.5 · medium", title: "Upgrade push SDK to v5",
+  { proj: "mobile", pc: "#ece5f8", pt: "#6a48a8", branch: "main", model: "Sonnet 5.5 · medium", title: tr("Upgrade push SDK to v5", "プッシュ SDK を v5 に上げる", "푸시 SDK v5 로 올리기"),
     states: [[0, "waiting"]],
     items: [
-      { at: 0, html: `<div class="bubble">Upgrade the push notification SDK to v5.</div>` },
+      { at: 0, html: `<div class="bubble">${tr("Upgrade the push notification SDK to v5.", "プッシュ通知 SDK を v5 に上げて。", "푸시 알림 SDK 를 v5 로 올려 줘.")}</div>` },
       { at: 0, html: `<div class="who">Claude</div>` },
       { at: 0, html: `<div class="tool"><span>WebSearch</span>push-sdk v5 migration guide</div>` },
-      { at: 0, html: `<div class="ask"><h4>❓ v5 removes the legacy token API. How should existing installs migrate?</h4>
+      { at: 0, html: tr(`<div class="ask"><h4>❓ v5 removes the legacy token API. How should existing installs migrate?</h4>
         <div class="opt"><i></i><div><b>Re-register on next launch</b> — tokens refresh silently</div></div>
         <div class="opt"><i></i><div><b>Keep a v4 fallback</b> — safer, more code</div></div>
-        <div class="opt"><i></i><div><b>Force re-login</b> — clean, but users notice</div></div></div>` },
+        <div class="opt"><i></i><div><b>Force re-login</b> — clean, but users notice</div></div></div>`,
+        `<div class="ask"><h4>❓ v5 で旧トークン API が廃止されます。既存のインストールはどう移行しますか?</h4>
+        <div class="opt"><i></i><div><b>次回起動時に再登録</b> — トークンは裏で更新</div></div>
+        <div class="opt"><i></i><div><b>v4 のフォールバックを残す</b> — 安全だがコードが増える</div></div>
+        <div class="opt"><i></i><div><b>強制再ログイン</b> — すっきりするがユーザーが気づく</div></div></div>`,
+        `<div class="ask"><h4>❓ v5 에서 기존 토큰 API 가 빠집니다. 이미 설치된 앱은 어떻게 옮길까요?</h4>
+        <div class="opt"><i></i><div><b>다음 실행 때 다시 등록</b> — 토큰이 조용히 갱신됨</div></div>
+        <div class="opt"><i></i><div><b>v4 대비책 유지</b> — 더 안전, 코드가 늘어남</div></div>
+        <div class="opt"><i></i><div><b>강제 재로그인</b> — 깔끔하지만 사용자가 알아챔</div></div></div>`) },
     ] },
-  { proj: "infra", pc: "#e2f4ea", pt: "#1f7a4c", branch: "main", model: "Opus 5.5 · xhigh", title: "NAT gateway replaced on every plan",
+  { proj: "infra", pc: "#e2f4ea", pt: "#1f7a4c", branch: "main", model: "Opus 5.5 · xhigh", title: tr("NAT gateway replaced on every plan", "plan のたびに NAT ゲートウェイが置き換わる", "plan 마다 NAT 게이트웨이 교체"),
     states: [[0, "done"], [17.4, "working"], [19.0, "new"], [31.0, "working"]],
     since: 17.4,
     items: [
-      { at: 0, html: `<div class="bubble">Why does <code>terraform plan</code> want to replace the NAT gateway every time?</div>` },
+      { at: 0, html: `<div class="bubble">${tr("Why does <code>terraform plan</code> want to replace the NAT gateway every time?",
+        "<code>terraform plan</code> がなぜ毎回 NAT ゲートウェイを置き換えようとするの?",
+        "<code>terraform plan</code> 이 왜 매번 NAT 게이트웨이를 교체하려고 해?")}</div>` },
       { at: 0, html: `<div class="who">Claude</div>` },
-      { at: 0, html: `<div class="reply"><code>count = var.az_count</code> re-indexes the gateways when the AZ list changes order. Switch to <code>for_each</code> and move the state?</div>` },
-      { at: 17.4, html: `<div class="bubble">Yes — switch to for_each and write the state mv commands.</div>` },
+      { at: 0, html: `<div class="reply">${tr("<code>count = var.az_count</code> re-indexes the gateways when the AZ list changes order. Switch to <code>for_each</code> and move the state?",
+        "AZ の並びが変わると <code>count = var.az_count</code> がゲートウェイの番号を振り直します。<code>for_each</code> に変えて state を移しますか?",
+        "AZ 목록 순서가 바뀌면 <code>count = var.az_count</code> 가 게이트웨이 번호를 다시 매깁니다. <code>for_each</code> 로 바꾸고 state 를 옮길까요?")}</div>` },
+      { at: 17.4, html: `<div class="bubble">${tr("Yes — switch to for_each and write the state mv commands.", "うん — for_each に変えて、state mv のコマンドも書いて。", "응 — for_each 로 바꾸고 state mv 명령도 써 줘.")}</div>` },
       { at: 17.9, html: `<div class="tool"><span>Edit</span>modules/network/nat.tf</div>` },
       { at: 18.4, html: `<div class="tool"><span>Bash</span>terraform plan -no-color</div>` },
-      { at: 19.0, html: `<div class="reply">Done — <code>for_each</code> by AZ name, plus 3 <code>terraform state mv</code> commands. <b>Plan: 0 to add, 0 to destroy.</b></div>` },
-      { at: 31.0, html: `<div class="bubble"><span class="via">🧠 via Brain</span>Open a PR for the for_each change.</div>` },
+      { at: 19.0, html: `<div class="reply">${tr("Done — <code>for_each</code> by AZ name, plus 3 <code>terraform state mv</code> commands. <b>Plan: 0 to add, 0 to destroy.</b>",
+        "完了 — AZ 名で <code>for_each</code>、<code>terraform state mv</code> コマンド 3 つ。<b>Plan: 0 to add, 0 to destroy.</b>",
+        "완료 — AZ 이름 기준 <code>for_each</code> 와 <code>terraform state mv</code> 명령 3개. <b>Plan: 0 to add, 0 to destroy.</b>")}</div>` },
+      { at: 31.0, html: `<div class="bubble"><span class="via">${VIA_BRAIN}</span>${tr("Open a PR for the for_each change.", "for_each の変更で PR を作ってください。", "for_each 변경으로 PR 을 열어 주세요.")}</div>` },
       { at: 31.7, html: `<div class="tool"><span>Bash</span>gh pr create --fill</div>` },
     ] },
 ];
-const PILL = { working: ["p-working", "Working"], waiting: ["p-waiting", "Needs you"], new: ["p-new", "New reply"], done: ["p-done", "Done"] };
+const PILL = { working: ["p-working", tr("Working", "作業中", "작업 중")], waiting: ["p-waiting", tr("Needs you", "要確認", "확인 필요")],
+  new: ["p-new", tr("New reply", "新しい応答", "새 응답")], done: ["p-done", tr("Done", "完了", "완료")] };
+const T_NOW = tr("just now", "たった今", "방금"), T_COMPOSER = tr("Message Claude · Enter to send", "Claude に送る・Enter で送信", "Claude 에게 보내기 · Enter 전송");
+const T_TODO = (n) => tr(`to do ${n}`, `やること ${n}`, `할 일 ${n}`);
 const colNodes = COLS.map((c, i) => {
   const n = el(`<div class="col">
     <div class="chead">
-      <div class="r1"><span class="slot"></span><span>${i + 1}</span><span class="pill"></span><span class="ago">just now</span></div>
+      <div class="r1"><span class="slot"></span><span>${i + 1}</span><span class="pill"></span><span class="ago">${T_NOW}</span></div>
       <div class="ctitle">${c.title}</div>
       <div class="chips"><span class="chip proj" style="background:${c.pc};color:${c.pt}">${c.proj}</span><span class="chip">${c.branch}</span><span class="chip">${c.model} ▾</span></div>
     </div>
-    ${c.nextActions ? `<div class="na"><div class="na-h">▾ Next actions <span class="na-n" id="naN">to do 2</span></div><div class="na-list" id="naList">
-      <div class="na-i" id="naLoad"><i></i><span>Load-test the retries against staging</span><em>2h ago</em><b class="na-send" id="naSend">↑</b></div>
-      <div class="na-i"><i></i><span>Mention the retry change in the release notes</span><em>2h ago</em></div>
-      <div class="na-i done"><i>✓</i><span>Ask payments to review the 30 s cap</span><em>yesterday</em></div></div></div>` : ""}
+    ${c.nextActions ? `<div class="na"><div class="na-h">▾ ${tr("Next actions", "ネクストアクション", "넥스트 액션")} <span class="na-n" id="naN">${T_TODO(2)}</span></div><div class="na-list" id="naList">
+      <div class="na-i" id="naLoad"><i></i><span>${tr("Load-test the retries against staging", "ステージングで再試行の負荷テスト", "스테이징에서 재시도 부하 테스트")}</span><em>${tr("2h ago", "2時間前", "2시간 전")}</em><b class="na-send" id="naSend">↑</b></div>
+      <div class="na-i"><i></i><span>${tr("Mention the retry change in the release notes", "リリースノートに再試行の変更を書く", "릴리스 노트에 재시도 변경 적기")}</span><em>${tr("2h ago", "2時間前", "2시간 전")}</em></div>
+      <div class="na-i done"><i>✓</i><span>${tr("Ask payments to review the 30 s cap", "決済チームに 30 秒上限のレビューを依頼", "결제팀에 30초 상한 리뷰 요청")}</span><em>${tr("yesterday", "昨日", "어제")}</em></div></div></div>` : ""}
     <div class="cbody"></div>
-    <div class="composer"><span class="txt">Message Claude · Enter to send</span><span class="send">↑</span></div>
+    <div class="composer"><span class="txt">${T_COMPOSER}</span><span class="send">↑</span></div>
   </div>`);
   const body = n.querySelector(".cbody");
   c.itemNodes = c.items.map((it) => { const x = el(it.html); body.appendChild(x); return x; });
@@ -369,11 +437,16 @@ const stateAt = (c, t, G) => {
 };
 
 // ------------------------------------------------------------------ scene 5: search results
+const T_SHOP = COLS[1].title;
 const RESULTS = [
-  ["shop-api", "Webhook retries with backoff", "Add exponential <mark>backoff</mark> with jitter to webhook retries, and cover it with tests.", "today 16:07"],
-  ["shop-api", "Webhook retries with backoff", "Done. deliver() waits <mark>backoff</mark>(attempt) — exponential, full jitter, capped at 30 s.", "today 16:12"],
-  ["payments", "Retry storm after outage", "Add a circuit breaker in front of the <mark>backoff</mark> so retries stop when the provider is down.", "Oct 28"],
-  ["web", "Polling the job status", "Use <mark>backoff</mark> between status polls instead of a fixed 1 s interval.", "Oct 21"],
+  ["shop-api", T_SHOP, tr("Add exponential <mark>backoff</mark> with jitter to webhook retries, and cover it with tests.",
+    "Webhook の再試行にジッター付きの指数 <mark>backoff</mark> を入れて、テストも書いて。", "웹훅 재시도에 지터를 넣은 지수 <mark>backoff</mark> 를 적용하고 테스트도 써 줘."), tr("today 16:07", "今日 16:07", "오늘 16:07")],
+  ["shop-api", T_SHOP, tr("Done. deliver() waits <mark>backoff</mark>(attempt) — exponential, full jitter, capped at 30 s.",
+    "完了。deliver() は <mark>backoff</mark>(attempt) だけ待ちます — 指数・フルジッター・最大 30 秒。", "완료. deliver() 가 <mark>backoff</mark>(attempt) 만큼 기다립니다 — 지수, 풀 지터, 최대 30초."), tr("today 16:12", "今日 16:12", "오늘 16:12")],
+  ["payments", tr("Retry storm after outage", "障害後のリトライ嵐", "장애 뒤 재시도 폭주"), tr("Add a circuit breaker in front of the <mark>backoff</mark> so retries stop when the provider is down.",
+    "プロバイダーが落ちたら再試行が止まるよう、<mark>backoff</mark> の前にサーキットブレーカーを入れて。", "공급자가 내려가면 재시도가 멈추도록 <mark>backoff</mark> 앞에 서킷 브레이커를 넣어 줘."), tr("Oct 28", "10/28", "10/28")],
+  ["web", tr("Polling the job status", "ジョブ状態のポーリング", "작업 상태 폴링"), tr("Use <mark>backoff</mark> between status polls instead of a fixed 1 s interval.",
+    "状態ポーリングの間隔を固定 1 秒ではなく <mark>backoff</mark> にして。", "상태 폴링 사이에 고정 1초 대신 <mark>backoff</mark> 를 써 줘."), tr("Oct 21", "10/21", "10/21")],
 ];
 const resNodes = RESULTS.map(([p, title, text, when]) => {
   const n = el(`<div class="res"><div class="meta"><span class="chip proj">${p}</span>${title}<span style="margin-left:auto">${when}</span></div><div class="t">${text}</div></div>`);
@@ -381,44 +454,45 @@ const resNodes = RESULTS.map(([p, title, text, when]) => {
 });
 
 // ------------------------------------------------------------------ scene 6: the Brain
+const T_MISS = tr("What did I miss?", "見逃したことは?", "놓친 거 있어?");
 const BRAIN = [
-  { at: 23.9, html: `<div class="bubble">What did I miss?</div>` },
+  { at: 23.9, html: `<div class="bubble">${T_MISS}</div>` },
   { at: 24.3, html: `<div class="who">Claude</div>` },
-  { at: 24.3, html: `<div class="tool"><span>./argus</span>sessions · next actions · Slack since 09:12</div>` },
-  { at: 24.8, html: `<div class="reply">While you were away:</div>` },
-  { at: 25.0, html: `<div class="icard me"><div class="ih"><span class="kind">⏳ Waiting on you</span>mobile<span class="urg">12 min</span></div><div class="is">Push SDK v5 — needs your call on how existing installs migrate.</div></div>` },
-  { at: 25.3, html: `<div class="icard fyi"><div class="ih"><span class="kind">📝 Left undone</span>shop-api</div><div class="is">Load test passed. Your next action is still open: mention the retry change in the release notes.</div></div>` },
-  { at: 25.6, html: `<div class="icard ses"><div class="ih"><span class="kind">💬 Slack → session</span>#web-team · sam</div><div class="is">Login fails on Safari 17 after the validation change.</div><div class="ix">Best fit: 「Login form validation」</div></div>` },
-  { at: 25.9, html: `<div class="icard me"><div class="ih"><span class="kind">💬 Slack → you</span>#payments · alex<span class="urg">by 3 pm</span></div><div class="is">Approve the refund-limit change.</div></div>` },
-  { at: 29.4, html: `<div class="bubble">Give the Safari bug to the login session, and ask infra to open a PR.</div>` },
+  { at: 24.3, html: `<div class="tool"><span>./argus</span>${tr("sessions · next actions · Slack since 09:12", "sessions · ネクストアクション · 09:12 以降の Slack", "sessions · 넥스트 액션 · 09:12 이후 슬랙")}</div>` },
+  { at: 24.8, html: `<div class="reply">${tr("While you were away:", "離れている間に:", "자리 비운 사이:")}</div>` },
+  { at: 25.0, html: `<div class="icard me"><div class="ih"><span class="kind">${tr("⏳ Waiting on you", "⏳ あなたの返事待ち", "⏳ 내 답 대기")}</span>mobile<span class="urg">${tr("12 min", "12分", "12분")}</span></div><div class="is">${tr("Push SDK v5 — needs your call on how existing installs migrate.", "プッシュ SDK v5 — 既存インストールの移行方法を決めてください。", "푸시 SDK v5 — 기존 설치 앱을 어떻게 옮길지 결정이 필요합니다.")}</div></div>` },
+  { at: 25.3, html: `<div class="icard fyi"><div class="ih"><span class="kind">${tr("📝 Left undone", "📝 やり残し", "📝 남은 일")}</span>shop-api</div><div class="is">${tr("Load test passed. Your next action is still open: mention the retry change in the release notes.", "負荷テストは成功。ネクストアクションが残っています: リリースノートに再試行の変更を書く。", "부하 테스트는 통과했습니다. 넥스트 액션이 남아 있습니다: 릴리스 노트에 재시도 변경 적기.")}</div></div>` },
+  { at: 25.6, html: `<div class="icard ses"><div class="ih"><span class="kind">${tr("💬 Slack → session", "💬 Slack → セッション", "💬 슬랙 → 세션")}</span>#web-team · sam</div><div class="is">${T_SAFARI}</div><div class="ix">${tr("Best fit: 「Login form validation」", "担当候補: 「ログインフォームの検証」", "맡을 세션: 「로그인 폼 검증」")}</div></div>` },
+  { at: 25.9, html: `<div class="icard me"><div class="ih"><span class="kind">${tr("💬 Slack → you", "💬 Slack → あなた", "💬 슬랙 → 나")}</span>#payments · alex<span class="urg">${tr("by 3 pm", "15時まで", "오후 3시까지")}</span></div><div class="is">${tr("Approve the refund-limit change.", "返金上限の変更を承認してください。", "환불 한도 변경을 승인해 주세요.")}</div></div>` },
+  { at: 29.4, html: `<div class="bubble">${tr("Give the Safari bug to the login session, and ask infra to open a PR.", "Safari のバグはログインのセッションに任せて、infra には PR を作るよう伝えて。", "Safari 버그는 로그인 세션에 맡기고, infra 에는 PR 열라고 해 줘.")}</div>` },
   { at: 29.8, html: `<div class="who">Claude</div>` },
-  { at: 29.8, html: `<div class="tool"><span>./argus</span>send 1f3a 'Login fails on Safari 17 …'</div>` },
-  { at: 30.1, html: `<div class="tool"><span>./argus</span>send 9c2e 'Open a PR for the for_each change.'</div>` },
-  { at: 30.4, html: `<div class="reply">Sent to both — I'll tell you when they answer.</div>` },
+  { at: 29.8, html: `<div class="tool"><span>./argus</span>send 1f3a '${tr("Login fails on Safari 17 …", "Safari 17 でログイン不可 …", "Safari 17 로그인 실패 …")}'</div>` },
+  { at: 30.1, html: `<div class="tool"><span>./argus</span>send 9c2e '${tr("Open a PR for the for_each change.", "for_each の変更で PR …", "for_each 변경으로 PR …")}'</div>` },
+  { at: 30.4, html: `<div class="reply">${tr("Sent to both — I'll tell you when they answer.", "両方に送りました — 返事が来たらお知らせします。", "둘 다 보냈습니다 — 답이 오면 알려 드릴게요.")}</div>` },
 ];
 const brainNodes = BRAIN.map((it) => { const x = el(it.html); $("bbody").appendChild(x); return x; });
-const BTYPED = "Give the Safari bug to the login session, and ask infra to open a PR.";
+const BTYPED = tr("Give the Safari bug to the login session, and ask infra to open a PR.", "Safari のバグはログインのセッションに任せて、infra には PR を作るよう伝えて。", "Safari 버그는 로그인 세션에 맡기고, infra 에는 PR 열라고 해 줘.");
 
 // ------------------------------------------------------------------ scene 7: tiles
 const TILES = [
-  ["🖥", "tmux or Orca", "Drive sessions in tmux from any terminal app, or in Orca."],
-  ["🧾", "Changes", "Uncommitted work per session, unified or side by side."],
-  ["📊", "Usage pace", "5-hour and weekly limits, with how fast you're burning them."],
-  ["📅", "Daily log", "What you did yesterday, across every session — written each morning."],
-  ["⏪", "Rewind, branch, model", "Run Claude Code commands from the board, checked step by step."],
-  ["🔒", "Stays on your Mac", "127.0.0.1 only, secrets masked before they're stored."],
+  ["🖥", tr("tmux or Orca", "tmux または Orca", "tmux 또는 Orca"), tr("Drive sessions in tmux from any terminal app, or in Orca.", "どのターミナルアプリでも tmux の中のセッションを、または Orca で操作。", "어느 터미널 앱이든 tmux 안의 세션을, 또는 Orca 에서 조작.")],
+  ["🧾", tr("Changes", "変更の確認", "변경 보기"), tr("Uncommitted work per session, unified or side by side.", "セッションごとの未コミットの変更を、統合表示か左右並びで。", "세션별 커밋 안 한 변경을 한 줄 또는 나란히.")],
+  ["📊", tr("Usage pace", "使用量のペース", "사용량 속도"), tr("5-hour and weekly limits, with how fast you're burning them.", "5 時間・週ごとの上限と、今の消費ペース。", "5시간·주간 한도와 지금 쓰는 속도.")],
+  ["📅", tr("Daily log", "日次ログ", "업무 일지"), tr("What you did yesterday, across every session — written each morning.", "昨日すべてのセッションでやったこと — 毎朝まとめます。", "어제 모든 세션에서 한 일 — 매일 아침 써 둡니다.")],
+  ["⏪", tr("Rewind, branch, model", "巻き戻し・ブランチ・モデル", "되돌리기·갈래·모델"), tr("Run Claude Code commands from the board, checked step by step.", "Claude Code のコマンドをボードから、一歩ずつ確認しながら。", "Claude Code 명령을 보드에서, 단계마다 확인하며.")],
+  ["🔒", tr("Stays on your Mac", "Mac の中だけで", "내 Mac 에만"), tr("127.0.0.1 only, secrets masked before they're stored.", "127.0.0.1 のみ、秘密情報は保存前に伏せる。", "127.0.0.1 전용, 비밀값은 저장 전에 가림.")],
 ];
 const tileNodes = TILES.map(([ic, h, p]) => { const n = el(`<div class="tile"><div class="ic">${ic}</div><h3>${h}</h3><p>${p}</p></div>`); $("grid").appendChild(n); return n; });
 
 // ------------------------------------------------------------------ captions & pointer
 const CAPS = [
-  [7.9, 10.5, "Every session, side by side — live."],
-  [10.9, 13.0, "See who needs you. Answer right from the board."],
-  [13.2, 15.0, "Never miss a reply."],
-  [15.2, 18.8, "Reply without hunting for the right terminal."],
-  [19.9, 22.6, "Search every prompt and every reply."],
-  [23.7, 27.4, "The Brain catches what you missed — in sessions and in Slack."],
-  [29.3, 32.8, "…and drives every session for you."],
+  [7.9, 10.5, tr("Every session, side by side — live.", "すべてのセッションを横に並べて — リアルタイムで。", "모든 세션을 나란히 — 실시간으로.")],
+  [10.9, 13.0, tr("See who needs you. Answer right from the board.", "誰があなたを待っているか一目で。ボードからそのまま答えられます。", "누가 나를 기다리는지 보고, 보드에서 바로 답하세요.")],
+  [13.2, 15.0, tr("Never miss a reply.", "返事を見逃しません。", "답을 놓치지 않습니다.")],
+  [15.2, 18.8, tr("Reply without hunting for the right terminal.", "ターミナルを探さずに、そのまま返信。", "맞는 터미널을 찾지 않고 바로 답장.")],
+  [19.9, 22.6, tr("Search every prompt and every reply.", "すべての質問と返事を検索。", "모든 질문과 답을 검색.")],
+  [23.7, 27.4, tr("The Brain catches what you missed — in sessions and in Slack.", "ブレインが見逃しを拾います — セッションでも Slack でも。", "브레인이 놓친 것을 잡아 줍니다 — 세션에서도, 슬랙에서도.")],
+  [29.3, 32.8, tr("…and drives every session for you.", "…そして、すべてのセッションを代わりに動かします。", "…그리고 모든 세션을 대신 움직입니다.")],
 ];
 const winX = 100, winY = 70, colX = (i) => winX + 22 + i * 418, colTop = winY + 130;
 // measured on the rendered 1920×1080 frame: Yes button, column 4 composer and send button, search box
@@ -441,8 +515,11 @@ function pointer(t, path = PTR) {
 }
 
 // ------------------------------------------------------------------ render(t)
-const TYPED = "Yes — switch to for_each and write the state mv commands.";
-function fmt(sec) { sec = Math.max(0, Math.floor(sec)); return `${Math.floor(sec / 60)}m ${String(sec % 60).padStart(2, "0")}s`; }
+const TYPED = tr("Yes — switch to for_each and write the state mv commands.", "うん — for_each に変えて、state mv のコマンドも書いて。", "응 — for_each 로 바꾸고 state mv 명령도 써 줘.");
+function fmt(sec) {
+  sec = Math.max(0, Math.floor(sec)); const m = Math.floor(sec / 60), ss = String(sec % 60).padStart(2, "0");
+  return tr(`${m}m ${ss}s`, `${m}分${ss}秒`, `${m}분 ${ss}초`);
+}
 
 function renderOriginal(t, G) {
   const ins = G >= T0 && G < T0 + D;   // the spliced next-actions scene is playing
@@ -486,7 +563,7 @@ function renderOriginal(t, G) {
     pill.style.transform = `scale(${pop})`;
     const slot = n.querySelector(".slot");
     slot.innerHTML = st === "new" ? `<span class="bell" style="transform:scale(${back(prog(clk, since, since + .4))})">🔔</span>` : "";
-    n.querySelector(".ago").textContent = st === "done" ? "48m ago" : "just now";
+    n.querySelector(".ago").textContent = st === "done" ? tr("48m ago", "48分前", "48분 전") : T_NOW;
     n.querySelector(".chead").style.background = st === "waiting" ? "#fff7e8" : st === "new" ? "#fdf0ee" : "var(--surface-2)";
     // body items
     c.items.forEach((it, j) => {
@@ -499,7 +576,7 @@ function renderOriginal(t, G) {
     if (working) {
       c.working.querySelector(".ring").style.transform = `rotate(${G * 360}deg)`;
       // since < 0: already running for -since seconds when the board appears (t = 7)
-      c.working.querySelector(".wt").textContent = "working · " + fmt(gs ? G - since : since >= 30 ? t - since : c.since < 0 ? t - 7 - c.since : t - c.since);
+      c.working.querySelector(".wt").textContent = tr("working · ", "作業中 · ", "작업 중 · ") + fmt(gs ? G - since : since >= 30 ? t - since : c.since < 0 ? t - 7 - c.since : t - c.since);
     }
     n.classList.toggle("sel", ins ? i === 1 : i === 3 && t > 14.9 && t < 19.8);
     // during the spliced scene the other columns step back
@@ -511,7 +588,7 @@ function renderOriginal(t, G) {
   const typing = t > 15.15 && t < 17.35;
   comp.classList.toggle("focus", t > 15.1 && t < 17.45);
   if (typing) { txt.classList.add("typed"); txt.innerHTML = typed(TYPED, t, 15.4, 32) + `<span class="caret" style="opacity:${Math.sin(t * 12) > 0 ? 1 : .2}"></span>`; }
-  else { txt.classList.remove("typed"); txt.textContent = "Message Claude · Enter to send"; }
+  else { txt.classList.remove("typed"); txt.textContent = T_COMPOSER; }
   comp.querySelector(".send").style.transform = `scale(${1 - .15 * Math.sin(Math.PI * prog(t, 17.25, 17.5))})`;
   // counters
   [["nWait", nWait], ["nNew", nNew], ["nWork", nWork]].forEach(([id, v]) => {
@@ -534,7 +611,7 @@ function renderOriginal(t, G) {
   const bcomp = $("bcomp"), btxt = bcomp.querySelector(".txt");
   bcomp.classList.toggle("focus", t > 27.3 && t < 29.3);
   if (t > 27.35 && t < 29.25) { btxt.classList.add("typed"); btxt.innerHTML = typed(BTYPED, t, 27.4, 46) + `<span class="caret" style="opacity:${Math.sin(t * 12) > 0 ? 1 : .2}"></span>`; }
-  else { btxt.classList.remove("typed"); btxt.textContent = "Ask the Brain…"; }
+  else { btxt.classList.remove("typed"); btxt.textContent = T_ASK; }
 
   // scene 5 — search palette
   const ks = window_(t, 19.65, 22.5, .35);
@@ -582,9 +659,9 @@ function renderOriginal(t, G) {
 // ------------------------------------------------------------------ spliced scene: next actions (global time)
 const dimK = (G) => G < T0 || G > T0 + D ? 0 : ease(prog(G, T0 + .1, T0 + .6)) * (1 - ease(prog(G, T0 + 7.5, T0 + 8.2)));
 const NA_CAPS = [
-  [0.2, 2.2, "Wait — what was I doing in this one?"],
-  [2.5, 4.6, "Next actions remember it for you, per session."],
-  [5.0, 8.0, "Pick up right where you left off."],
+  [0.2, 2.2, tr("Wait — what was I doing in this one?", "あれ、ここで何をしようとしてたっけ?", "잠깐, 여기서 뭐 하려고 했더라?")],
+  [2.5, 4.6, tr("Next actions remember it for you, per session.", "ネクストアクションがセッションごとに覚えています。", "넥스트 액션이 세션마다 기억해 둡니다.")],
+  [5.0, 8.0, tr("Pick up right where you left off.", "止まったところからすぐ再開。", "멈춘 곳에서 바로 이어 가세요.")],
 ];
 let NA_PTR = null, NA_CLICKS = [1.9, 4.9];   // pointer path is measured from the layout on first use
 function naPath() {
@@ -605,7 +682,7 @@ function renderNext(G) {
   $("naLoad").querySelector("i").textContent = sent ? "✓" : "";
   $("naSend").style.visibility = sent ? "hidden" : "visible";
   $("naSend").style.transform = `scale(${1 - .2 * Math.sin(Math.PI * prog(u, 4.85, 5.1))})`;
-  $("naN").textContent = sent ? "to do 1" : "to do 2";
+  $("naN").textContent = T_TODO(sent ? 1 : 2);
   if (!ins) return;
   const cap = NA_CAPS.find(([a, b]) => u >= a - .1 && u <= b + .4);
   show($("cap"), !!cap);
@@ -628,6 +705,20 @@ function render(G) {
 }
 window.render = render;
 window.DURATION = DURATION;
+
+// translated static text (needs T_MISS etc., defined above)
+if (LANG !== "en") STATIC().forEach(([sel, html]) => document.querySelectorAll(sel).forEach((n) => { n.innerHTML = html; }));
+// buttons whose place depends on the label width: aim the pointer at where they really are in this language
+(function calibrate() {
+  const st = $("stage").getBoundingClientRect();
+  const center = (id) => { const b = $(id).getBoundingClientRect(); return b.width ? [b.left - st.left + b.width / 2, b.top - st.top + b.height / 2] : null; };
+  renderOriginal(11.5, 11.5);
+  const yes = center("yesBtn");
+  if (yes) PTR.forEach((p) => { if (p[1] === 184 && p[2] === 692) { p[1] = yes[0]; p[2] = yes[1]; } });
+  renderOriginal(24.2, 24.2 + D);
+  const chip = center("qSlack");
+  if (chip) PTR.forEach((p) => { if (p[1] === 357 && p[2] === 249) { p[1] = chip[0]; p[2] = chip[1]; } });
+})();
 
 // real-time playback when opened directly (the renderer drives render(t) itself)
 const fixed = new URLSearchParams(location.search).get("t");

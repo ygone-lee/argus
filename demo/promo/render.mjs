@@ -3,6 +3,7 @@
 //   node demo/promo/render.mjs                       # → demo/.run/argus-promo.mp4 (1920×1080, 30 fps)
 //   node demo/promo/render.mjs --out docs/promo.mp4 --fps 30
 //   node demo/promo/render.mjs --still 12.5          # one PNG of the frame at 12.5 s (for checking a scene)
+//   node demo/promo/render.mjs --lang ko --out docs/promo.ko.mp4   # Japanese (ja) or Korean (ko) version
 //
 // Needs Node 22+ (built-in WebSocket), Google Chrome and ffmpeg with libx264.
 import { spawn } from "node:child_process";
@@ -17,6 +18,7 @@ const arg = (name, def) => { const i = process.argv.indexOf("--" + name); return
 const FPS = +arg("fps", 30);
 const OUT = resolve(arg("out", join(RUN, "argus-promo.mp4")));
 const STILL = arg("still", null);
+const LANG = arg("lang", "en");
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PORT = 9333 + Math.floor(Math.random() * 500);
 const W = 1920, H = 1080;
@@ -59,7 +61,7 @@ await send("Page.enable");
 await send("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: 1, mobile: false });
 await send("Page.addScriptToEvaluateOnNewDocument", { source: "window.__capture = true" });
 const loaded = new Promise((r) => ws.addEventListener("message", (e) => { if (JSON.parse(e.data).method === "Page.loadEventFired") r(); }));
-await send("Page.navigate", { url: pathToFileURL(join(HERE, "promo.html")).href });
+await send("Page.navigate", { url: pathToFileURL(join(HERE, "promo.html")).href + (LANG !== "en" ? "?lang=" + encodeURIComponent(LANG) : "") });
 await loaded;
 await evaluate("document.fonts.ready.then(() => true)");
 
@@ -70,7 +72,7 @@ const shot = async (t, format) => {
 };
 
 if (STILL !== null) {
-  const file = resolve(arg("out", join(RUN, `still-${STILL}.png`)));
+  const file = resolve(arg("out", join(RUN, `still-${LANG !== "en" ? LANG + "-" : ""}${STILL}.png`)));
   writeFileSync(file, await shot(+STILL, "png"));
   console.log(file);
   process.exit(0);

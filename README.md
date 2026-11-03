@@ -406,7 +406,7 @@ front, but not driven.
 | `ctl.sh` | Server control |
 | `demo/run.py` | Demo: the real board with made-up sessions and a scripted timeline, on its own data folder and port |
 | `docs/connectors.md`, `docs/terminals.md` | Guides for writing a connector and adding a terminal |
-| `demo/promo/` | The intro video at the top of this README: `promo.html` (animation, open it to play) and `render.mjs` (renders it to MP4 with headless Chrome and ffmpeg) |
+| `demo/promo/` | The intro video at the top of the READMEs: `promo.html` (animation, open it to play; `?lang=ja` / `?lang=ko` for the Japanese and Korean versions) and `render.mjs` (renders it to MP4 with headless Chrome and ffmpeg; `--lang ja` / `--lang ko`) |
 
 ## Performance notes
 
