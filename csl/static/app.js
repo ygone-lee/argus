@@ -291,7 +291,9 @@ function md(src) {
     if (h) { const n = Math.min(h[1].length + 1, 4); out.push(`<h${n}>${inline(h[2])}</h${n}>`); i++; continue; }
     if (/^\s*(-{3,}|\*{3,})\s*$/.test(l)) { out.push("<hr>"); i++; continue; }
     if (/^\s*\|/.test(l) && i + 1 < L.length && /^\s*\|?\s*:?-{2,}/.test(L[i + 1])) {
-      const cells = r => r.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => inline(c.trim()));
+      // 칸 구분은 이스케이프하지 않은 | 만 — 칸 안의 \| (코드 속 파이프 등)는 글자 | 로
+      const cells = r => r.trim().replace(/^\|/, "").replace(/(?<!\\)\|$/, "").split(/(?<!\\)\|/)
+        .map(c => inline(c.trim().replace(/\\\|/g, "|")));
       let html = "<table><thead><tr>" + cells(l).map(c => "<th>" + c + "</th>").join("") + "</tr></thead><tbody>";
       i += 2;
       while (i < L.length && /^\s*\|/.test(L[i])) html += "<tr>" + cells(L[i++]).map(c => "<td>" + c + "</td>").join("") + "</tr>";
