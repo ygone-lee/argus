@@ -1,3 +1,30 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+.venv/
+venv/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
+# Claude Code — worktrees and personal settings (brain/.claude/settings.json stays tracked)
+/.claude/
+settings.local.json
+CLAUDE.local.md
+
+# Local data, in case CSL_DATA_DIR points inside the repo
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.log
+
+# Secrets
+.env
+.env.*
+
+# OS / editors
 .DS_Store
+.idea/
+.vscode/
+*.swp
