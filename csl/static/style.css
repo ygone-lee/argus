@@ -319,6 +319,22 @@ body.view-board .board {
 .md li { margin: 2px 0; }
 .md li > ul, .md li > ol { margin: 2px 0 0; }
 .md li > .code-wrap { margin: 4px 0 6px; }
+.prompt-img { display: inline-block; vertical-align: top; margin: 4px 4px 4px 0; }
+.prompt-img img {
+  display: block; max-width: min(120px, 100%); max-height: 80px; border-radius: 5px; border: 1px solid var(--border); cursor: zoom-in;
+}
+.prompt-img:hover img { border-color: var(--accent); }
+.img-view {
+  position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
+  padding: 40px; background: rgba(20, 18, 15, .78); cursor: zoom-out;
+}
+.img-view[hidden] { display: none; }
+.img-view img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; box-shadow: 0 20px 60px rgba(0, 0, 0, .45); }
+.img-view-x {
+  position: absolute; top: 12px; right: 16px; width: 36px; height: 36px; border: 0; border-radius: 50%;
+  background: rgba(255, 255, 255, .14); color: #fff; font-size: 22px; line-height: 1; cursor: pointer;
+}
+.img-view-x:hover { background: rgba(255, 255, 255, .26); }
 
 /* 보드 칸: 머리 → 넥스트 액션(고정) → 대화(스크롤, 최신이 아래) */
 .col { --fade: var(--surface); }

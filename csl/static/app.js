@@ -722,7 +722,7 @@ function turnHtml(t, s, lastRunId) {
   const notice = taskNotice(t.prompt);
   const user = t.prompt == null ? "" : notice ? noticeHtml(notice, at ? hm(at) : "") : `
     <div class="msg-meta">${t.status !== "rewound" && t.prompt && s.state !== "ended" ? `<button class="turn-rw" data-action="rewind-menu" data-sid="${esc(s.session_id)}" data-tid="${t.id}" title="이 요청 앞으로 되돌리기(/rewind)">↶</button>` : ""}${at ? dateLabel(at) + " " + hm(at) : ""}</div>
-    <div class="msg-user"><div class="bubble md ${promptLong && !promptOpen ? "clamped" : ""}">${mdCached(t.prompt)}</div></div>
+    <div class="msg-user"><div class="bubble md ${promptLong && !promptOpen ? "clamped" : ""}">${promptHtml(t)}</div></div>
     ${promptLong ? `<div class="msg-user"><button class="linkish" data-action="toggle-prompt" data-tid="${t.id}">${promptOpen ? "접기" : "요청 전체 보기"}</button></div>` : ""}`;
 
   let claude;
@@ -801,8 +801,48 @@ function thumbsIn(text) {
   const paths = [...new Set((text || "").match(PATH_RE) || [])].filter(p => IMG_PATH.test(p)).slice(0, 12);
   return paths.length ? `<div class="mid-files resp-thumbs">${paths.map(thumbHtml).join("")}</div>` : "";
 }
+// 요청 글 — 붙인 이미지 자리([Image #N], Claude Code 가 남기는 표시)에 대화 기록 속 그 이미지를 썸네일로. 누르면 새 탭에서 크게
+function promptHtml(t) {
+  const html = mdCached(t.prompt);
+  if (!t.id || !html.includes("[Image #")) return html;
+  let k = 0;
+  return html.replace(/\[Image #(\d+)\]/g, (m, n) => {
+    const url = `/api/turns/${t.id}/image/${n}?i=${k++}`;
+    return `<a class="prompt-img" href="${url}" target="_blank" rel="noopener" title="Image #${n} — 눌러서 크게 보기"><img src="${url}" alt="${m}" loading="lazy"></a>`;
+  });
+}
+// 크게 보기 — 보드 위 팝업. 아무 데나 누르거나 Esc 로 닫는다(⌘·Ctrl·Shift 클릭은 새 탭 그대로)
+function openImgView(src, alt) {
+  let v = $("#imgView");
+  if (!v) {
+    v = document.createElement("div");
+    v.id = "imgView";
+    v.className = "img-view";
+    v.hidden = true;
+    v.innerHTML = `<img alt=""><button type="button" class="img-view-x" title="닫기 (Esc)" aria-label="닫기">×</button>`;
+    v.addEventListener("click", () => { v.hidden = true; });
+    document.body.appendChild(v);
+  }
+  const img = v.querySelector("img");
+  img.src = src;
+  img.alt = alt || "";
+  v.hidden = false;
+}
+document.addEventListener("click", e => {
+  const a = e.target.closest && e.target.closest(".prompt-img");
+  if (!a || e.metaKey || e.ctrlKey || e.shiftKey) return;
+  e.preventDefault();
+  openImgView(a.getAttribute("href"), a.querySelector("img") && a.querySelector("img").alt);
+});
+document.addEventListener("keydown", e => {   // 위에 뜬 것부터 — 팝업만 닫고 칸·입력창의 Esc 로 넘기지 않는다
+  const v = $("#imgView");
+  if (e.key === "Escape" && v && !v.hidden) { e.preventDefault(); e.stopImmediatePropagation(); v.hidden = true; }
+}, true);
 document.addEventListener("error", e => {
-  if (e.target.tagName === "IMG" && e.target.closest(".mid-files")) e.target.hidden = true;
+  if (e.target.tagName !== "IMG") return;
+  if (e.target.closest(".mid-files")) e.target.hidden = true;
+  const a = e.target.closest(".prompt-img");   // 기록에서 이미지를 못 찾으면 원래 글자로
+  if (a) a.replaceWith(document.createTextNode(e.target.alt));
 }, true);
 function noticeHtml(n, time) {
   const label = { completed: "끝남", failed: "실패", killed: "중단", stopped: "중단" }[n.status.toLowerCase()] || n.status;
@@ -5216,7 +5256,7 @@ function actDetailHtml(x) {
   const notice = taskNotice(t.prompt);
   return `<div class="act-dbody">
     ${notice ? noticeHtml(notice, t.prompt_at ? hm(t.prompt_at) : "")
-      : t.prompt ? `<div class="act-dq"><span class="act-dlabel">요청</span><div class="md">${mdCached(t.prompt)}</div></div>` : ""}
+      : t.prompt ? `<div class="act-dq"><span class="act-dlabel">요청</span><div class="md">${promptHtml(t)}</div></div>` : ""}
     ${(t.middle || []).map(m => `<div class="act-dmid md">${mdCached(m)}</div>`).join("")}
     ${t.response ? `<div class="act-da"><span class="act-dlabel">응답</span><div class="md">${mdCached(t.response)}</div></div>` : ""}
   </div>${go}`;

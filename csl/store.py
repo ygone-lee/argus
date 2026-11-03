@@ -494,6 +494,45 @@ def head_uuids(path, n=30, head_bytes=2 * 1024 * 1024):
     return out
 
 
+_PROMPT_IMGS = {}   # (기록 파일, prompt_id) → {N: (형식, base64)} — 최근 것 몇 개만
+_IMG_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+
+
+def prompt_images(path, prompt_id):
+    """요청에 붙인 이미지들 {[Image #N] 의 N: (형식, base64 글)}. 대화 기록의 그 요청(promptId) 사용자 메시지에서 꺼낸다.
+
+    Claude Code 는 요청 글엔 [Image #N] 만 남기고 이미지는 메시지에 base64 로 넣는다(보드에서 보냈든 터미널에 붙였든).
+    N 은 imagePasteIds 순서대로, 없으면 1부터. 도구 결과(Read 등) 속 이미지는 tool_result 안에 있어 맨 위 블록만 본다."""
+    key = (path, prompt_id)
+    if key in _PROMPT_IMGS:
+        return _PROMPT_IMGS[key]
+    out = {}
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if prompt_id not in line or '"image"' not in line:
+                    continue
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                content = (d.get("message") or {}).get("content")
+                if d.get("type") != "user" or d.get("promptId") != prompt_id or not isinstance(content, list):
+                    continue
+                imgs = [b.get("source") or {} for b in content if isinstance(b, dict) and b.get("type") == "image"]
+                imgs = [s for s in imgs if s.get("type") == "base64" and s.get("media_type") in _IMG_TYPES and s.get("data")]
+                ids = d.get("imagePasteIds") or []
+                for k, s in enumerate(imgs):
+                    n = ids[k] if k < len(ids) and isinstance(ids[k], int) else len(out) + 1
+                    out[n] = (s["media_type"], s["data"])
+    except OSError:
+        return {}
+    _PROMPT_IMGS[key] = out
+    if len(_PROMPT_IMGS) > 24:
+        _PROMPT_IMGS.pop(next(iter(_PROMPT_IMGS)))
+    return out
+
+
 def transcript_uuids(path, head_bytes=8 * 1024 * 1024):
     """기록 파일(앞 8MB)의 메시지 ID → 시각. 갈래가 원본의 어느 가지에서 갈라졌는지 맞춰 볼 때 쓴다."""
     out = {}
