@@ -1008,9 +1008,16 @@ function renderBoard() {
   const empty = board.querySelector(".board-empty");
   if (!cols.length) {
     board.querySelectorAll(".col, .col-more").forEach(el => el.remove());
-    const msg = S.projFilter ? "이 프로젝트에 지금 보이는 세션이 없습니다 — 위 프로젝트 버튼에서 「전체 프로젝트」로" : "기록된 세션이 없습니다.";
-    if (empty) empty.textContent = msg;
-    else board.insertAdjacentHTML("beforeend", `<div class="board-empty">${msg}</div>`);
+    // 처음 쓰는 사람에게는 다음에 할 일을 — 세션이 하나도 없을 때(프로젝트 필터로 가려진 것과 구분)
+    const msg = S.projFilter ? "이 프로젝트에 지금 보이는 세션이 없습니다 — 위 프로젝트 버튼에서 「전체 프로젝트」로"
+      : `<b>아직 기록된 세션이 없습니다</b>
+         <p>Claude Code 에서 요청을 하나 보내면 그 세션이 여기에 나타납니다 — 이미 열려 있는 세션도 다음 요청부터 보입니다.</p>
+         <p><span>훅을 설치하기 전의 대화도 가져오려면</span>: <code>/usr/bin/python3 csl/backfill.py --days 7</code></p>
+         <p><span>설치 상태 확인</span>: <code>/usr/bin/python3 install.py --check</code></p>`;
+    // 같은 글이면 다시 쓰지 않는다(번역된 글을 매번 한국어로 되돌리지 않게)
+    if (!empty) { board.insertAdjacentHTML("beforeend", `<div class="board-empty"></div>`); }
+    const box = board.querySelector(".board-empty");
+    if (box.dataset.msg !== msg) { box.innerHTML = msg; box.dataset.msg = msg; }
     return;
   }
   if (empty) empty.remove();

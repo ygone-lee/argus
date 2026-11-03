@@ -3,7 +3,9 @@
 // - 대화·제목·요약·슬랙 카드 내용 같은 사용자 내용(I18N_SKIP)은 옮기지 않는다
 // - 사전에 없는 한국어는 window.__i18nMissing 에 모인다(빠진 문구 찾기용)
 const I18N_LANGS = { ko: "한국어", ja: "日本語", en: "English" };
-const LANG = (() => { try { return JSON.parse(localStorage.getItem("csl.lang")) || "ko"; } catch (e) { return "ko"; } })();
+// 고른 언어가 없으면 브라우저 언어(한국어·日本語, 그 밖은 English)
+const BROWSER_LANG = (() => { const l = (navigator.languages || [navigator.language || ""]).join(",").toLowerCase(); const first = l.split(",").map(x => x.slice(0, 2)).find(x => x === "ko" || x === "ja" || x === "en"); return first || "en"; })();
+const LANG = (() => { try { return JSON.parse(localStorage.getItem("csl.lang")) || BROWSER_LANG; } catch (e) { return BROWSER_LANG; } })();
 const I18N_SKIP = ".md, .bubble, .col-title, .title-text, .rename-input, .col-recap, .recap-clamp, .steps, .tdetail, .mid-text, " +
   ".ib-summary, .ib-rec b, .ib-rec .muted, .ib-meta b, .ib-prompt, .ask-qhead, .ask-opt b, .ask-opt .muted, .nm-folder b, " +
   ".note-text, .daily-body, .sr-text, .sr-title, .sr-scope, .msg-notice .muted, .notice-sum, .ib-target, #langSel, " +
@@ -31,6 +33,12 @@ const I18N_ROWS = [
   ["새 응답 {}", "新しい応答 {}", "new {}"], ["프로젝트 필터를 풀었습니다", "プロジェクトの絞り込みを解除しました", "Cleared the project filter"],
   ["이 프로젝트에 지금 보이는 세션이 없습니다 — 위 프로젝트 버튼에서 「전체 프로젝트」로", "このプロジェクトに表示中のセッションはありません — 上のプロジェクトボタンで「すべてのプロジェクト」へ", "No visible sessions in this project — switch to \"All projects\" with the project button above"],
   ["기록된 세션이 없습니다.", "記録されたセッションはありません。", "No sessions recorded."],
+  ["아직 기록된 세션이 없습니다", "まだ記録されたセッションはありません", "No sessions yet"],
+  ["Claude Code 에서 요청을 하나 보내면 그 세션이 여기에 나타납니다 — 이미 열려 있는 세션도 다음 요청부터 보입니다.",
+   "Claude Code で依頼を一つ送ると、そのセッションがここに表示されます — すでに開いているセッションも次の依頼から表示されます。",
+   "Send any prompt in Claude Code and its session shows up here — sessions that are already open appear from their next prompt."],
+  ["훅을 설치하기 전의 대화도 가져오려면", "フックを入れる前の会話も取り込むには", "To bring in conversations from before the install"],
+  ["설치 상태 확인", "インストール状態の確認", "Check the install"],
   ["🧠 브레인", "🧠 ブレイン", "🧠 Brain"],
   ["＋ 새 세션", "＋ 新しいセッション", "＋ New session"], ["새 Claude Code 세션 — Orca 터미널에 띄웁니다", "新しい Claude Code セッション — Orca のターミナルで起動します", "New Claude Code session — opens in an Orca terminal"],
   ["메뉴", "メニュー", "Menu"], ["보기·알림·하루 정리·단축키", "表示・通知・日報・ショートカット", "View · notifications · daily log · shortcuts"],

@@ -261,7 +261,10 @@ body.view-board .board {
 }
 .col .md { font-size: 12.5px; }
 .col-more { flex: 0 0 160px; display: flex; align-items: center; justify-content: center; }
-.board-empty { margin: auto; color: var(--text-3); }
+.board-empty { margin: auto; color: var(--text-3); max-width: 640px; text-align: center; line-height: 1.6; }
+.board-empty b { display: block; font-size: 18px; color: var(--text); margin-bottom: 8px; }
+.board-empty p { margin: 6px 0; }
+.board-empty code { font-family: var(--mono); font-size: 12.5px; background: var(--code-bg); padding: 2px 7px; border-radius: 5px; color: var(--text-2); user-select: all; }
 
 /* ---------------------------------------------------------------- 대화 스레드(최신이 아래) */
 .older-turns { text-align: center; padding: 10px 0 4px; }

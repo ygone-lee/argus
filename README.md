@@ -75,20 +75,28 @@ Everything stays on your machine: a small Python server bound to 127.0.0.1 and a
 | 📅 **Look back** | An activity feed of every session in time order, and an optional daily work log written each morning. |
 | 🧠 **Ask the Brain** *(optional)* | Chat with a Claude Code session that can read the board: "what's waiting for me?", "what did I do today?", "tell the api session to run the tests". It can collect Slack and Gmail mentions into an inbox kanban, suggest who should handle each one, and delegate cards to sessions. |
 
-The board UI is available in 한국어, 日本語 and English (⋮ → 🌐).
+The board UI is available in 한국어, 日本語 and English — it follows your browser's language, and you can switch in ⋮ → 🌐.
 
 ## Quick start
 
 **You need:** macOS, [Claude Code](https://docs.anthropic.com/en/docs/claude-code) signed in with your Claude account (a subscription plan is enough — no API key), the system Python 3 (`/usr/bin/python3`, 3.9 or later — nothing to `pip install`) and a modern browser (tested in Chrome).
 
+> **First time using developer tools on this Mac?** The first `git` or `/usr/bin/python3` command opens a macOS prompt to
+> install the *Command Line Tools*. Click **Install**, wait a few minutes, then run the command again.
+
 ```sh
 git clone https://github.com/ygone-lee/argus.git
 cd argus
 
-/usr/bin/python3 install.py                 # add Argus hooks to ~/.claude/settings.json (a backup is saved first)
-/usr/bin/python3 csl/backfill.py --days 7   # optional: import the last 7 days of conversations
-./ctl.sh open                               # start the board and open http://127.0.0.1:7799
+/usr/bin/python3 install.py                 # add Argus hooks to Claude Code (a backup is saved first), then open the board
 ```
+
+The installer checks that you're on macOS with Claude Code installed, creates `~/.claude/settings.json` if you don't have
+one yet (and stops without changing anything if the file isn't valid JSON), prints what it changed and the next steps,
+and offers to open the board at http://127.0.0.1:7799. Later, `./ctl.sh open` opens it again, and
+`/usr/bin/python3 install.py --check` shows whether everything is installed and running.
+
+Optional: `/usr/bin/python3 csl/backfill.py --days 7` brings in the last week of conversations from before the install.
 
 That's it. Keep working in Claude Code as usual — every open session shows up on the board from its next prompt, and new sessions appear as soon as they start. The server starts itself from the hooks after a reboot, so you rarely need `ctl.sh` again.
 
@@ -319,11 +327,16 @@ Every hook also records the effort level (`effort.level`) and Remote Control sta
 ## Install and uninstall
 
 ```sh
-/usr/bin/python3 install.py               # add hooks and the status line tap to ~/.claude/settings.json (keeps other hooks, saves a backup)
+/usr/bin/python3 install.py               # add hooks, the status line tap and the skill (keeps other hooks, saves a backup)
+/usr/bin/python3 install.py --check       # what is installed and running (changes nothing)
 /usr/bin/python3 csl/backfill.py --days 7 # import conversations from before the hooks were installed (optional)
 ./ctl.sh open                             # start the server and open the browser
-/usr/bin/python3 install.py --uninstall   # remove the hooks and restore the original status line
+/usr/bin/python3 install.py --uninstall   # remove the hooks and restore the original status line (your data is kept)
 ```
+
+`install.py` also takes `--open` / `--no-open` (open the board when done without asking / don't offer) and `--force`
+(install the hooks on a system other than macOS — recording works, driving terminals doesn't). Running it again is safe:
+it keeps exactly one set of Argus hooks, and updates paths if you moved the folder.
 
 Sessions that are already open pick up the new hooks right away and are recorded from their next prompt (verified on Claude Code 2.1.312).
 
