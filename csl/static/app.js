@@ -215,6 +215,26 @@ function linkifyUrls(html, hold = x => x) {
     return hold(`<a class="ext" href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`) + m.slice(url.length);
   });
 }
+// [{indent, ordered, num, html}] → 중첩 목록 HTML. 더 들여 쓴 항목은 앞 항목 안의 하위 목록, 같은 깊이에서 종류가 바뀌면 새 목록
+function listHtml(items) {
+  let html = "";
+  const stack = [];   // 열린 목록들 {indent, tag}
+  const open = it => {
+    const tag = it.ordered ? "ol" : "ul";
+    stack.push({ indent: it.indent, tag });
+    return `<${tag}${it.ordered && it.num > 1 ? ` start="${it.num}"` : ""}>`;
+  };
+  for (const it of items) {
+    while (stack.length > 1 && it.indent < stack[stack.length - 1].indent) html += `</li></${stack.pop().tag}>`;
+    const top = stack[stack.length - 1];
+    if (!top || it.indent > top.indent) html += open(it);
+    else if ((it.ordered ? "ol" : "ul") !== top.tag) html += `</li></${stack.pop().tag}>` + open(it);
+    else html += "</li>";
+    html += "<li>" + it.html;
+  }
+  while (stack.length) html += `</li></${stack.pop().tag}>`;
+  return html;
+}
 function inline(t) {
   // 코드·링크는 자리표시(\u0000N\u0000)로 빼 두었다가 마지막에 넣는다 — 파일 경로 링크가 링크 주소(href) 안까지 바꿔
   // 링크가 깨지던 것. 자리표시 문자(NUL)는 md() 가 원문에서 미리 지운다
@@ -270,19 +290,16 @@ function md(src) {
     }
     const listRe = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
     if (listRe.test(l)) {
-      const ordered = /\d/.test(l.match(listRe)[2]);
-      let html = ordered ? "<ol>" : "<ul>";
+      // 들여쓰기 깊이대로 진짜 중첩 목록으로 — 「1. … / 3칸 들여 쓴 - …」 의 글머리표가 바깥 번호 목록의 항목이 되어
+      // 번호가 이어지고(2·3) 바깥 번호가 밀리던(4·5) 것. 수준마다 번호·글머리표를 따로, 3. 으로 시작하면 3부터
+      const items = [];
       while (i < L.length && (listRe.test(L[i]) || (/^\s{2,}\S/.test(L[i]) && !isBlockStart(L[i].trim())))) {
         const m = L[i].match(listRe);
-        if (m) {
-          const indent = Math.floor(m[1].length / 2);
-          html += `<li style="margin-left:${indent * 18}px">` + inline(m[3]) + "</li>";
-        } else {
-          html = html.replace(/<\/li>$/, "<br>" + inline(L[i].trim()) + "</li>");
-        }
+        if (m) items.push({ indent: m[1].replace(/\t/g, "    ").length, ordered: /\d/.test(m[2]), num: parseInt(m[2], 10), html: inline(m[3]) });
+        else items[items.length - 1].html += "<br>" + inline(L[i].trim());   // 항목 아래 들여 쓴 이어지는 줄
         i++;
       }
-      out.push(html + (ordered ? "</ol>" : "</ul>"));
+      out.push(listHtml(items));
       continue;
     }
     if (/^>/.test(l)) {

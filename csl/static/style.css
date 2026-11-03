@@ -314,6 +314,7 @@ body.view-board .board {
 .md h2, .md h3, .md h4 { letter-spacing: -.005em; }
 .md strong { font-weight: 700; }
 .md li { margin: 2px 0; }
+.md li > ul, .md li > ol { margin: 2px 0 0; }
 
 /* 보드 칸: 머리 → 넥스트 액션(고정) → 대화(스크롤, 최신이 아래) */
 .col { --fade: var(--surface); }
