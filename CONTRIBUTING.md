@@ -25,6 +25,7 @@ Both are plugins — one file each, no changes elsewhere needed for the basics. 
 
 ## Pull requests
 
+- **For anything bigger than a small fix, open an issue first** and describe what you want to change and why. That way we can agree on the approach before you spend time on it — a large PR that arrives unannounced may be closed if it doesn't fit the project's direction.
 - Keep each PR focused on one change, and describe what it changes and how you checked it (which screen, which flow).
 - Run the board and try the change in a real Claude Code session. For UI changes, include a screenshot or short recording.
 - Update `README.md` when behavior, settings or files change.
