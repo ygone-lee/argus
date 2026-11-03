@@ -6,6 +6,7 @@
 ![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey)
 ![Python 3.9+ (standard library only)](https://img.shields.io/badge/python-3.9%2B%20stdlib-3776AB)
 ![Runs locally](https://img.shields.io/badge/runs-100%25%20local-success)
+![Works with your Claude subscription — no API key](https://img.shields.io/badge/Claude-subscription%20only%2C%20no%20API%20key-c96442)
 
 ![Argus board: five Claude Code sessions side by side — live tool calls, a question waiting for an answer, new replies, and a message sent from the board](docs/demo.gif)
 
@@ -14,6 +15,8 @@
 Argus is a local web board that watches every Claude Code session you have open — across terminals, projects and git worktrees — and lays them out side by side, one column per session. It is named after the hundred-eyed giant of Greek myth who never closed all his eyes.
 
 You keep using Claude Code exactly as before. Argus listens through Claude Code's own hooks, keeps a small SQLite database on your Mac, and serves a page at **http://127.0.0.1:7799** where you can see what every session is doing, which ones are waiting for you, and what they last said — and reply to them without hunting for the right terminal tab.
+
+> **Built entirely on Claude Code — your Claude subscription is all you need.** Argus never calls the Anthropic API and never asks for an API key. The board itself makes no model calls at all; everything that does use Claude — the Brain, the daily log, card chat, summaries of delegated cards — runs through the `claude` CLI you are already signed in to, so it is covered by the same Claude plan you use for Claude Code. To read Slack, the Brain uses the Slack connector of your claude.ai account inside Claude Code, or a read-only Slack token you add as a connector.
 
 - [What is Argus?](#what-is-argus)
 - [Why](#why)
@@ -45,7 +48,7 @@ Argus solves that by giving every session a column on a single board:
 
 - **It is passive by default.** Argus only records what Claude Code already reports through hooks and transcripts. It makes no LLM calls of its own to show the board.
 - **It can also drive sessions.** With the [Orca](#working-with-sessions-orca) terminal, the board can type into a session for you: send a message or image, answer a permission or question prompt, stop, rename, switch model, rewind, branch or end a session.
-- **It has an optional assistant, the Brain.** A Claude Code session that reads the board and can answer "what's going on?", sort your Slack and Gmail mentions into an inbox, and hand work to the right session — only when you ask it to.
+- **It has an optional assistant, the Brain** — itself just another Claude Code session, running in this repo's `brain/` folder. A Claude Code session that reads the board and can answer "what's going on?", sort your Slack and Gmail mentions into an inbox, and hand work to the right session — only when you ask it to.
 
 ## Why
 
@@ -76,7 +79,7 @@ The board UI is available in 한국어, 日本語 and English (⋮ → 🌐).
 
 ## Quick start
 
-**You need:** macOS, [Claude Code](https://docs.anthropic.com/en/docs/claude-code), the system Python 3 (`/usr/bin/python3`, 3.9 or later — nothing to `pip install`) and a modern browser (tested in Chrome).
+**You need:** macOS, [Claude Code](https://docs.anthropic.com/en/docs/claude-code) signed in with your Claude account (a subscription plan is enough — no API key), the system Python 3 (`/usr/bin/python3`, 3.9 or later — nothing to `pip install`) and a modern browser (tested in Chrome).
 
 ```sh
 git clone https://github.com/ygone-lee/argus.git
@@ -127,7 +130,7 @@ Argus stores your Claude Code conversations, so it is built to keep them on your
 
 - **Local only.** The server listens on `127.0.0.1` only, checks the `Host` header and accepts only JSON requests, so other web pages can't read or drive it. All data is in `~/.claude/session-log` (SQLite + uploaded images).
 - **Secrets are masked before they are stored.** Known token formats (GitHub, Slack, Google, JWTs), `Bearer …`, passwords in URLs and `password=…`-style values become `[MASKED]`. Wrap anything else in `<private>…</private>` in your prompt: Claude still sees it, Argus stores `[private]`.
-- **No hidden model calls.** Showing the board costs no tokens. Only features you turn on or ask for — the daily log, the Brain, card chat — run Claude, using your own Claude Code account.
+- **No hidden model calls, no API key.** Showing the board costs no tokens. Only features you turn on or ask for — the daily log, the Brain, card chat — run Claude, using your own Claude Code account.
 - **Claude Code itself is left alone.** Argus never edits Claude Code's transcripts. `install.py` keeps your other hooks, backs up `settings.json`, and `--uninstall` puts it back. Hooks never block Claude Code: if one fails it logs the error and exits normally.
 - **Typing into terminals is guarded.** The board refuses to type when a session is waiting on a prompt, has ended, when `claude` is no longer the foreground process of that terminal, or when the text starts with `!` (which would run a shell command). Every multi-step terminal action checks the screen at each step and backs out with Esc if anything doesn't match.
 - **Connectors are read-only.** Slack uses read scopes only, Gmail and Calendar read subjects, senders and times only (no mail bodies). Tokens go into the macOS Keychain, never into settings or logs. The Brain is not allowed to write to Slack or edit files, and it only messages other sessions when you ask it to.
@@ -138,7 +141,8 @@ Argus stores your Claude Code conversations, so it is built to keep them on your
 - **Driving sessions needs Orca.** Other terminals can be brought to the front but not typed into. Adding one is a single module — see [Adding a terminal](#adding-a-terminal).
 - **It follows Claude Code's internals.** Titles, recaps and live progress are read from Claude Code's transcript files, and terminal actions read Claude Code's screen. These are not public APIs and can change between versions; Argus is developed against Claude Code 2.1.x. If something breaks after an update, please [open an issue](CONTRIBUTING.md).
 - **The UI is written in Korean first.** Japanese and English are provided by a translation layer; some labels in this README are quoted in Korean because that is what the code uses. Code comments are in Korean.
-- **Does it use my Claude quota?** Not for the board. Only the optional daily log, the Brain and card chat run Claude.
+- **Do I need an Anthropic API key?** No. Argus has no API client of its own; anything that needs Claude goes through the `claude` CLI, so it runs on the Claude subscription you already use for Claude Code. (If you have set `ANTHROPIC_API_KEY` in your shell, Claude Code itself may use that instead — the same as when you run `claude` in a terminal.)
+- **Does it use my Claude quota?** Not for the board. Only the optional daily log, the Brain and card chat run Claude, and they count toward your plan's usage like any other Claude Code request — the usage bars on the board show how much is left.
 - **Does it work with sessions in VS Code or the Claude desktop app?** Sessions that run Claude Code hooks are recorded; the board can bring those apps to the front but can't type into them.
 - **Where is my data, and how long is it kept?** In `~/.claude/session-log`. Empty sessions are dropped after a day and inactive ones after 90 days (pinned sessions and sessions with open next actions are kept). See [Data retention](#data-retention).
 
