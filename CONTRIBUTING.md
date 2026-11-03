@@ -19,6 +19,10 @@ For UI work you can also run `/usr/bin/python3 demo/run.py` (port 7798, made-up 
 
 Argus uses only the macOS system Python 3 (3.9+) standard library and plain HTML/CSS/JS — no package manager, build step or framework. Please keep it that way; a change that needs a new dependency should be discussed in an issue first.
 
+## Adding a connector or a terminal
+
+Both are plugins — one file each, no changes elsewhere needed for the basics. Start with [docs/connectors.md](docs/connectors.md) or [docs/terminals.md](docs/terminals.md); they list the interface, a complete example and how to test it. A PR adding one is very welcome — please say which service / terminal version you tested against.
+
 ## Pull requests
 
 - Keep each PR focused on one change, and describe what it changes and how you checked it (which screen, which flow).

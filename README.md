@@ -25,7 +25,7 @@ You keep using Claude Code exactly as before. Argus listens through Claude Code'
 - [A tour of the board](#a-tour-of-the-board)
 - [Privacy and safety](#privacy-and-safety)
 - [Limitations and FAQ](#limitations-and-faq)
-- [Feature reference](#feature-reference) · [How it works](#how-it-works) · [Install and uninstall](#install-and-uninstall) · [Files](#files)
+- [Feature reference](#feature-reference) · [How it works](#how-it-works) · [Install and uninstall](#install-and-uninstall) · [Extending Argus](#extending-argus) · [Files](#files)
 - [Contributing](#contributing) · [License](#license)
 
 ## What is Argus?
@@ -142,7 +142,7 @@ Argus stores your Claude Code conversations, so it is built to keep them on your
 ## Limitations and FAQ
 
 - **macOS only, for now.** Terminal control, the Keychain and Spotlight are macOS features.
-- **Driving sessions needs Orca.** Other terminals can be brought to the front but not typed into. Adding one is a single module — see [Adding a terminal](#adding-a-terminal).
+- **Driving sessions needs Orca.** Other terminals can be brought to the front but not typed into. Adding one is a single module — see [Adding a terminal](docs/terminals.md).
 - **It follows Claude Code's internals.** Titles, recaps and live progress are read from Claude Code's transcript files, and terminal actions read Claude Code's screen. These are not public APIs and can change between versions; Argus is developed against Claude Code 2.1.x. If something breaks after an update, please [open an issue](CONTRIBUTING.md).
 - **The UI is written in Korean first.** Japanese and English are provided by a translation layer; some labels in this README are quoted in Korean because that is what the code uses. Code comments are in Korean.
 - **Do I need an Anthropic API key?** No. Argus has no API client of its own; anything that needs Claude goes through the `claude` CLI, so it runs on the Claude subscription you already use for Claude Code. (If you have set `ANTHROPIC_API_KEY` in your shell, Claude Code itself may use that instead — the same as when you run `claude` in a terminal.)
@@ -170,7 +170,7 @@ The rest of this README is a detailed reference. UI labels are given in Korean a
 - **Languages** (⋮ → 🌐): 한국어 / 日本語 / English. Text is written in Korean in the code; `csl/static/i18n.js` swaps what's rendered using a dictionary (exact strings and `{}` patterns, most specific first, used only when every `{}` part is a number/name or also translatable), watching the DOM for changes. Conversations, titles, recaps, question text, Slack card text and search snippets are never translated. Untranslated Korean UI text is collected in `window.__i18nMissing` for adding to the dictionary. In a pattern, `{}` must itself translate (a number, a name, or another dictionary entry), while `{*}` is kept as is — use it where user text such as a session or connector name sits inside a UI sentence.
 - **Argus Brain** (the sidebar icon "브레인" right of the Argus logo — the panel is a left drawer — or `B`; the icon's left pane fills in while it's open and the badge counts open inbox cards): a Claude Code session started in this repo's `brain/` folder, shown in a left panel instead of as a column (same thread, live progress, question card and composer). Its own instructions are `brain/CLAUDE.md`; `brain/.claude/settings.json` sets permission mode to default, allows only `./argus` (the board CLI, `csl/cli.py`: `sessions`, `session`, `search`, `timeline`, `turn`, `inbox`, `calendar`, `send`, `remote`), Read/Grep/Glob and the claude.ai Slack connector's read tools, and denies editing files, WebFetch and every Slack write tool. Quick buttons: 전체 현황 · 확인 필요만 · 슬랙 확인 · 오늘 한 일. The panel hides the session title line (the header already says Argus Brain), and the server renames the Brain session to "Argus Brain" with `/rename` once it's idle (again after `/clear`), so it's recognizable in Orca and `/resume`. The first start shows Claude Code's folder trust prompt (with the pre-approved tools) in that terminal.
 - **Brain permission mode:** the Brain starts with `claude --permission-mode <mode>` from the "브레인 권한 모드" setting (default auto: Claude proceeds and asks only for what looks risky; manual asks for every command), also selectable on the "브레인 시작" form. A running Brain has the same permission chip as other sessions in its panel header, so it can be switched (Shift+Tab under the hood) without restarting.
-- **Connectors** (⋮ → 🔌 커넥터, `csl/connectors/`): plugins that collect what comes to you from outside services into the Brain inbox. Each kind is one file exporting a `Connector` subclass (`type`, `name`, `icon`, `fields`, `poll(ctx)`, `test(ctx)`); drop a file in and it appears under "커넥터 추가". A kind can have several instances (one per Slack workspace). Secret fields go straight into the macOS Keychain (`argus-connector-<id>-<field>`, written via `security -i` so the value never appears in a process list; an existing item can be used as `keychain:<name>`), never into settings or logs. The server polls each enabled instance at its own interval, resuming from the last item it saw, and keeps items in `feed_items` until the Brain turns them into cards (`./argus inbox raw` / `raw-done`), then drops the body. The window lists instances with last collection, "through" time, pending count and errors, with fetch now / test / settings / enable / delete.
+- **Connectors** (⋮ → 🔌 커넥터, `csl/connectors/`, [writing one](docs/connectors.md)): plugins that collect what comes to you from outside services into the Brain inbox. Each kind is one file exporting a `Connector` subclass (`type`, `name`, `icon`, `fields`, `poll(ctx)`, `test(ctx)`); drop a file in and it appears under "커넥터 추가". A kind can have several instances (one per Slack workspace). Secret fields go straight into the macOS Keychain (`argus-connector-<id>-<field>`, written via `security -i` so the value never appears in a process list; an existing item can be used as `keychain:<name>`), never into settings or logs. The server polls each enabled instance at its own interval, resuming from the last item it saw, and keeps items in `feed_items` until the Brain turns them into cards (`./argus inbox raw` / `raw-done`), then drops the body. The window lists instances with last collection, "through" time, pending count and errors, with fetch now / test / settings / enable / delete.
   - **Slack** (`slack.py`): create a Slack app per workspace with user-token read scopes only (`channels:history`, `channels:read`, `groups:history`, `groups:read`, `im:history`, `im:read`, `mpim:history`, `mpim:read`, `search:read`, `users:read`), install it and paste the `xoxp-` token. Collects mentions (`<@me>`), DMs and group DMs (`to:me`) and `@here`/`@channel` in channels you list; skips your own messages and bots (via `users.info`); pages through search with a 5-minute overlap, at most 7 days back.
   - **Google Calendar** (`calendar.py`, info only): creates no inbox items or to-dos. The Brain looks up events with `./argus calendar [오늘|내일|이번주|다음주|N]` (via `/api/calendar`) for overviews and to suggest free slots in reply drafts. Uses the gws CLI's login; title, time, organizer, place and your response only. Connectors declare `role = "info"` and a `query()` method for this kind.
   - **Gmail** (`gmail.py`): uses the gws CLI's login (no secret); collects subject, sender and time for mail matching a Gmail search (default: unread inbox, no promotions/social, last 3 days); no message bodies.
@@ -345,19 +345,19 @@ Once a day the server removes what only piles up (Claude Code's own transcripts 
 It runs `VACUUM` after a large cleanup. The schema version is stored in `PRAGMA user_version`, so hooks (one connection per tool call) skip the migration checks; when the version goes up, the first connection takes the write lock (`BEGIN IMMEDIATE`) and re-checks, so concurrent hooks don't race the migration. Connections use WAL with `synchronous=NORMAL` (a power loss can drop the last few commits, the database stays intact). Hooks read the transcript tail and run `ps` before their write transaction, so a synchronous `UserPromptSubmit` hook doesn't wait on another session's slow Stop hook. Stop is async, so the next prompt can be recorded before a slow Stop hook writes: the Stop hook only finishes turns that were already running (`status='running'`) when it started, and doesn't overwrite a newer working state or an ended session. The first two hooks of a session can arrive together; the session row is inserted with `INSERT OR IGNORE` so neither loses its writes. A `--resume … --fork-session` continuation is read only from the hook's own claude process (not an outer session that ran `claude -p`), and when a conversation moves to a background session its Brain watches, inbox delegations and side questions move with it.
 
 
-## Adding a terminal
+## Extending Argus
 
-The board, the Brain and the hooks never call a terminal app directly. They go through the `Terminal` interface in `csl/terminals/__init__.py`, and `csl/focus.py` builds the Claude Code–specific behaviour (input line, selection dialogs, `/model` picker, question cards, multi-line typing) on top of four primitives: `screen`, `write`, `submit` and `info`. Orca (`csl/terminals/orca.py`) is the only implementation today.
+Two plugin points, each a single Python file dropped into a folder and discovered automatically:
 
-To support another terminal, add `csl/terminals/<name>.py` with a `Terminal` subclass and `TERMINAL = YourClass`; it is discovered automatically (`ORDER` in `__init__.py` decides which one is the default for new sessions). Implement what the terminal can do — methods left at the base defaults simply report "not supported":
+- **[Writing a connector](docs/connectors.md)** (`csl/connectors/`) — bring what arrives for you in another service into
+  the Brain's inbox, or let the Brain look something up. The guide walks through a complete GitHub-notifications
+  connector, the `Connector` / `Field` / `Item` API, secrets in the Keychain, and info-only connectors.
+- **[Adding a terminal](docs/terminals.md)** (`csl/terminals/`) — let the board drive sessions in another terminal app.
+  The guide explains the `Terminal` interface method by method, which methods unlock which features, a working tmux
+  implementation, and how to test one.
 
-- `env_keys`: environment variables the terminal puts into Claude Code's process (tab/pane id); the hook stores them in the session's terminal record along with `backend`.
-- `available`, `handle_of` / `remember` / `valid`: install check and how a handle is read from / written to the session record.
-- `find`, `switch`, `activate`, `info`, `terminals`: locate a tab by title and path, bring it to front, report which agent runs there.
-- `screen`, `write`, `submit`: read the visible screen as plain text, write raw bytes (keys, arrows, Ctrl+J), and submit a one-line prompt with Enter.
-- `create`, `projects`, `close`: new tab running a command in a folder, folders to offer in the new-session dialog, close a tab.
-
-Sessions in terminals with no implementation (iTerm2, Terminal.app, Claude desktop, VS Code) can still be brought to front, but not driven.
+Sessions in terminals with no implementation (iTerm2, Terminal.app, Claude desktop, VS Code) can still be brought to
+front, but not driven.
 
 ## Files
 
@@ -381,6 +381,7 @@ Sessions in terminals with no implementation (iTerm2, Terminal.app, Claude deskt
 | `brain/` | The Brain's folder: `CLAUDE.md` (role and rules), `.claude/settings.json` (permissions), `channels.txt` |
 | `ctl.sh` | Server control |
 | `demo/run.py` | Demo: the real board with made-up sessions and a scripted timeline, on its own data folder and port |
+| `docs/connectors.md`, `docs/terminals.md` | Guides for writing a connector and adding a terminal |
 | `demo/promo/` | The intro video at the top of this README: `promo.html` (animation, open it to play) and `render.mjs` (renders it to MP4 with headless Chrome and ffmpeg) |
 
 ## Performance notes
