@@ -1,0 +1,680 @@
+// Argus 화면 다국어. 문구는 한국어로 쓰고, 다른 언어면 화면에 그려진 글자를 이 사전으로 바꾼다.
+// - 키는 화면에 보이는 한국어 그대로. {} 는 숫자·이름 같은 바뀌는 부분(그 부분도 사전에 있으면 함께 옮긴다)
+// - 대화·제목·요약·슬랙 카드 내용 같은 사용자 내용(I18N_SKIP)은 옮기지 않는다
+// - 사전에 없는 한국어는 window.__i18nMissing 에 모인다(빠진 문구 찾기용)
+const I18N_LANGS = { ko: "한국어", ja: "日本語", en: "English" };
+const LANG = (() => { try { return JSON.parse(localStorage.getItem("csl.lang")) || "ko"; } catch (e) { return "ko"; } })();
+const I18N_SKIP = ".md, .bubble, .col-title, .title-text, .rename-input, .col-recap, .recap-clamp, .steps, .tdetail, .mid-text, " +
+  ".ib-summary, .ib-rec b, .ib-rec .muted, .ib-meta b, .ib-prompt, .ask-qhead, .ask-opt b, .ask-opt .muted, .nm-folder b, " +
+  ".note-text, .daily-body, .sr-text, .sr-title, .sr-scope, .msg-notice .muted, .notice-sum, .ib-target, #langSel, " +
+  ".chip.proj, .pm-name, .col-detail, .cmp-text, .note-input, .ctx-note, .nm-prompt, textarea, script, style, code, pre, " +
+  // 카드 보기·곁질문·활동·인박스 칸반·카드 기록·카드 대화의 사용자 내용
+  ".fam-tab-t, .goal-t, .ag-main b, .ag-last, .ib-run-sum, .ib-file, .pc-head, .pc-opt, .bgt-desc, .task-title, .task-meta, .task-body, .dv-tbl, .dv-fname, .dv-commit, .diff-title, .sc-title, .sc-recap, .sc-last, .sc-wait, .sc-meta .chip, .aside-q, .aside-a, .act-main b, .act-text, .ib-todo, .ibl-text, " +
+  ".sp-desc:not(.board), .kb-h > div, .ibc-u, .ibc-err, .cmp-rich, .sref, .chip.wt, .chip.br, .ib-stage .muted, .ib-reply-text, .cn-name, .act-main .muted, .act-ask-t, .sw-title, .sw-where";
+
+// [한국어, 日本語, English]
+const I18N_ROWS = [
+  // ---- 상단·공통
+  ["확인 필요", "要確認", "Needs you"], ["새 응답", "新しい応答", "New reply"], ["작업 중", "作業中", "Working"],
+  ["오류", "エラー", "Error"], ["완료", "完了", "Done"], ["대기", "待機", "Idle"], ["종료", "終了", "Ended"],
+  ["5시간", "5時間", "5h"], ["주간", "週間", "Week"], ["권장 {}%", "推奨 {}%", "pace {}%"],
+  ["대화 검색 — 내 요청·Claude 응답 ( / )", "会話検索 — 自分の依頼・Claude の応答 ( / )", "Search conversations — my prompts · Claude replies ( / )"],
+  ["프로젝트 {}", "プロジェクト {}", "Projects {}"], ["· {}", "· {}", "· {}"],
+  ["프로젝트별로 보기", "プロジェクト別に表示", "Filter by project"], ["전체 프로젝트", "すべてのプロジェクト", "All projects"],
+  ["{}개 프로젝트", "{} プロジェクト", "{} projects"], ["확인 {}", "要確認 {}", "needs you {}"], ["작업 중 {}", "作業中 {}", "working {}"],
+  ["새 응답 {}", "新しい応答 {}", "new {}"], ["프로젝트 필터를 풀었습니다", "プロジェクトの絞り込みを解除しました", "Cleared the project filter"],
+  ["이 프로젝트에 지금 보이는 세션이 없습니다 — 위 프로젝트 버튼에서 「전체 프로젝트」로", "このプロジェクトに表示中のセッションはありません — 上のプロジェクトボタンで「すべてのプロジェクト」へ", "No visible sessions in this project — switch to \"All projects\" with the project button above"],
+  ["기록된 세션이 없습니다.", "記録されたセッションはありません。", "No sessions recorded."],
+  ["🧠 브레인", "🧠 ブレイン", "🧠 Brain"],
+  ["＋ 새 세션", "＋ 新しいセッション", "＋ New session"], ["새 Claude Code 세션 — Orca 터미널에 띄웁니다", "新しい Claude Code セッション — Orca のターミナルで起動します", "New Claude Code session — opens in an Orca terminal"],
+  ["메뉴", "メニュー", "Menu"], ["보기·알림·하루 정리·단축키", "表示・通知・日報・ショートカット", "View · notifications · daily log · shortcuts"],
+  ["종료·보관 세션도 보기", "終了・保管したセッションも表示", "Show ended & archived sessions"], ["종료·보관된 세션도 표시", "終了・保管したセッションも表示", "Also show ended and archived sessions"],
+  ["새 응답·확인 필요 시 소리", "新しい応答・要確認のときに音を鳴らす", "Sound on new reply / needs you"], ["브라우저 알림", "ブラウザ通知", "Browser notifications"],
+  ["📅 하루 정리", "📅 日報", "📅 Daily log"], ["⌨ 단축키", "⌨ ショートカット", "⌨ Shortcuts"], ["단축키 ( ? )", "ショートカット ( ? )", "Shortcuts ( ? )"],
+  ["그날 모든 세션에서 한 일을 claude -p 로 정리한 작업 일지", "その日の全セッションの作業を claude -p でまとめた作業日誌", "A work log of the day across all sessions, summarized with claude -p"],
+  ["보드에서 대화를 보낸 세션은 리모트 컨트롤(claude.ai/code·모바일 앱)이 꺼져 있으면 자동으로 켭니다", "ボードから会話を送ったセッションはリモートコントロール(claude.ai/code・モバイルアプリ)がオフなら自動でオンにします", "Turn on Remote Control (claude.ai/code, mobile app) for sessions you message from the board"],
+  ["🌐 언어", "🌐 言語", "🌐 Language"],
+  // ---- 시간
+  ["방금", "たった今", "just now"], ["{}분 전", "{}分前", "{}m ago"], ["{}시간 전", "{}時間前", "{}h ago"], ["어제", "昨日", "yesterday"], ["오늘", "今日", "today"],
+  ["{}초", "{}秒", "{}s"], ["{}분", "{}分", "{}m"], ["{}분 {}초", "{}分{}秒", "{}m {}s"], ["{}시간 {}분", "{}時間{}分", "{}h {}m"],
+  ["{} 걸림", "{}かかった", "took {}"], ["· {} 걸림", "· {}かかった", "· took {}"],
+  ["일", "日", "Sun"], ["월", "月", "Mon"], ["화", "火", "Tue"], ["수", "水", "Wed"], ["목", "木", "Thu"], ["금", "金", "Fri"], ["토", "土", "Sat"],
+  ["{}/{} ({})", "{}/{} ({})", "{}/{} ({})"], ["오늘 {}", "今日 {}", "today {}"], ["어제 {}", "昨日 {}", "yesterday {}"], ["{}/{} ({}) {}", "{}/{} ({}) {}", "{}/{} ({}) {}"],
+  ["{} · {}", "{} · {}", "{} · {}"], ["{} ·", "{} ·", "{} ·"], ["{} {}", "{} {}", "{} {}"], ["{} — {}", "{} — {}", "{} — {}"],
+  ["{}분 후", "{}分後", "in {}m"], ["{}시간 {}분 후", "{}時間{}分後", "in {}h {}m"], ["{}일 {}시간 후", "{}日{}時間後", "in {}d {}h"],
+  ["{} 사용량 {}%", "{} 使用量 {}%", "{} usage {}%"], ["{} 초기화", "{}にリセット", "resets {}"],
+  ["권장 {}% — 지금까지 지난 시간만큼 고르게 썼을 때의 양 · 1시간 평균 20%", "推奨 {}% — 経過時間に合わせて均等に使った場合の量・1 時間あたり平均 20%", "pace {}% — what you'd have used spending evenly so far · 20% per hour"],
+  ["권장 {}% — 지금까지 지난 시간만큼 고르게 썼을 때의 양 · 하루 평균 {}%", "推奨 {}% — 経過時間に合わせて均等に使った場合の量・1 日あたり平均 {}%", "pace {}% — what you'd have used spending evenly so far · {}% per day"],
+  ["권장보다 {}%p 여유", "推奨より {}%p 余裕", "{} points under pace"], ["권장보다 {}%p 빠릅니다", "推奨より {}%p 速いペース", "{} points ahead of pace"],
+  ["컨텍스트 {}% 사용 · {} / {} 토큰", "コンテキスト {}% 使用・{} / {} トークン", "Context {}% used · {} / {} tokens"],
+  ["창 크기는 추정(같은 모델이 200k 를 넘겨 쓴 적이 있으면 1M, 아니면 200k)", "ウィンドウサイズは推定(同じモデルで 200k を超えたことがあれば 1M、なければ 200k)", "Window size is estimated (1M if this model has gone past 200k before, else 200k)"],
+  ["누르면 컴팩트(/compact)", "クリックでコンパクト(/compact)", "Click to compact (/compact)"], ["누르면 그 칸으로", "クリックでその列へ", "Click to go to that column"],
+  ["이 세션의 모델·effort", "このセッションのモデル・effort", "This session's model · effort"], ["이 세션의 모델·effort — 눌러서 바꾸기(이 세션만)", "このセッションのモデル・effort — クリックで変更(このセッションのみ)", "This session's model · effort — click to change (this session only)"],
+  ["넥스트 액션 접기", "ネクストアクションを閉じる", "Collapse next actions"], ["넥스트 액션 펼치기", "ネクストアクションを開く", "Expand next actions"],
+  ["화면 언어", "表示言語", "Display language"], ["🔔 알림 켜짐", "🔔 通知 オン", "🔔 Notifications on"], ["🔕 알림 꺼짐", "🔕 通知 オフ", "🔕 Notifications off"],
+  ["🔊 소리", "🔊 音", "🔊 Sound"], ["🔈 무음", "🔈 ミュート", "🔈 Muted"], ["📡 자동 리모트 켜짐", "📡 自動リモート オン", "📡 Auto remote on"], ["📡 자동 리모트 꺼짐", "📡 自動リモート オフ", "📡 Auto remote off"],
+  ["세션", "セッション", "Sessions"], ["🗄 보관", "🗄 保管", "🗄 Archive"], ["📌 고정 풀기", "📌 固定を解除", "📌 Unpin"], ["📌 맨 앞에 고정", "📌 先頭に固定", "📌 Pin to front"], ["🗄 보관 해제", "🗄 保管を解除", "🗄 Unarchive"],
+  ["나", "自分", "Me"], ["날짜", "日付", "Date"], ["세션 {} · {}턴", "セッション {}・{} ターン", "{} sessions · {} turns"], ["세션 {}개 · {}턴", "セッション {} 件・{} ターン", "{} sessions · {} turns"],
+  ["{} 작업 일지", "{} 作業日誌", "Work log {}"], ["세션 {}개 · 보통 30초~1분 걸립니다", "セッション {} 件・通常 30 秒〜1 分かかります", "{} sessions · usually takes 30 s – 1 min"], ["{} 정리", "{} にまとめ", "summarized {}"],
+  ["아직 정리하지 않은 날입니다. 「정리하기」를 누르면 그날 모든 세션의 요청·응답을 모아 Claude 가 작업 일지로 정리합니다. 세션 기록은 남기지 않고, 계정 사용량을 조금 씁니다.",
+   "まだまとめていない日です。「まとめる」を押すとその日の全セッションの依頼・応答を集めて Claude が作業日誌にまとめます。セッション記録は残さず、アカウントの使用量を少し使います。",
+   "Not summarized yet. Press \"Summarize\" and Claude turns the day's prompts and replies across all sessions into a work log. No session record is kept; it uses a little of your usage."],
+  // ---- 설정 창
+  ["⚙ 설정", "⚙ 設定", "⚙ Settings"], ["설정", "設定", "Settings"], ["저장", "保存", "Save"], ["기본값", "既定値", "Default"], ["기본값: {}", "既定値: {}", "Default: {}"], ["끔", "オフ", "Off"],
+  ["하루 정리 시각·브레인 폴더·보관 기간 등", "日報の時刻・ブレインのフォルダ・保管期間など", "Daily log time, Brain folder, retention and more"],
+  ["화면", "表示", "Display"], ["언어", "言語", "Language"], ["이 브라우저에만 적용됩니다", "このブラウザだけに適用されます", "Applies to this browser only"], ["설정을 저장했습니다", "設定を保存しました", "Settings saved"],
+  ["보드", "ボード", "Board"], ["브레인", "ブレイン", "Brain"], ["기록 보관", "記録の保管", "Retention"],
+  ["최근 며칠의 세션을 보여 줄까", "何日以内のセッションを表示するか", "Show sessions active within (days)"],
+  ["마지막 활동이 이 기간 안인 세션만 칸으로 나옵니다. 고정했거나 할 일이 남은 세션은 기간과 상관없이 나옵니다.", "最後の活動がこの期間内のセッションだけ列に出ます。固定したセッションややることが残るセッションは期間に関係なく出ます。", "Only sessions active within this period get a column. Pinned sessions and ones with open to-dos always show."],
+  ["처음에 그리는 칸 수", "最初に表示する列の数", "Columns drawn at first"],
+  ["나머지는 「세션 N개 더 보기」로 꺼냅니다. 늘리면 처음 열 때 조금 느려질 수 있습니다.", "残りは「セッションをあと N 件表示」で出します。増やすと最初の表示が少し遅くなることがあります。", "The rest are behind \"Show N more sessions\". More columns may slow the first load a little."],
+  ["새 세션 기본 모델", "新しいセッションの既定モデル", "Default model for new sessions"],
+  ["「＋ 새 세션」 창에서 처음 골라져 있는 모델. 비우면 Claude Code 설정대로.", "「＋ 新しいセッション」で最初に選ばれているモデル。空なら Claude Code の設定どおり。", "Preselected model in \"＋ New session\". Empty = your Claude Code setting."],
+  ["보낸 세션에 리모트 컨트롤 자동으로 켜기", "送ったセッションのリモートコントロールを自動でオン", "Auto-enable Remote Control on sessions you message"],
+  ["보드에서 대화를 보낸 세션의 리모트 컨트롤(claude.ai/code·모바일 앱)이 꺼져 있으면 켭니다.", "ボードから会話を送ったセッションのリモートコントロール(claude.ai/code・モバイルアプリ)がオフならオンにします。", "Turns on Remote Control (claude.ai/code, mobile app) for sessions you message from the board."],
+  ["하루 정리 자동으로 만들기", "日報を自動で作る", "Make the daily log automatically"],
+  ["정한 시각이 지나면 전날 작업 일지를 자동으로 정리합니다. 그때 Mac 이 잠들어 있었으면 깨어난 뒤에.", "決めた時刻を過ぎると前日の作業日誌を自動でまとめます。その時 Mac がスリープなら起動後に。", "After the set hour, summarizes the previous day automatically (after wake if the Mac was asleep)."],
+  ["자동 정리 시각(시)", "自動でまとめる時刻(時)", "Auto summary hour"], ["이 시각이 지나면 전날 일지를 만듭니다.", "この時刻を過ぎると前日の日誌を作ります。", "The previous day's log is made after this hour."],
+  ["정리에 쓸 모델", "まとめに使うモデル", "Model for the summary"], ["정리 제한 시간(초)", "まとめの制限時間(秒)", "Summary time limit (s)"], ["이 시간 안에 끝나지 않으면 실패로 남깁니다.", "この時間内に終わらなければ失敗として残します。", "Recorded as failed if it doesn't finish in time."],
+  ["브레인 폴더", "ブレインのフォルダ", "Brain folder"],
+  ["브레인 세션을 띄우는 폴더. CLAUDE.md·.claude/settings.json·argus·inbox/ 가 있어야 합니다(저장소 brain/ 을 복사해 고쳐 쓰면 됩니다).", "ブレインのセッションを起動するフォルダ。CLAUDE.md・.claude/settings.json・argus・inbox/ が必要です(リポジトリの brain/ をコピーして編集してください)。", "Folder the Brain session starts in. Needs CLAUDE.md, .claude/settings.json, argus and inbox/ (copy the repo's brain/ and edit it)."],
+  ["브레인 모델", "ブレインのモデル", "Brain model"], ["「브레인 시작」 때 처음 골라져 있는 모델.", "「ブレインを開始」で最初に選ばれているモデル。", "Preselected model for \"Start Brain\"."],
+  ["세션 기록 보관 기간(일)", "セッション記録の保管期間(日)", "Keep session records (days)"],
+  ["마지막 활동이 이보다 오래된 세션과 대화를 하루 한 번 지웁니다. 고정했거나 할 일이 남은 세션은 둡니다. Claude Code 의 기록 파일은 건드리지 않습니다.", "最後の活動がこれより古いセッションと会話を 1 日 1 回削除します。固定したセッションややることが残るセッションは残します。Claude Code の記録ファイルには触れません。", "Sessions and conversations older than this are deleted once a day, except pinned ones and ones with open to-dos. Claude Code's own transcripts are untouched."],
+  ["완료한 할 일 보관 기간(일)", "完了したやることの保管期間(日)", "Keep done to-dos (days)"], ["붙인 이미지 보관 기간(일)", "貼った画像の保管期間(日)", "Keep attached images (days)"], ["넥스트 액션이 가리키지 않는 이미지만 지웁니다.", "ネクストアクションが参照していない画像だけ削除します。", "Only images no next action refers to are deleted."],
+  ["슬랙 수집", "Slack 収集", "Slack collector"],
+  ["수집 간격(분)", "収集間隔(分)", "Collect every (min)"],
+  ["수집 {}", "収集 {}", "Collected {}"], ["{} 오류", "{} エラー", "{} error"], ["대기 {}", "未処理 {}", "{} pending"],
+  ["확인 완료", "確認済みにする", "Mark as seen"],
+  ["정보 전용 — 브레인이 일정을 조회해 현황 정리·답장 초안(비는 시간)에 씁니다. 인박스·할 일은 만들지 않음", "情報専用 — ブレインが予定を参照して状況整理・返信の下書き(空き時間)に使います。受信箱・タスクは作りません", "Info only — the Brain looks up your schedule for overviews and reply drafts (free slots). Creates no inbox items or to-dos"],
+  ["정보 전용 · 브레인이 필요할 때 조회", "情報専用・ブレインが必要なときに参照", "Info only · the Brain looks it up when needed"], ["정보 전용 · 브레인이 필요할 때 조회 · 꺼짐", "情報専用・ブレインが必要なときに参照・オフ", "Info only · looked up when needed · off"],
+  ["캘린더", "カレンダー", "Calendar"], ["캘린더 ID. 기본은 내 기본 캘린더(primary)", "カレンダー ID。既定は自分のメインカレンダー(primary)", "Calendar ID. Default is your primary calendar"],
+  ["확인함", "確認済み", "seen"], ["인박스 정리", "受信箱を整理", "Sort inbox"], ["지금 정리", "今すぐ整理", "Sort now"], ["자동 정리 끔", "自動整理オフ", "Auto sort off"],
+  ["10분마다 정리", "10分ごとに整理", "Sort every 10 min"], ["15분마다 정리", "15分ごとに整理", "Sort every 15 min"], ["30분마다 정리", "30分ごとに整理", "Sort every 30 min"], ["1시간마다 정리", "1時間ごとに整理", "Sort every hour"],
+  ["브레인이 모인 항목을 읽어 카드로 만듭니다(사용량이 듭니다)", "ブレインが集まった項目を読んでカードにします(使用量がかかります)", "The Brain turns collected items into cards (uses tokens)"],
+  ["자동 정리를 껐습니다 — 「지금 정리」나 「인박스 정리」로 정리합니다", "自動整理をオフにしました —「今すぐ整理」か「受信箱を整理」で整理します", "Auto sort off — use \"Sort now\" or \"Sort inbox\""],
+  ["수집된 항목이 있으면 {} 브레인이 카드로 정리합니다(평일 9~20시, 쉬고 있을 때)", "収集された項目があれば {} ブレインがカードに整理します(平日 9〜20 時、待機中のとき)", "When there are collected items, the Brain sorts them into cards {} (weekdays 9–20, while idle)"],
+  ["인박스 자동 정리 간격(분)", "受信箱の自動整理の間隔(分)", "Inbox auto-sort interval (min)"], ["자동 정리 시작 시각(시)", "自動整理の開始時刻(時)", "Auto sort from (hour)"], ["자동 정리 끝 시각(시)", "自動整理の終了時刻(時)", "Auto sort until (hour)"],
+  ["이 시각 전까지만 정리합니다.", "この時刻までだけ整理します。", "Sorts only before this hour."], ["평일에만 자동 정리", "平日だけ自動整理", "Weekdays only"], ["🧑 내가 할 일", "🧑 自分のタスク", "🧑 For me"], ["🤖 세션 작업", "🤖 セッション作業", "🤖 Session work"],
+  ["답장 초안", "返信の下書き", "Reply draft"], ["원문 ↗", "原文 ↗", "Source ↗"], ["→ 내 할 일에", "→ 自分のタスクへ", "→ My to-dos"], ["내 할 일에", "自分のタスクへ", "My to-dos"],
+  ["세션에 맡길 부분 → {}", "セッションに任せる部分 → {}", "For a session → {}"], ["세션에 맡길 부분 → 새 세션", "セッションに任せる部分 → 新しいセッション", "For a session → new session"],
+  ["세션에 맡길 부분 — 프롬프트", "セッションに任せる部分 — プロンプト", "For a session — prompt"], ["브레인 칸의 넥스트 액션에 내 할 일로 넣기", "ブレインの列のネクストアクションに自分のタスクとして追加", "Add as my to-do in the Brain's next actions"],
+  ["내 할 일(브레인 넥스트 액션)에 넣었습니다", "自分のタスク(ブレインのネクストアクション)に入れました", "Added to my to-dos (Brain next actions)"], ["복사됨 ✓", "コピー済み ✓", "Copied ✓"], ["코드 복사", "コードをコピー", "Copy code"], ["({}까지)", "({}まで)", "(through {})"],
+  ["이 시각의 메시지까지 받았습니다 — 잠들었다 깨면 여기부터 이어 받습니다", "この時刻のメッセージまで受け取りました — スリープから戻るとここから続けて受け取ります", "Received messages up to this time — after sleep it continues from here"],
+  ["새 카드가 없습니다.", "新しいカードはありません。", "No new cards."], ["처리한 카드 {}개", "処理済みのカード {} 件", "{} handled cards"],
+  ["넘김", "引き渡し済み", "handed off"],
+  ["입력창에", "の入力欄へ", "composer"], ["넥스트 액션에", "のネクストアクションへ", "next actions"],
+  ["{} 칸의 넥스트 액션에 할 일로 넣기", "{} の列のネクストアクションに追加", "Add as a to-do in {}'s next actions"],
+  ["「{}」의 넥스트 액션에 넣었습니다", "「{}」のネクストアクションに入れました", "Added to {}'s next actions"], ["넣을 세션이 없습니다 — 브레인을 시작하거나 세션을 연 뒤에 해 주세요", "入れるセッションがありません — ブレインを開始するかセッションを開いてから行ってください", "No session to add to — start the Brain or open a session first"], ["{} — 그 칸의 입력창에 넣기(전송은 직접)", "{} — その列の入力欄に入れる(送信は手動)", "{} — put into that column's composer (you send it)"],
+  ["🔌 커넥터", "🔌 コネクタ", "🔌 Connectors"], ["커넥터", "コネクタ", "Connectors"], ["인박스", "受信箱", "Inbox"], ["인박스 {}", "受信箱 {}", "Inbox {}"],
+  ["슬랙·Gmail 등 바깥 서비스에서 나에게 온 것을 모아 브레인 인박스로", "Slack・Gmail など外部サービスで自分宛てに来たものを集めてブレインの受信箱へ", "Collect what comes to you from Slack, Gmail and more into the Brain inbox"],
+  ["바깥 서비스에서 나에게 온 것을 모아 브레인 인박스로 넘깁니다. 키·토큰은 macOS 키체인에만 저장됩니다.", "外部サービスで自分宛てに来たものを集めてブレインの受信箱に渡します。キー・トークンは macOS キーチェーンにだけ保存されます。", "Collects what comes to you from outside services into the Brain inbox. Keys and tokens are stored only in the macOS Keychain."],
+  ["연결된 커넥터", "接続中のコネクタ", "Connected"], ["커넥터 추가", "コネクタを追加", "Add a connector"], ["아직 연결한 커넥터가 없습니다.", "まだ接続したコネクタはありません。", "No connectors yet."],
+  ["새 종류는", "新しい種類は", "Add a new kind by dropping a plugin file into"], ["에 파일 하나(플러그인)를 넣으면 여기에 나옵니다.", "にファイル(プラグイン)を 1 つ置くとここに出ます。", "— it shows up here."],
+  ["지금 가져오기", "今すぐ取得", "Fetch now"], ["연결 확인", "接続確認", "Test"], ["끄기", "オフ", "Disable"], ["켜기", "オン", "Enable"], ["정말 삭제", "本当に削除", "Really delete"],
+  ["아직 수집 전", "まだ未収集", "Not collected yet"], ["{}분마다", "{}分ごと", "every {} min"], ["자동 수집 끔", "自動収集オフ", "Auto off"], ["꺼짐", "オフ", "off"], ["오류: {}", "エラー: {}", "Error: {}"],
+  ["수집 {} · {}까지", "収集 {}・{}まで", "Collected {} · through {}"], ["이름", "名前", "Name"], ["목록과 인박스에 보이는 이름(예: 워크스페이스·계정)", "一覧と受信箱に出る名前(例: ワークスペース・アカウント)", "Name shown in the list and inbox (e.g. workspace or account)"],
+  ["0 이면 「지금 가져오기」로만", "0 なら「今すぐ取得」だけ", "0 = only with \"Fetch now\""], ["추가하고 연결 확인", "追加して接続確認", "Add and test"], ["{} 설정", "{} 設定", "{} settings"], ["{} 추가", "{} を追加", "Add {}"],
+  ["저장됨 — 바꿀 때만 입력", "保存済み — 変えるときだけ入力", "Saved — enter only to change"], ["붙여 넣기 (또는 keychain:항목이름)", "貼り付け(または keychain:項目名)", "Paste (or keychain:item-name)"],
+  ["커넥터를 지웠습니다", "コネクタを削除しました", "Connector removed"], ["연결됨 · {}", "接続済み・{}", "Connected · {}"], ["가져왔습니다 · 새 항목 {}개", "取得しました・新しい項目 {} 件", "Fetched · {} new"],
+  ["저장했습니다", "保存しました", "Saved"], ["아직 비어 있는 칸: {}", "まだ空の項目: {}", "Still empty: {}"], ["저장했지만 연결 확인에 실패했습니다: {}", "保存しましたが接続確認に失敗しました: {}", "Saved, but the test failed: {}"],
+  ["연결된 커넥터가 없습니다", "接続中のコネクタはありません", "No connectors"], ["커넥터 관리", "コネクタ管理", "Manage connectors"],
+  ["워크스페이스마다 하나. 나를 부른 멘션·DM·그룹 DM, 고른 채널의 @here·@channel", "ワークスペースごとに 1 つ。自分宛てのメンション・DM・グループ DM、選んだチャンネルの @here・@channel", "One per workspace. Mentions, DMs and group DMs to you, @here/@channel in chosen channels"],
+  ["gws CLI 로 로그인한 Gmail 의 새 메일(제목·보낸 사람만, 본문은 안 가져옴)", "gws CLI でログインした Gmail の新着メール(件名・送信者のみ、本文は取得しない)", "New mail in the Gmail account logged in with the gws CLI (subject and sender only, no body)"],
+  ["「{}」는 숫자여야 합니다", "「{}」は数字で入力してください", "\"{}\" must be a number"], ["「{}」는 {}~{} 사이여야 합니다", "「{}」は {}〜{} の範囲で入力してください", "\"{}\" must be between {} and {}"], ["폴더가 없습니다: {}", "フォルダがありません: {}", "Folder not found: {}"],
+  ["↑↓ 고르기 · Enter 열기 · Esc 닫기", "↑↓ 選択・Enter 開く・Esc 閉じる", "↑↓ pick · Enter open · Esc close"],
+  // ---- 칸 머리
+  ["확인 안 한 새 응답", "未確認の新しい応答", "Unread reply"], ["📌 고정됨", "📌 固定中", "📌 Pinned"], ["고정 해제 ( P )", "固定を解除 ( P )", "Unpin ( P )"],
+  ["보관 · 원격 · 고정", "保管・リモート・固定", "Archive · remote · pin"], ["칸 메뉴", "列メニュー", "Column menu"], ["📡 원격", "📡 リモート", "📡 Remote"], ["📡 연결 중", "📡 接続中", "📡 Connecting"],
+  ["리모트 컨트롤 연결됨 — claude.ai/code 에서 열기", "リモートコントロール接続中 — claude.ai/code で開く", "Remote Control connected — open on claude.ai/code"],
+  ["리모트 컨트롤을 켜는 중(다음 응답 때 연결이 확인됩니다)", "リモートコントロールをオンにしています(次の応答で接続を確認します)", "Turning on Remote Control (confirmed on the next reply)"],
+  ["세션 이름 바꾸기(/rename)", "セッション名を変更(/rename)", "Rename session (/rename)"], ["(아직 요청 없음)", "(まだ依頼なし)", "(no prompt yet)"], ["(제목 없음)", "(タイトルなし)", "(untitled)"],
+  ["끌어서 너비 조절 · 더블클릭: 기본 너비", "ドラッグで幅を調整・ダブルクリックで標準の幅", "Drag to resize · double-click: default width"],
+  ["컴팩트 중", "コンパクト中", "Compacting"], ["컨텍스트를 요약하는 중", "コンテキストを要約中", "Summarizing the context"],
+  ["워크트리 {}", "ワークツリー {}", "worktree {}"], ["브랜치", "ブランチ", "branch"],
+  // ---- 칸 메뉴
+  ["보관", "保管", "Archive"], ["보관 해제", "保管を解除", "Unarchive"], ["보드에서 숨기기", "ボードから隠す", "hide from board"], ["맨 앞에 고정", "先頭に固定", "Pin to front"],
+  ["고정 풀기", "固定を解除", "Unpin"], ["↔ 기본 너비로", "↔ 標準の幅に戻す", "↔ Default width"], ["📡 원격 켜기", "📡 リモートをオン", "📡 Turn on remote"], ["📡 원격으로 열기", "📡 リモートで開く", "📡 Open remotely"],
+  ["📡 원격 연결 중…", "📡 リモート接続中…", "📡 Connecting remote…"], ["종료된 세션", "終了したセッション", "ended session"],
+  ["취소", "キャンセル", "Cancel"],
+  // ---- 넥스트 액션
+  ["넥스트 액션", "ネクストアクション", "Next actions"], ["다음에 할 일 Enter 추가 · Shift+Enter 줄바꿈 · 이미지 붙여넣기", "次にやること Enter で追加・Shift+Enter で改行・画像の貼り付け", "Next to do — Enter to add · Shift+Enter newline · paste images"],
+  ["할 일 {}", "やること {}", "to do {}"], ["✓ 완료 {}", "✓ 完了 {}", "✓ done {}"], ["↳ 입력", "↳ 入力へ", "↳ Use"], ["이 할 일을 그 세션 입력창에 넣기(전송은 직접)", "このやることをそのセッションの入力欄へ(送信は手動)", "Put this to-do into that session's composer (you send it)"],
+  ["더블클릭해서 고치기", "ダブルクリックで編集", "Double-click to edit"], ["삭제", "削除", "Delete"], ["한 번 더 누르면 이 할 일을 지웁니다", "もう一度押すとこのやることを削除します", "Press again to delete this to-do"],
+  ["할 일을 지웠습니다", "やることを削除しました", "To-do deleted"], ["남은 할 일", "残りのやること", "Open to-dos"], ["완료한 할 일", "完了したやること", "Done to-dos"],
+  // ---- 대화
+  ["Claude", "Claude", "Claude"], ["작업 과정 보기", "作業過程を見る", "Show steps"], ["작업 과정 접기", "作業過程を閉じる", "Hide steps"], ["응답 전체 보기", "応答をすべて表示", "Show full reply"],
+  ["접기", "閉じる", "Collapse"], ["요청 전체 보기", "依頼をすべて表示", "Show full prompt"], ["이전 대화 더 보기 ({}턴 남음)", "以前の会話をもっと見る(残り {} ターン)", "Load earlier ({} turns left)"],
+  ["아직 요청이 없습니다.", "まだ依頼はありません。", "No prompts yet."], ["불러오는 중…", "読み込み中…", "Loading…"], ["스크롤해서 보이면 대화를 불러옵니다", "スクロールして表示されたら会話を読み込みます", "Loads when scrolled into view"],
+  ["기록된 작업 과정이 없습니다.", "記録された作業過程はありません。", "No recorded steps."], ["앞선 단계 {}개 생략", "前の {} ステップを省略", "{} earlier steps hidden"],
+  ["진행 중인 작업에 덧붙인 요청 — 아래에서 함께 처리 중", "進行中の作業に追加した依頼 — 下でまとめて処理中", "Added to the running task — handled below"],
+  ["응답 없음 — 중단됐거나 다음 요청과 함께 처리됨", "応答なし — 中断されたか次の依頼と一緒に処理", "No reply — interrupted or handled with the next prompt"], ["응답 없음 (중단됨)", "応答なし(中断)", "No reply (interrupted)"],
+  ["실패", "失敗", "Failed"], ["중단", "中断", "Interrupted"], ["작업 중 · {}", "作業中 · {}", "Working · {}"], ["앞선 중간 메시지 {}개 보기", "前の途中メッセージ {} 件を表示", "Show {} earlier messages"], ["중간 메시지 접기", "途中メッセージを閉じる", "Hide earlier messages"],
+  ["백그라운드 작업 {}", "バックグラウンド作業 {}", "Background task {}"], ["끝남", "完了", "finished"],
+  ["Claude Code 가 넣은 자동 메시지 — 사용자가 보낸 요청이 아닙니다", "Claude Code が入れた自動メッセージ — ユーザーの依頼ではありません", "An automatic message from Claude Code — not a prompt you sent"],
+  ["눌러서 열기 (⌥ 클릭: Finder)", "クリックで開く(⌥ クリック: Finder)", "Click to open (⌥-click: Finder)"], ["{} — 눌러서 열기 (⌥ 클릭: Finder)", "{} — クリックで開く(⌥ クリック: Finder)", "{} — click to open (⌥-click: Finder)"], ["Finder 에서 보기", "Finder で表示", "Show in Finder"],
+  ["열기 — 이미지·음성·영상·문서는 기본 앱, HTML 은 브라우저 새 탭 (⌥ 누르고 클릭: Finder 에서 보기)", "開く — 画像・音声・動画・文書は既定のアプリ、HTML はブラウザの新しいタブ(⌥ を押してクリック: Finder で表示)", "Open — images, audio, video and documents in the default app, HTML in a new browser tab (⌥-click: show in Finder)"],
+  ["대화를 요약하는 중(/compact)", "会話を要約中(/compact)", "Summarizing the conversation (/compact)"], ["컨텍스트가 차서 자동으로 요약하는 중", "コンテキストがいっぱいで自動要約中", "Context full — auto-summarizing"],
+  ["끝나면 요약본으로 이어 갑니다", "終わったら要約から続けます", "Continues from the summary when done"], ["끝나면 요약본으로 이어 갑니다{}", "終わったら要約から続けます{}", "Continues from the summary when done{}"],
+  [" · 지난번 {} 걸림", " · 前回 {} かかった", " · last time took {}"], ["— 하던 작업은 요약 뒤 계속됩니다", "— 作業は要約の後に続きます", "— the task continues after the summary"],
+  // ---- 입력창
+  ["Claude 에게 보내기 · Enter 전송 · Shift+Enter 줄바꿈", "Claude に送る・Enter で送信・Shift+Enter で改行", "Message Claude · Enter to send · Shift+Enter newline"], ["보내기", "送信", "Send"],
+  ["이미지 첨부(붙여넣기·끌어다 놓기도 됨)", "画像を添付(貼り付け・ドラッグ&ドロップも可)", "Attach images (paste or drop works too)"], ["보내는 중…", "送信中…", "Sending…"],
+  ["보내면 지금 단계가 끝나는 대로 Claude 가 읽어 이번 작업에 반영합니다", "送ると今のステップが終わり次第 Claude が読んで今回の作業に反映します", "Claude reads it as soon as the current step finishes and folds it into this task"],
+  ["컴팩트 중 — 보내면 요약이 끝난 뒤 처리됩니다", "コンパクト中 — 送ると要約の後に処理されます", "Compacting — sent messages are handled after the summary"],
+  ["확인 필요 — 터미널에 승인 창이 떠 있으면 보내지 않습니다(창이 닫혀 있으면 그대로 보냅니다)", "要確認 — ターミナルに承認ダイアログがあれば送りません(閉じていればそのまま送ります)", "Needs you — not sent while an approval dialog is open in the terminal (sent if it's closed)"],
+  ["질문에 답할 차례 — 위 카드에서 답하거나 터미널에서 답해 주세요", "質問に答える番です — 上のカードかターミナルで答えてください", "A question is waiting — answer in the card above or in the terminal"],
+  ["종료된 세션입니다", "終了したセッションです", "This session has ended"], ["보냈습니다", "送信しました", "Sent"], ["보냈습니다 · Claude 가 작업을 시작했습니다", "送信しました・Claude が作業を始めました", "Sent · Claude started working"],
+  ["보냈습니다 · 작업 중이라 지금 단계(도구 실행)가 끝나는 대로 Claude 가 읽고 이번 작업에 반영합니다", "送信しました・作業中なので今のステップ(ツール実行)が終わり次第 Claude が読んで反映します", "Sent · Claude is working and will read it after the current step (tool run)"],
+  ["· 리모트 컨트롤을 켰습니다", "・リモートコントロールをオンにしました", "· Remote Control turned on"],
+  ["{}   ⇥ Tab", "{}   ⇥ Tab", "{}   ⇥ Tab"], ["터미널 입력칸에 보이는 글(Claude Code 의 다음 요청 제안 또는 터미널에 쳐 둔 글) — Tab 으로 채우기", "ターミナル入力欄の文字(Claude Code の次の依頼の提案、またはターミナルに入力済みの文字) — Tab で入力", "Text in the terminal's input box (Claude Code's suggested next prompt or text typed there) — Tab to fill"],
+  ["입력창에 넣었습니다 — 지금은 확인 필요 상태라 보내기가 막혀 있습니다", "入力欄に入れました — 今は要確認の状態なので送信できません", "Put in the composer — sending is blocked while the session needs you"],
+  ["이미지는 한 번에 6장까지 보낼 수 있습니다", "画像は一度に 6 枚まで送れます", "Up to 6 images per message"], ["이미지는 한 번에 6장까지 붙일 수 있습니다", "画像は一度に 6 枚まで貼れます", "Up to 6 images at once"],
+  ["PNG·JPEG·GIF·WebP 이미지만 첨부할 수 있습니다", "PNG・JPEG・GIF・WebP の画像のみ添付できます", "Only PNG, JPEG, GIF and WebP images"], ["PNG·JPEG·GIF·WebP 이미지만 붙일 수 있습니다", "PNG・JPEG・GIF・WebP の画像のみ貼れます", "Only PNG, JPEG, GIF and WebP images"],
+  ["지금은 입력할 수 없는 상태입니다", "今は入力できない状態です", "Input is not available right now"],
+  ["확인 필요 상태입니다. 터미널에서 승인·답변을 먼저 해 주세요", "要確認の状態です。先にターミナルで承認・回答してください", "This session needs you. Approve or answer in the terminal first"],
+  ["그 터미널에서 Claude Code 가 실행 중이 아닙니다(종료됐거나 셸만 남음)", "そのターミナルで Claude Code が動いていません(終了したかシェルだけ残っています)", "Claude Code isn't running in that terminal (exited or only the shell is left)"],
+  ["보낼 내용이 없습니다", "送る内容がありません", "Nothing to send"], ["메시지가 너무 깁니다(2만 자 이하)", "メッセージが長すぎます(2万文字以下)", "Message too long (max 20,000 characters)"], ["전송 실패: {}", "送信失敗: {}", "Send failed: {}"],
+  // ---- 질문 카드
+  ["❓ 질문에 답하기", "❓ 質問に答える", "❓ Answer the question"], ["터미널 질문 창에 대신 넣습니다", "ターミナルの質問ダイアログに代わりに入力します", "Fills in the terminal's question dialog for you"],
+  ["터미널로 ↗", "ターミナルへ ↗", "Terminal ↗"], ["· 여러 개", "・複数選択", "· multiple"], ["직접 입력", "直接入力", "Other"], ["답 보내기", "回答を送る", "Send answer"],
+  ["넣는 중…", "入力中…", "Filling in…"], ["터미널 질문 창에 답을 넣고 있습니다", "ターミナルの質問ダイアログに回答を入力しています", "Typing the answer into the terminal dialog"], ["답하지 않은 질문이 있습니다", "答えていない質問があります", "Some questions are unanswered"],
+  ["답을 보냈습니다", "回答を送りました", "Answer sent"], ["미리보기가 있는 질문이라 터미널에서 답해 주세요.", "プレビュー付きの質問なのでターミナルで答えてください。", "This question has previews — answer it in the terminal."],
+  ["지금 답할 질문이 없습니다", "今答える質問はありません", "No question is waiting"], ["질문이 바뀌었습니다 — 새로 고쳐 주세요", "質問が変わりました — 再読み込みしてください", "The question changed — reload"], ["모든 질문에 답해 주세요", "すべての質問に答えてください", "Answer every question"],
+  // ---- 컨텍스트·컴팩트
+  ["컨텍스트 {}%", "コンテキスト {}%", "Context {}%"], ["{} / {} 토큰", "{} / {} トークン", "{} / {} tokens"], ["{} / {} 토큰 · 창 크기 추정", "{} / {} トークン・ウィンドウサイズは推定", "{} / {} tokens · window size estimated"],
+  ["지금까지의 대화를 요약해 컨텍스트를 비웁니다(/compact).", "これまでの会話を要約してコンテキストを空けます(/compact)。", "Summarize the conversation so far to free the context (/compact)."],
+  ["요약할 때 남길 말(선택) — 예: 지금 고치는 버그와 남은 할 일 위주로", "要約で残したいこと(任意) — 例: 今直しているバグと残りのやることを中心に", "What to keep (optional) — e.g. focus on the bug being fixed and what's left"],
+  ["Enter 로 실행 · 남길 말은 한 줄로 보냅니다", "Enter で実行・残したいことは 1 行で送ります", "Enter to run · the note is sent as one line"], ["컴팩트", "コンパクト", "Compact"],
+  ["작업 중에는 할 수 없습니다 — 끝난 뒤에 해 주세요", "作業中はできません — 終わってからにしてください", "Not while working — try after it finishes"], ["확인 필요 상태입니다 — 터미널에서 먼저 답해 주세요", "要確認の状態です — 先にターミナルで答えてください", "Needs you — answer in the terminal first"],
+  ["컴팩트를 시작했습니다 · {}", "コンパクトを始めました・{}", "Compaction started · {}"], ["컨텍스트를 요약하는 중입니다", "コンテキストを要約しています", "Summarizing the context"],
+  // ---- 새 세션
+  ["새 Claude Code 세션", "新しい Claude Code セッション", "New Claude Code session"], ["폴더", "フォルダ", "Folder"], ["Orca 프로젝트 불러오는 중…", "Orca のプロジェクトを読み込み中…", "Loading Orca projects…"],
+  ["또는 경로 직접 입력 — /Users/…", "またはパスを直接入力 — /Users/…", "or type a path — /Users/…"], ["첫 메시지", "最初のメッセージ", "First message"], ["(선택 · Shift+Enter 줄바꿈)", "(任意・Shift+Enter で改行)", "(optional · Shift+Enter newline)"],
+  ["비워 두면 빈 세션으로 시작합니다", "空のままなら空のセッションで始めます", "Leave empty to start an empty session"], ["모델", "モデル", "Model"], ["기본(설정대로)", "既定(設定どおり)", "Default (your setting)"],
+  ["Orca 터미널 탭이 새로 열립니다", "Orca のターミナルタブが新しく開きます", "Opens a new Orca terminal tab"], ["시작", "開始", "Start"], ["띄우는 중…", "起動中…", "Starting…"],
+  ["Orca 에 열린 프로젝트", "Orca で開いているプロジェクト", "Open in Orca"], ["최근 세션 폴더", "最近のセッションのフォルダ", "Recent session folders"], ["터미널 {}", "ターミナル {}", "{} terminals"],
+  ["{} · 터미널 {}", "{} · ターミナル {}", "{} · {} terminals"],
+  ["후보가 없습니다 — 경로를 직접 입력하세요", "候補がありません — パスを直接入力してください", "No suggestions — type a path"],
+  ["Orca 에 새 터미널을 열었습니다 · Claude 가 뜨면 칸이 생깁니다", "Orca に新しいターミナルを開きました・Claude が起動すると列ができます", "Opened a new Orca terminal · a column appears when Claude starts"],
+  ["새 세션 실패: {}", "新しいセッションに失敗: {}", "New session failed: {}"], ["첫 메시지를 보냈습니다 · {}", "最初のメッセージを送りました・{}", "First message sent · {}"],
+  ["새 세션이 아직 안 보입니다 — Orca 터미널을 확인하세요(폴더 신뢰 확인 창일 수 있습니다)", "新しいセッションがまだ見えません — Orca のターミナルを確認してください(フォルダの信頼確認かもしれません)", "The new session hasn't shown up — check the Orca terminal (it may be the folder trust prompt)"],
+  ["폴더를 고르세요", "フォルダを選んでください", "Pick a folder"],
+  // ---- 브레인 패널
+  ["🧠 Argus Brain", "🧠 Argus Brain", "🧠 Argus Brain"], ["대화", "会話", "Chat"], ["슬랙 인박스", "Slack 受信箱", "Slack inbox"], ["슬랙 인박스 {}", "Slack 受信箱 {}", "Slack inbox {}"],
+  ["10분마다", "10分ごと", "Every 10 min"], ["15분마다", "15分ごと", "Every 15 min"], ["30분마다", "30分ごと", "Every 30 min"], ["1시간마다", "1時間ごと", "Every hour"],
+  ["접기 ( B )", "閉じる ( B )", "Close ( B )"], ["브레인이 꺼져 있습니다.", "ブレインはオフです。", "The Brain is off."],
+  ["저장소의", "リポジトリの", "Starts Claude Code in the repo's"], ["폴더에서 Claude Code 를 띄워 세션 현황과 슬랙 인박스를 맡깁니다. Orca 터미널 탭이 하나 생깁니다.", "フォルダで Claude Code を起動し、セッション状況と Slack 受信箱を任せます。Orca のターミナルタブが 1 つできます。", "folder to keep track of your sessions and Slack inbox. Opens one Orca terminal tab."],
+  ["Sonnet (추천)", "Sonnet(おすすめ)", "Sonnet (recommended)"], ["브레인 시작", "ブレインを開始", "Start Brain"], ["전체 현황", "全体の状況", "Overview"], ["확인 필요만", "要確認だけ", "Needs you only"], ["슬랙 확인", "Slack を確認", "Check Slack"], ["오늘 한 일", "今日やったこと", "Done today"],
+  ["브레인을 띄웠습니다 · Orca 에 brain 터미널이 생깁니다", "ブレインを起動しました・Orca に brain ターミナルができます", "Brain started · a brain terminal appears in Orca"],
+  ["브레인이 뜨는 중… (처음이면 폴더 신뢰 확인 창이 터미널에 뜰 수 있습니다)", "ブレインを起動中…(初回はターミナルにフォルダの信頼確認が出ることがあります)", "Starting the Brain… (the first time, the terminal may show a folder trust prompt)"],
+  ["브레인 시작 실패: {}", "ブレインの開始に失敗: {}", "Couldn't start the Brain: {}"], ["먼저 브레인을 시작하세요", "先にブレインを開始してください", "Start the Brain first"], ["브레인이 이미 켜져 있습니다", "ブレインはすでに動いています", "The Brain is already running"],
+  ["마지막 확인 {} {}", "最終確認 {} {}", "Last checked {} {}"], ["아직 확인한 적 없음", "まだ確認していません", "Not checked yet"],
+  ["카드가 없습니다. 「지금 정리」를 누르면 브레인이 슬랙에서 나를 부른 것들을 모아 옵니다.", "カードはありません。「今すぐ整理」を押すとブレインが Slack で自分宛てのものを集めてきます。", "No cards. Press \"Sort now\" and the Brain collects what mentions you on Slack."],
+  ["🔴 급함", "🔴 至急", "🔴 Urgent"], ["낮음", "低", "Low"], ["민감", "機密", "Sensitive"], ["민감정보가 있을 수 있어 요약을 줄였습니다 — 원문은 슬랙에서", "機密情報が含まれる可能性があるため要約を短くしました — 原文は Slack で", "May contain sensitive info, so the summary is short — read it in Slack"],
+  ["슬랙 ↗", "Slack ↗", "Slack ↗"], ["→ {} 세션", "→ {} セッション", "→ session {}"], ["→ 새 세션", "→ 新しいセッション", "→ new session"], ["(보드에 없음)", "(ボードにありません)", "(not on the board)"],
+  ["→ 세션 {}", "→ セッション {}", "→ session {}"], ["보낼 프롬프트", "送るプロンプト", "Prompt to send"], ["새 세션으로", "新しいセッションで", "As a new session"],
+  ["무시", "無視", "Ignore"], ["되돌리기", "元に戻す", "Undo"], ["보냄", "送信済み", "sent"],
+  ["그 세션 입력창에 넣었습니다 · 확인하고 Enter 로 보내세요", "そのセッションの入力欄に入れました・確認して Enter で送ってください", "Put in that session's composer · check it and press Enter"],
+  // ---- 단축키 도움말·하루 정리
+  ["단축키", "ショートカット", "Shortcuts"], ["닫기 (Esc)", "閉じる (Esc)", "Close (Esc)"], ["하루 정리", "日報", "Daily log"], ["정리하기", "まとめる", "Summarize"], ["다시 정리", "まとめ直す", "Summarize again"],
+  ["정리 중…", "まとめ中…", "Summarizing…"], ["✓ 정리됨", "✓ まとめ済み", "✓ done"], ["복사", "コピー", "Copy"], ["아침 6시 자동 정리", "朝 6 時に自動でまとめる", "Auto at 6 am"],
+  ["매일 아침 6시가 지나면 전날 일지를 자동으로 정리합니다(그때 Mac 이 잠들어 있었으면 깨어난 뒤)", "毎朝 6 時を過ぎると前日の日誌を自動でまとめます(その時 Mac がスリープなら起動後に)", "Summarizes the previous day automatically after 6 am (after wake if the Mac was asleep)"],
+  ["그날의 요청·응답을 모아 정리하고 있습니다…", "その日の依頼・応答を集めてまとめています…", "Collecting and summarizing the day's prompts and replies…"], ["기록된 날이 없습니다", "記録された日はありません", "No recorded days"], ["기록된 대화가 없는 날입니다", "記録された会話がない日です", "No conversations recorded that day"],
+  ["일지를 마크다운으로 복사했습니다", "日誌を Markdown でコピーしました", "Copied the log as Markdown"], ["복사하지 못했습니다", "コピーできませんでした", "Couldn't copy"],
+  ["N번 칸으로 이동 —", "N 番目の列へ移動 —", "Go to column N —"], ["이전·다음 칸", "前・次の列", "Previous / next column"], ["브레인 패널 펴기·접기", "ブレインパネルの表示切り替え", "Toggle the Brain panel"], ["하루 정리(작업 일지)", "日報(作業日誌)", "Daily log (work journal)"], ["이 도움말", "このヘルプ", "This help"],
+  ["지금 칸의 넥스트 액션으로 — 맨 아래 할 일부터, 계속 ↑ 면 위로 올라가 입력칸까지", "今の列のネクストアクションへ — 一番下のやることから、続けて ↑ で上の入力欄まで", "To this column's next actions — from the last to-do; keep pressing ↑ to reach the input"],
+  ["할 일에서", "やることで", "On a to-do"], ["위·아래 할 일로. 맨 아래에서 ↓ 면 칸 선택으로, 한 번 더 ↓ 면 채팅 입력창", "上下のやることへ。一番下で ↓ なら列の選択へ、もう一度 ↓ でチャット入力欄", "Up / down through to-dos. ↓ at the bottom selects the column, ↓ again goes to the composer"],
+  ["완료 표시 · 삭제(두 번 눌러야 지움) · 채팅 입력창에 넣기(전송은 직접)", "完了にする・削除(2 回押すと削除)・チャット入力欄へ(送信は手動)", "Mark done · delete (press twice) · put in the composer (you send it)"],
+  ["넥스트 액션 입력칸 마지막 줄에서", "ネクストアクション入力欄の最後の行で", "On the last line of the next-action input"], ["첫 할 일로(없으면 칸 선택)", "最初のやることへ(なければ列の選択)", "To the first to-do (or the column)"],
+  ["지금 칸의 채팅 입력창으로", "今の列のチャット入力欄へ", "To this column's composer"], ["(입력창 첫 줄에서)", "(入力欄の 1 行目で)", "(on the composer's first line)"],
+  ["입력창에서 나와 칸 선택 상태로 — 이어서", "入力欄を出て列の選択状態へ — 続けて", "Leave the composer and select the column — then"], ["로 칸 이동", "で列を移動", "to move between columns"],
+  ["지금 칸의 넥스트 액션 입력칸으로(접혀 있으면 펴고)", "今の列のネクストアクション入力欄へ(閉じていれば開いて)", "To this column's next-action input (expands it)"], ["지금 칸의 터미널로 이동", "今の列のターミナルへ移動", "Go to this column's terminal"],
+  ["지금 칸 고정·해제(고정한 칸은 맨 앞에 머묾)", "今の列を固定・解除(固定した列は先頭にとどまる)", "Pin / unpin this column (pinned columns stay in front)"], ["지금 칸의 대화에서 검색", "今の列の会話を検索", "Search this column's conversation"],
+  ["전체 대화 검색(", "会話全体を検索(", "Search all conversations ("], ["고르기 ·", "選択・", "pick ·"], ["그 대화로)", "その会話へ)", "go there)"], ["입력창·검색에서 빠져나오기(쓰던 글은 그대로)", "入力欄・検索から抜ける(書いた文字はそのまま)", "Leave the composer or search (your text stays)"],
+  ["글자 단축키는 입력창 밖에서만 동작하고, 한글 자판 상태에서도 됩니다.", "文字のショートカットは入力欄の外でだけ動き、韓国語キーボードでも使えます。", "Letter shortcuts work outside text fields, also with a Korean keyboard layout."],
+  ["+숫자도 같음. 입력 중에도 동작", "+数字も同じ。入力中も動作", "+number works too. Works while typing"],
+  // ---- 검색
+  ["전체", "すべて", "All"], ["내 요청", "自分の依頼", "My prompts"], ["Claude 응답", "Claude の応答", "Claude replies"], ["찾은 대화가 없습니다.", "見つかった会話はありません。", "No matching conversations."],
+  ["내가 보낸 요청이나 Claude 응답에서 찾을 말을 입력하세요.", "自分の依頼や Claude の応答から探す言葉を入力してください。", "Type words to find in your prompts or Claude's replies."], ["최근 60개까지 보여 줍니다. 단어를 더 넣어 좁혀 보세요.", "最新 60 件まで表示します。言葉を足して絞り込んでください。", "Showing up to 60 recent results. Add words to narrow down."],
+  ["이 세션 안에서만 찾는 중", "このセッション内だけを検索中", "Searching this session only"], ["전체에서 찾기", "全体で探す", "Search everywhere"], ["그 대화를 불러오지 못했습니다", "その会話を読み込めませんでした", "Couldn't load that conversation"],
+  // ---- 기타 알림
+  ["먼저 칸을 고르세요(⌘1~9 또는 ← →)", "先に列を選んでください(⌘1〜9 または ← →)", "Pick a column first (⌘1–9 or ← →)"], ["보드에 없는 세션입니다(종료·보관됐거나 검색에 걸러짐)", "ボードにないセッションです(終了・保管済み、または絞り込み中)", "Not on the board (ended, archived or filtered out)"],
+  ["이동하지 못했습니다", "移動できませんでした", "Couldn't switch"], ["보관 해제했습니다", "保管を解除しました", "Unarchived"], ["보관했습니다 (⋮ → 「종료·보관 세션도 보기」로 다시 보입니다)", "保管しました(⋮ →「終了・保管したセッションも表示」で再表示)", "Archived (⋮ → \"Show ended & archived sessions\" shows it again)"],
+  ["맨 앞에 고정했습니다", "先頭に固定しました", "Pinned to the front"], ["고정을 풀었습니다", "固定を解除しました", "Unpinned"], ["{}번 자리에 고정했습니다", "{} 番目に固定しました", "Pinned at position {}"], ["기본 너비로 되돌렸습니다", "標準の幅に戻しました", "Reset to the default width"],
+  ["고정 안 한 칸은 새 이벤트 순이라 자리를 정할 수 없습니다 — 고정 영역으로 끌어 놓으면 고정됩니다", "固定していない列は新しい順なので位置を決められません — 固定エリアにドロップすると固定されます", "Unpinned columns follow recent activity — drop into the pinned area to pin"],
+  ["완료한 할 일입니다 — Space 로 완료를 풀면 넣을 수 있습니다", "完了したやることです — Space で完了を外すと入れられます", "That to-do is done — press Space to reopen it first"],
+  ["보드에서 대화를 보낸 세션은 리모트 컨트롤이 꺼져 있으면 켭니다", "ボードから会話を送ったセッションはリモートコントロールがオフならオンにします", "Turns on Remote Control for sessions you message from the board"], ["자동 리모트 컨트롤을 껐습니다", "自動リモートコントロールをオフにしました", "Auto Remote Control off"],
+  ["바뀐 것이 없습니다", "変更はありません", "Nothing changed"], ["매일 아침 6시가 지나면 전날 일지를 자동으로 정리합니다", "毎朝 6 時を過ぎると前日の日誌を自動でまとめます", "Summarizes the previous day automatically after 6 am"], ["자동 정리를 껐습니다", "自動まとめをオフにしました", "Auto summary off"],
+  ["열었습니다", "開きました", "Opened"], ["Finder 에서 보여 줍니다", "Finder で表示します", "Showing in Finder"], ["바로 열지 않는 형식이라 Finder 에서 보여 줍니다", "直接開かない形式なので Finder で表示します", "Not opened directly for this file type — showing in Finder"],
+  ["파일이 없습니다(지워졌거나 임시 폴더가 비워졌을 수 있음)", "ファイルがありません(削除されたか一時フォルダが空になった可能性があります)", "File not found (deleted, or the temp folder was cleared)"],
+  ["이 브라우저는 알림을 지원하지 않습니다", "このブラウザは通知に対応していません", "This browser doesn't support notifications"], ["브라우저 사이트 설정에서 알림을 허용해 주세요", "ブラウザのサイト設定で通知を許可してください", "Allow notifications in the browser's site settings"],
+  ["{}번 칸이 없습니다", "{} 番目の列はありません", "There's no column {}"], ["세션 {}개 더 보기", "セッションをあと {} 件表示", "Show {} more sessions"],
+  ["세션 이름을 바꿨습니다(Claude Code·탭 제목도 함께)", "セッション名を変更しました(Claude Code とタブのタイトルも)", "Renamed (Claude Code and the tab title too)"],
+  ["보드의 이름만 바꿨습니다(작업 중이거나 터미널에 연결되지 않아 /rename 은 보내지 않음)", "ボード上の名前だけ変更しました(作業中かターミナル未接続のため /rename は送っていません)", "Renamed on the board only (busy or no terminal link, so /rename wasn't sent)"],
+  ["리모트 컨트롤을 켰습니다 · 다음 응답 때 연결이 확인됩니다", "リモートコントロールをオンにしました・次の応答で接続を確認します", "Remote Control turned on · confirmed on the next reply"], ["이미 연결돼 있습니다", "すでに接続しています", "Already connected"],
+  ["이미 켜 달라고 보냈습니다 — 다음 응답 때 연결이 확인됩니다", "すでにオンの依頼を送りました — 次の応答で接続を確認します", "Already requested — confirmed on the next reply"], ["작업 중에는 바꿀 수 없습니다", "作業中は変更できません", "Can't change while working"],
+  ["작업 중이거나 확인 필요 상태에서는 바꿀 수 없습니다. 끝난 뒤 다시 해 주세요", "作業中または要確認の状態では変更できません。終わってからやり直してください", "Can't change while working or waiting. Try again when it's done"],
+  ["이 세션에만 적용 · 기본값은 그대로", "このセッションのみに適用・既定値はそのまま", "This session only · your default stays"], ["모르는 모델입니다", "不明なモデルです", "Unknown model"],
+  ["대화에 나온 이미지가 아닙니다", "会話に出てきた画像ではありません", "Not an image from a conversation"], ["연결 끊김 · Argus", "接続切れ・Argus", "Disconnected · Argus"],
+  // ---- 보기 전환·카드 보기·활동·인박스 칸반·카드 대화·맡기기·곁질문·중단 (10/31)
+  ["Argus Brain 패널 열기·닫기 — 세션 현황·인박스 ( B )", "Argus Brain パネルの開閉 — セッション状況・受信箱 ( B )", "Open/close the Argus Brain panel — session overview · inbox ( B )"],
+  ["브레인 패널", "ブレインパネル", "Brain panel"], ["브레인 패널을 기본 너비로 되돌렸습니다", "ブレインパネルを標準の幅に戻しました", "Reset the Brain panel to its default width"],
+  ["할 일 카드 {}개", "やることカード {} 件", "{} to-do cards"], ["할 일 카드 {}개 · 새로 온 카드 {}개", "やることカード {} 件・新着カード {} 件", "{} to-do cards · {} new"],
+  ["· 새 {}", "・新着 {}", "· {} new"], ["지난번 인박스를 본 뒤 새로 온 카드", "前回受信箱を見た後に届いたカード", "Arrived since you last looked at the inbox"],
+  ["세션 칸 보기 ( S )", "セッション列を表示 ( S )", "Session columns ( S )"], ["인박스 칸반 — 할 일·진행 중·완료 ( I )", "受信箱カンバン — やること・進行中・完了 ( I )", "Inbox kanban — to do · in progress · done ( I )"],
+  ["모든 세션의 새 응답·확인 필요·질문·오류를 시간순으로 ( A )", "全セッションの新しい応答・要確認・質問・エラーを時系列で ( A )", "New replies, waits, questions and errors from every session, in time order ( A )"],
+  ["활동", "アクティビティ", "Activity"], ["⇆ 칸", "⇆ 列", "⇆ Columns"], ["▦ 카드", "▦ カード", "▦ Cards"],
+  ["가로 칸 보기 — 대화를 보며 일할 때 ( 세션 보기에서 S )", "横並びの列 — 会話を見ながら作業するとき ( セッション表示で S )", "Side-by-side columns — for working through conversations ( S in the sessions view )"],
+  ["카드 보기 — 전체 세션을 한눈에 ( 세션 보기에서 S )", "カード表示 — 全セッションをひと目で ( セッション表示で S )", "Card view — every session at a glance ( S in the sessions view )"],
+  ["보기 전환 — 세션 칸 · 인박스 칸반 · 활동(칸을 다루는 키는 세션 보기에서만)", "表示の切り替え — セッション列・受信箱カンバン・アクティビティ(列の操作キーはセッション表示のみ)", "Switch view — session columns · inbox kanban · activity (column keys only work in the sessions view)"],
+  ["브레인이 수집된 항목을 카드로 자동 정리하는 주기(수집과는 별개 — 수집은 커넥터마다 몇 분 간격으로 늘 돌고, 사용량이 들지 않습니다). 정리할 때마다 Claude 사용량이 듭니다",
+   "ブレインが集めた項目をカードに自動整理する間隔(収集とは別 — 収集はコネクタごとに数分おきに常に動き、使用量はかかりません)。整理のたびに Claude の使用量がかかります",
+   "How often the Brain sorts collected items into cards (separate from collecting — connectors always collect every few minutes at no usage cost). Each sort uses Claude usage"],
+  ["· {*}", "・{*}", "· {*}"], ["{*} ⇥ Tab", "{*} ⇥ Tab", "{*} ⇥ Tab"],
+  ["Claude 작업 중단(터미널의 Esc)", "Claude の作業を中断(ターミナルの Esc)", "Stop Claude (Esc in the terminal)"],
+  ["중단했습니다", "中断しました", "Stopped"], ["작업 중이 아닙니다", "作業中ではありません", "It isn't working"],
+  ["중단 키를 보냈습니다 — 지금 단계가 정리되는 대로 멈춥니다", "中断キーを送りました — 今のステップが片付き次第止まります", "Sent the stop key — it stops once the current step wraps up"],
+  ["중단 키를 보내지 못했습니다", "中断キーを送れませんでした", "Couldn't send the stop key"],
+  ["터미널에 선택 창이 떠 있어 중단하지 않았습니다(Esc 가 그 창을 취소합니다): {*}", "ターミナルに選択ウィンドウが出ているため中断しませんでした(Esc はそのウィンドウを取り消します): {*}", "Didn't stop: a selection window is open in the terminal (Esc would cancel it): {*}"],
+  ["터미널에 선택 창이 떠 있어 보내지 않았습니다. 터미널에서 먼저 골라 주세요: {*}", "ターミナルに選択ウィンドウが出ているため送っていません。先にターミナルで選んでください: {*}", "Not sent: a selection window is open in the terminal. Pick there first: {*}"],
+  ["리모트 컨트롤을 켜는 중 확인 창이 떠서 메시지는 보내지 않았습니다. 터미널에서 고른 뒤 다시 보내 주세요: {*}", "リモートコントロールをオンにする途中で確認ウィンドウが出たため、メッセージは送っていません。ターミナルで選んでから送り直してください: {*}", "A confirmation window opened while turning on Remote Control, so the message wasn't sent. Pick in the terminal, then send again: {*}"],
+  ["터미널에 선택 창이 떠 있습니다. 터미널에서 먼저 골라 주세요: {*}", "ターミナルに選択ウィンドウが出ています。先にターミナルで選んでください: {*}", "A selection window is open in the terminal. Pick there first: {*}"],
+  ["리모트 컨트롤 확인 창이 떠 있습니다 — 터미널에서 골라 주세요: {*}", "リモートコントロールの確認ウィンドウが出ています — ターミナルで選んでください: {*}", "Remote Control is asking for confirmation — pick in the terminal: {*}"],
+  ["자기 자신에게는 보낼 수 없습니다", "自分自身には送れません", "Can't send to itself"],
+  ["자동 정리·자동 알림 차례에는 다른 세션에 보내거나 원격을 켤 수 없습니다(사용자가 직접 시킨 대화에서만)", "自動整理・自動通知のターンでは他のセッションに送ったりリモートをオンにしたりできません(ユーザーが直接頼んだ会話でのみ)", "Can't message sessions or turn on remote during an automatic sort or relay turn (only when you ask directly)"],
+  ["이 세션의 터미널 탭을 찾지 못했습니다. 그 터미널에서 요청을 한 번 보내면 연결됩니다", "このセッションのターミナルタブが見つかりません。そのターミナルから一度依頼を送ると接続されます", "Couldn't find this session's terminal tab. Send one prompt from that terminal to link it"],
+  ["{} 탭으로 이동했습니다", "{} のタブに移動しました", "Switched to the {} tab"],
+  ["{} 를 앞으로 가져왔지만 이 세션의 탭을 찾지 못했습니다(탭을 닫았거나 제목이 바뀜)", "{} を前面にしましたが、このセッションのタブが見つかりません(タブを閉じたかタイトルが変わった)", "Brought {} to the front but couldn't find this session's tab (closed or renamed)"],
+  ["새 세션을 띄울 수 있는 터미널이 없습니다(지원: {})", "新しいセッションを開けるターミナルがありません(対応: {})", "No terminal that can open a new session (supported: {})"],
+  ["터미널을 찾지 못했습니다", "ターミナルが見つかりません", "Couldn't find the terminal"],
+  // 곁질문(/btw)
+  ["💭 곁질문", "💭 サイド質問", "💭 Side question"], ["/btw · 대화에 들어가지 않음 · {}", "/btw・会話には入らない・{}", "/btw · not part of the conversation · {}"],
+  ["답을 기다리는 중…", "回答待ち…", "Waiting for the answer…"],
+  ["곁질문을 보냈습니다 · 답은 대화에 섞이지 않고 이 칸에 따로 보입니다", "サイド質問を送りました・回答は会話に混ざらずこの列に別に表示されます", "Side question sent · the answer shows separately in this column, outside the conversation"],
+  ["곁질문 창을 찾지 못했습니다(터미널에서 닫혔거나 모양이 바뀜)", "サイド質問ウィンドウが見つかりません(ターミナルで閉じられたか表示が変わった)", "Couldn't find the side-question window (closed in the terminal or its layout changed)"],
+  ["{}초 안에 답이 끝나지 않았습니다 — 터미널에서 확인해 주세요", "{} 秒以内に回答が終わりませんでした — ターミナルで確認してください", "No complete answer within {} s — check the terminal"],
+  // 서식 모드
+  // 카드 보기
+  ["고정됨", "固定中", "Pinned"], ["남은 넥스트 액션", "残りのネクストアクション", "Open next actions"], ["아직 응답이 없습니다", "まだ応答がありません", "No reply yet"],
+  ["세션 더 보기 (+{} / 남은 {}개)", "セッションをもっと見る (+{} / 残り {} 件)", "Show more sessions (+{} / {} left)"], ["보여 줄 세션이 없습니다.", "表示するセッションがありません。", "No sessions to show."],
+  ["{}번 세션 · 카드에서 바로 대화", "{} 番のセッション・カードでそのまま会話", "Session {} · talk right here in the card"],
+  ["가로 칸 보기에서 이 칸으로", "横並びの列表示でこの列へ", "Open this column in the columns view"], ["⇆ 칸에서 보기", "⇆ 列で表示", "⇆ Open in columns"],
+  ["접기 ( Esc )", "閉じる ( Esc )", "Fold ( Esc )"], ["✕ 접기", "✕ 閉じる", "✕ Fold"],
+  ["이 세션 칸으로 이동", "このセッションの列へ移動", "Go to this session's column"], ["이 세션 칸으로 이동 ( ⌘{} )", "このセッションの列へ移動 ( ⌘{} )", "Go to this session's column ( ⌘{} )"],
+  // 활동
+  ["💬 새 응답", "💬 新しい応答", "💬 New reply"], ["⏳ 확인 필요", "⏳ 要確認", "⏳ Needs you"], ["❓ 질문", "❓ 質問", "❓ Question"], ["⚠ 오류", "⚠ エラー", "⚠ Error"],
+  ["🗜 컴팩트", "🗜 コンパクト", "🗜 Compact"], ["▶ 시작", "▶ 開始", "▶ Start"], ["■ 종료", "■ 終了", "■ End"],
+  ["질문", "質問", "Question"],
+  ["안 본 것만", "未読のみ", "Unseen only"], ["브레인 포함", "ブレインを含む", "Include Brain"], ["아직 안 봄", "まだ見ていません", "Not seen yet"],
+  ["✓ 모두 읽음", "✓ すべて既読", "✓ Mark all read"], ["지금 보이는 활동의 세션을 모두 본 것으로(보드의 「새 응답」도 풀림)", "表示中のアクティビティのセッションをすべて既読に(ボードの「新しい応答」も消えます)", "Mark the sessions in this list as seen (clears \"New reply\" on the board too)"],
+  ["모두 읽음으로 표시했습니다 · 세션 {}개", "すべて既読にしました・セッション {} 件", "Marked all read · {} sessions"], ["보여 줄 활동이 없습니다.", "表示するアクティビティがありません。", "No activity to show."],
+  ["프로젝트: {*}", "プロジェクト: {*}", "Project: {*}"],
+  // 인박스 칸반
+  ["⤢ 칸반으로 보기", "⤢ カンバンで表示", "⤢ Open as kanban"], ["할 일", "やること", "To do"], ["진행 중", "進行中", "In progress"], ["답장만 남음", "返信のみ残り", "Reply left"],
+  ["없음", "なし", "None"], ["{}일 뒤 사라짐", "{} 日後に消えます", "gone after {} d"],
+  ["카드를 끌어 다른 열로 옮길 수 있습니다 · 같은 스레드의 카드는 한 묶음", "カードはドラッグで別の列へ移せます・同じスレッドのカードはひとまとめ", "Drag cards between columns · cards from the same thread are grouped"],
+  ["▸ 같은 스레드 {}건", "▸ 同じスレッド {} 件", "▸ {} in this thread"], ["▾ 같은 스레드 {}건", "▾ 同じスレッド {} 件", "▾ {} in this thread"],
+  ["마지막 정리 {} {}", "最終整理 {} {}", "Last sorted {} {}"],
+  ["진행 중 {}개", "進行中 {} 件", "In progress {}"], ["완료 {}개", "完了 {} 件", "Done {}"], ["답장만 남음 {}개", "返信のみ残り {} 件", "Reply left {}"],
+  ["세션에 넘겼거나 내 할 일에 넣은 카드", "セッションに渡したかやることに入れたカード", "Handed to a session or added to my to-dos"],
+  ["세션이 끝낸 일 — 결과와 답장 초안을 보고 보내면 완료", "セッションが終えた仕事 — 結果と返信下書きを見て送れば完了", "Finished by a session — check the result and reply draft, send it, then done"],
+  ["설정한 기간이 지나면 목록에서 사라집니다 · 되돌리기로 다시 꺼낼 수 있습니다", "設定した期間が過ぎると一覧から消えます・元に戻すで再表示できます", "Disappears after the set period · Undo brings it back"],
+  ["진행 중으로 옮깁니다", "進行中に移します", "Move to in progress"], ["완료로 옮깁니다(설정한 기간 뒤 사라짐)", "完了に移します(設定した期間後に消えます)", "Move to done (disappears after the set period)"],
+  ["세션에 맡길 부분 →", "セッションに任せる部分 →", "Part for a session →"], ["에 맡기기", "に任せる", "handle it"],
+  ["{*} 세션에 프롬프트를 보내고, 끝나면 결과 요약과 답장 초안을 이 카드에 넣습니다", "{*} セッションにプロンプトを送り、終わったら結果の要約と返信下書きをこのカードに入れます", "Sends the prompt to {*}; when it's done, the result summary and a reply draft land on this card"],
+  ["{*} — 그 칸의 입력창에 넣기(전송은 직접)", "{*} — その列の入力欄に入れる(送信は手動)", "{*} — put into that column's composer (you send it)"],
+  ["{*} 칸의 넥스트 액션에 할 일로 넣기", "{*} の列のネクストアクションにやることとして入れる", "Add as a to-do to {*}'s next actions"],
+  ["🕘 기록 {}", "🕘 履歴 {}", "🕘 History {}"], ["이 카드가 어떻게 바뀌어 왔는지", "このカードがどう変わってきたか", "How this card has changed"], ["기록이 없습니다", "履歴がありません", "No history"],
+  ["세션 작업 중", "セッションが作業中", "Session working"], ["결과 정리 중", "結果をまとめ中", "Summarizing the result"],
+  ["세션이 확인을 기다림 — 그 세션에서 답해 주세요", "セッションが確認待ち — そのセッションで答えてください", "Session waiting for you — answer it there"],
+  ["세션이 내 답을 기다림 — 그 세션에 답하면 이어서 봅니다", "セッションが自分の回答待ち — 答えると続きを見守ります", "Session is waiting for your answer — answer it and this card follows along"],
+  ["답장만 남음 — 아래 초안 확인 후 보내고 「확인 완료」", "返信のみ残り — 下の下書きを確認して送り「確認済み」へ", "Reply left — check the draft below, send it, then \"Done\""],
+  ["멈춤 — 기록을 보세요", "停止 — 履歴を見てください", "Stopped — see the history"],
+  ["에 맡김 · {}", "に任せた・{}", "handling it · {}"],
+  ["맡길 세션이 없습니다", "任せるセッションがありません", "No session to hand it to"], ["카드나 세션이 없습니다", "カードかセッションがありません", "Card or session not found"],
+  ["보낼 프롬프트가 없습니다", "送るプロンプトがありません", "No prompt to send"], ["그 세션이 확인 필요·종료 상태라 맡길 수 없습니다", "そのセッションは要確認・終了の状態なので任せられません", "That session is waiting or ended, so it can't take this"],
+  ["그 터미널에 선택 창이 떠 있습니다: {*}", "そのターミナルに選択ウィンドウが出ています: {*}", "A selection window is open in that terminal: {*}"], ["전송 실패: {*}", "送信失敗: {*}", "Send failed: {*}"],
+  ["「{*}」 세션에 맡겼습니다 · 끝나면 결과와 답장 초안을 카드에 넣습니다", "「{*}」セッションに任せました・終わったら結果と返信下書きをカードに入れます", "Handed to {*} · the result and a reply draft go on the card when it's done"],
+  // 카드 대화
+  ["이 카드 내용과 슬랙 대화만 두고 따로 묻고 답합니다(브레인 대화와 섞이지 않음)", "このカードの内容と Slack の会話だけで別に質疑します(ブレインの会話とは混ざりません)", "Ask about just this card and its Slack thread, separately from the Brain chat"],
+  ["이 카드에 대해 묻기 · Enter 보내기 · Shift+Enter 줄바꿈", "このカードについて質問・Enter で送信・Shift+Enter で改行", "Ask about this card · Enter to send · Shift+Enter newline"],
+  ["모델(정확한 버전)", "モデル(正確なバージョン)", "Model (exact version)"], ["effort — 「기본」은 모델 기본값", "effort — 「既定」はモデルの既定値", "effort — \"default\" uses the model's default"],
+  ["기본", "既定", "default"], ["이 카드의 대화를 지우고 처음부터", "このカードの会話を消して最初から", "Clear this card's chat and start over"], ["지우기", "消去", "Clear"],
+  ["이 카드 내용과 슬랙 원문·이어진 대화를 보고 답합니다. 예: 「지금 내가 할 것만」 「답장 초안 다시 써 줘」", "このカードの内容と Slack の原文・続きの会話を見て答えます。例:「今やることだけ」「返信の下書きを書き直して」", "Answers from this card, the Slack original and the follow-ups. e.g. \"just what I need to do\", \"rewrite the reply draft\""],
+  ["답장 초안으로", "返信下書きに", "Use as reply draft"], ["할 일로", "やることに", "Use as to-do"],
+  ["이 답(코드 블록이 있으면 그 안)을 카드의 답장 초안으로", "この回答(コードブロックがあればその中身)をカードの返信下書きに", "Make this answer (or its code block) the card's reply draft"],
+  ["이 답의 첫 줄을 카드의 할 일로", "この回答の 1 行目をカードのやることに", "Make this answer's first line the card's to-do"],
+  ["생각 중…", "考え中…", "Thinking…"], ["확인 중: {*}", "確認中: {*}", "Checking: {*}"],
+  ["카드의 답장 초안을 바꿨습니다", "カードの返信下書きを変更しました", "Updated the card's reply draft"], ["카드의 할 일을 바꿨습니다", "カードのやることを変更しました", "Updated the card's to-do"],
+  ["질문을 적어 주세요(8천 자 이하)", "質問を入力してください(8000 字以内)", "Type a question (up to 8,000 characters)"], ["답을 받는 중입니다", "回答を受け取り中です", "Still getting the answer"],
+  ["답을 받는 중에는 지울 수 없습니다", "回答の受け取り中は消せません", "Can't clear while an answer is coming"], ["카드가 없습니다", "カードがありません", "Card not found"],
+  // 커넥터 상태
+  ["수집", "収集", "Collected"],
+  ["수집 {} · {}까지 ·", "収集 {}・{} まで・", "Collected {} · through {} ·"], ["수집 {} · {}까지 · {}분마다", "収集 {}・{} まで・{} 分ごと", "Collected {} · through {} · every {} min"],
+  ["수집 {} · {}분마다", "収集 {}・{} 分ごと", "Collected {} · every {} min"],
+  // 설정 창(새 항목)
+  ["커넥터가 모은 새 항목이 있고 브레인이 쉬고 있을 때, 브레인이 카드로 정리합니다. 0 이면 끔. 정리할 때마다 Claude 사용량이 듭니다(수집 자체는 커넥터 창의 간격으로 늘 돌고 사용량이 들지 않습니다).",
+   "コネクタが集めた新しい項目があり、ブレインが空いているとき、ブレインがカードに整理します。0 ならオフ。整理のたびに Claude の使用量がかかります(収集自体はコネクタ画面の間隔で常に動き、使用量はかかりません)。",
+   "When connectors have new items and the Brain is idle, the Brain sorts them into cards. 0 turns it off. Each sort uses Claude usage (collecting itself runs on each connector's interval at no cost)."],
+  ["완료한 인박스 카드 보관 기간(일)", "完了した受信箱カードの保管期間(日)", "Keep done inbox cards (days)"],
+  ["인박스 칸반의 「완료」 열에 남겨 두는 기간. 지나면 목록에서 사라집니다(기록은 남음).", "受信箱カンバンの「完了」列に残す期間。過ぎると一覧から消えます(記録は残ります)。", "How long cards stay in the kanban's Done column. After that they leave the list (the record stays)."],
+  ["카드 대화 모델", "カード会話のモデル", "Card chat model"],
+  ["인박스 카드의 「💬 대화」에 쓰는 모델(정확한 버전). 카드마다 따로 대화하므로 브레인 대화 맥락을 쓰지 않습니다.", "受信箱カードの「💬 会話」で使うモデル(正確なバージョン)。カードごとに別の会話なのでブレインの会話の文脈は使いません。", "Model for an inbox card's \"💬 Chat\" (exact version). Each card has its own chat, without the Brain's context."],
+  ["카드 대화 effort", "カード会話の effort", "Card chat effort"], ["비우면 모델 기본값. 대화 영역에서 카드마다 바꿀 수도 있습니다.", "空ならモデルの既定値。会話欄でカードごとに変えることもできます。", "Empty means the model's default. You can also change it per card in the chat area."],
+  ["활동 기록 보관 기간(일)", "アクティビティ記録の保管期間(日)", "Keep activity (days)"], ["활동 화면(새 응답·확인 필요·오류…)에 남기는 기간.", "アクティビティ画面(新しい応答・要確認・エラー…)に残す期間。", "How long the Activity view (new replies, waits, errors…) keeps entries."],
+  ["한국어", "한국어", "한국어"],
+  ["이 컴퓨터 시각({}) ·", "このコンピュータの時刻({})・", "this computer's time ({}) ·"], ["전날", "前日", "previous day"], ["다음 날", "翌日", "next day"],
+  ["세션 칸 보기에서 이 대화로", "セッション列表示でこの会話へ", "Open this conversation in the columns view"], ["요청", "依頼", "Prompt"], ["응답", "応答", "Reply"],
+  ["검색 서버에 연결하지 못했습니다 — 잠시 뒤 다시 입력해 주세요", "検索サーバーに接続できませんでした — 少し待って入力し直してください", "Couldn't reach the search server — type again in a moment"],
+  // 세션 빠른 이동
+  ["세션 이름·프로젝트·브랜치 몇 글자", "セッション名・プロジェクト・ブランチを数文字", "A few letters of a session, project or branch"],
+  ["맞는 세션이 없습니다", "一致するセッションがありません", "No matching session"],
+  ["이동 ·", "移動・", "go ·"], ["닫기", "閉じる", "close"],
+  ["두 번", "2回", "twice"],
+  ["세션 빠른 이동 — 보드 순서 목록에서", "セッションのクイック移動 — ボード順の一覧で", "Quick session switcher — in the board-ordered list,"],
+  ["로 고르거나 몇 글자 쳐서 거른 뒤", "で選ぶか、数文字入力して絞り込んでから", "to pick, or type a few letters to filter, then"],
+  [". Shift 두 번은 입력 중에도 동작", "。Shift 2回は入力中でも動作", ". Double Shift works even while typing"],
+  ["브레인 대화 비우기(/clear) — 지침을 새로 읽힐 때. 두 번 눌러 확인", "ブレインの会話をクリア(/clear) — 指示を読み直させるとき。2回押して確定", "Clear the Brain conversation (/clear) — to reread instructions. Press twice to confirm"],
+  ["한 번 더 누르면 브레인 대화를 비웁니다(/clear)", "もう一度押すとブレインの会話をクリアします(/clear)", "Press again to clear the Brain conversation (/clear)"],
+  ["브레인 대화를 비웠습니다 — 지침을 새로 읽습니다", "ブレインの会話をクリアしました — 指示を読み直します", "Brain conversation cleared — it rereads its instructions"],
+  ["브레인이 작업 중입니다 — 끝난 뒤 비우세요", "ブレインが作業中です — 終わってからクリアしてください", "The Brain is working — clear it when it's done"],
+  ["브레인 세션이 없습니다", "ブレインのセッションがありません", "No Brain session"],
+  ["비우지 못했습니다: {*}", "クリアできませんでした: {*}", "Couldn't clear: {*}"],
+  ["서식 모드 — 붙여넣은 서식이 보이는 그대로. 보낼 때 마크다운으로 바뀝니다 · Enter 전송 · Shift+Enter 줄바꿈(빈 목록 항목에선 목록 나가기) · 목록·인용 맨 앞 Backspace 내어쓰기 · Tab/⇧Tab 목록 들여쓰기",
+   "書式モード — 貼り付けた書式がそのまま見えます。送信時に Markdown に変換 · Enter 送信 · Shift+Enter 改行(空のリスト項目ではリストを抜ける) · リスト・引用の先頭で Backspace 字下げ解除 · Tab/⇧Tab リストの字下げ",
+   "Formatted mode — pasted formatting shown as is, converted to Markdown on send · Enter send · Shift+Enter new line (leaves the list on an empty item) · Backspace at the start of a list/quote outdents · Tab/⇧Tab indent list items"],
+  // vim 이동·카드 고르기
+  ["이전·다음 칸 (vim 키 H·J·K·L 은 ← ↓ ↑ → 와 같음)", "前・次の列 (vim キー H・J・K・L は ← ↓ ↑ → と同じ)", "Previous / next column (vim keys H J K L = ← ↓ ↑ →)"],
+  ["카드 보기에서", "カード表示で", "In the card view"],
+  ["카드 고르기(화면에서 그 방향의 카드로) ·", "カードを選ぶ(画面上でその方向のカードへ) ·", "Select a card (the nearest one in that direction) ·"],
+  ["펼쳐 대화 ·", "展開して会話 ·", "expand and chat ·"],
+  ["는 고른 카드에", "は選んだカードに", "act on the selected card"],
+  ["입력창·검색에서 빠져나오기(쓰던 글은 그대로) — 그 칸이 골라진 상태로 돌아가 바로 칸 이동. 펼친 카드는 한 번 더 누르면 접힘", "入力欄・検索から抜ける(書いた文字はそのまま) — その列が選ばれた状態に戻り、すぐ列移動。展開したカードはもう一度で閉じる", "Leave an input or search (your text stays) — back on that column, ready to move. An expanded card collapses on a second press"],
+  ["나", "自分", "Me"],
+  ["↓ 맨 아래로", "↓ 一番下へ", "↓ Jump to latest"], ["맨 아래(최신 대화)로", "一番下(最新の会話)へ", "Jump to the latest message"],
+  // 갈래(/branch·/fork) 탭
+  ["원본", "元", "Original"], ["백그라운드", "バックグラウンド", "Background"],
+  ["⑂ 여기서 갈래", "⑂ ここから分岐", "⑂ Branched here"], ["{}턴째에서", "{}ターン目で", "at turn {}"], ["갈라짐", "分岐", "branched"], ["· 백그라운드", "・バックグラウンド", "· background"],
+  ["에서", "から", "from"], ["갈라지기 전 대화는 원본 쪽 탭에서 볼 수 있습니다", "分岐前の会話は元のタブで見られます", "The conversation before the branch is in the original's tab"],
+  ["🛰 터미널 없이 백그라운드에서 도는 갈래입니다", "🛰 ターミナルなしでバックグラウンドで動く分岐です", "🛰 This branch runs in the background without a terminal"],
+  ["열기 · 이어서 대화", "開いて続ける", "Open · keep chatting"], ["이 갈래로 전환", "この分岐に切り替え", "Switch to this branch"],
+  ["이 터미널은 지금 「{*}」에 있습니다", "このターミナルは今「{*}」にあります", "This terminal is on “{*}” now"],
+  ["이 갈래는 지금 어느 터미널에도 열려 있지 않습니다", "この分岐はどのターミナルでも開かれていません", "This branch isn't open in any terminal"],
+  ["새 탭에서 이어 열기", "新しいタブで開く", "Open in a new tab"],
+  ["이 갈래는 지금 터미널에 없습니다 — 위 버튼으로 전환해 주세요", "この分岐は今ターミナルにありません — 上のボタンで切り替えてください", "This branch isn't in the terminal now — switch with the button above"],
+  ["백그라운드 갈래 — 위 「열기」로 터미널에 붙이면 보낼 수 있습니다", "バックグラウンドの分岐 — 上の「開く」でターミナルにつなぐと送れます", "Background branch — open it in a terminal above to send"],
+  ["새 터미널 탭에 붙였습니다 — 이제 여기서 보낼 수 있습니다", "新しいターミナルタブにつなぎました — ここから送れます", "Attached in a new terminal tab — you can send from here now"],
+  ["터미널을 이 갈래로 바꿨습니다", "ターミナルをこの分岐に切り替えました", "Switched the terminal to this branch"],
+  ["새 터미널 탭에서 이 갈래를 열었습니다", "新しいターミナルタブでこの分岐を開きました", "Opened this branch in a new terminal tab"],
+  ["이 갈래 닫기(두 번 눌러 확인)", "この分岐を閉じる(2回押して確定)", "Close this branch (press twice)"], ["한 번 더 누르면 이 갈래를 닫습니다", "もう一度押すとこの分岐を閉じます", "Press again to close this branch"],
+  ["갈래를 닫았습니다", "分岐を閉じました", "Branch closed"],
+  ["갈래만 닫을 수 있습니다(원본은 칸 메뉴의 보관으로)", "閉じられるのは分岐だけです(元は列メニューの保管で)", "Only branches can be closed (archive the original from the column menu)"],
+  ["지금 터미널에서 돌고 있는 갈래입니다 — 다른 갈래로 전환한 뒤 닫아 주세요", "今ターミナルで動いている分岐です — 別の分岐に切り替えてから閉じてください", "This branch is running in the terminal — switch to another branch first"],
+  // 넥스트 액션 예약 보내기
+  ["⏭ 예약 {}", "⏭ 予約 {}", "⏭ Queued {}"], ["응답이 끝나면 차례로 보낼 할 일", "応答が終わったら順に送るタスク", "To-dos sent one by one when a reply finishes"],
+  ["⏭ 응답 끝나면 {}번째로 보냄", "⏭ 応答後 {}番目に送信", "⏭ Sent #{} after the reply"], ["예약 풀기", "予約を解除", "Unqueue"],
+  ["응답이 끝나면 이 할 일을 바로 보내도록 예약", "応答が終わったらこのタスクをすぐ送るよう予約", "Send this to-do as soon as the reply finishes"],
+  ["예약을 풀었습니다", "予約を解除しました", "Unqueued"], ["지금 쉬고 있어 곧 보냅니다", "今は待機中なのですぐ送ります", "Idle now — sending shortly"],
+  ["응답이 끝나면 보냅니다", "応答が終わったら送ります", "Will send when the reply finishes"],
+  // Claude Code 명령: 되돌리기·권한·목표·갈래·백그라운드·변경
+  ["이 요청 앞으로 되돌리기(/rewind)", "この依頼の前に戻す(/rewind)", "Rewind to before this prompt (/rewind)"], ["이 요청 앞으로", "この依頼の前へ", "Before this prompt"],
+  ["↶ 대화 되돌리기", "↶ 会話を戻す", "↶ Restore conversation"], ["이 요청과 그 뒤 대화를 지웁니다(코드는 그대로)", "この依頼以降の会話を消します(コードはそのまま)", "Removes this prompt and everything after (code unchanged)"],
+  ["↶ 코드와 대화 되돌리기", "↶ コードと会話を戻す", "↶ Restore code and conversation"], ["그 뒤에 바뀐 파일도 되돌립니다", "その後に変わったファイルも戻します", "Also reverts files changed since"],
+  ["↶ 코드만 되돌리기", "↶ コードだけ戻す", "↶ Restore code only"], ["대화는 두고 파일만", "会話は残してファイルだけ", "Files only, keep the conversation"],
+  ["≋ 여기부터 요약", "≋ ここから要約", "≋ Summarize from here"], ["이 요청부터의 대화를 요약으로 줄입니다", "この依頼からの会話を要約に縮めます", "Condenses the conversation from this prompt"],
+  ["≋ 여기까지 요약", "≋ ここまで要約", "≋ Summarize up to here"], ["이 요청 앞까지를 요약으로 줄입니다", "この依頼の前までを要約に縮めます", "Condenses everything before this prompt"],
+  ["코드 되돌리기는 그 뒤에 파일을 바꿨을 때만 고를 수 있습니다", "コードを戻すのはその後にファイルを変えたときだけ選べます", "Code restore is available only if files changed since"],
+  ["되돌리는 중… (터미널의 /rewind 창을 조작합니다)", "戻しています…(ターミナルの /rewind を操作)", "Rewinding… (driving /rewind in the terminal)"],
+  ["되돌렸습니다", "戻しました", "Rewound"], ["되돌렸습니다 — 지운 요청을 입력창에 넣었습니다", "戻しました — 消した依頼を入力欄に入れました", "Rewound — the removed prompt is back in the composer"],
+  ["↶ 되돌려 지운 대화 {}턴", "↶ 戻して消した会話 {}ターン", "↶ {} turns removed by rewind"], ["펼치기", "開く", "Show"],
+  ["권한 모드 — 눌러서 바꾸기(터미널의 Shift+Tab)", "権限モード — 押して切り替え(ターミナルの Shift+Tab)", "Permission mode — click to change (Shift+Tab in the terminal)"],
+  ["권한 모드", "権限モード", "Permission mode"], ["자동", "自動", "Auto"], ["수동", "手動", "Manual"], ["편집 허용", "編集を許可", "Accept edits"], ["계획", "計画", "Plan"], ["전부 허용", "すべて許可", "Bypass"],
+  ["⏵⏵ 자동 ▾", "⏵⏵ 自動 ▾", "⏵⏵ Auto ▾"], ["⏸ 수동 ▾", "⏸ 手動 ▾", "⏸ Manual ▾"], ["⏵⏵ 편집 허용 ▾", "⏵⏵ 編集を許可 ▾", "⏵⏵ Accept edits ▾"], ["⏸ 계획 ▾", "⏸ 計画 ▾", "⏸ Plan ▾"],
+  ["⏵⏵ 자동", "⏵⏵ 自動", "⏵⏵ Auto"], ["⏸ 수동", "⏸ 手動", "⏸ Manual"], ["⏵⏵ 편집 허용", "⏵⏵ 編集を許可", "⏵⏵ Accept edits"], ["⏸ 계획", "⏸ 計画", "⏸ Plan"],
+  ["Claude 가 판단해 진행(위험한 것만 묻기)", "Claude が判断して進める(危険なものだけ確認)", "Claude decides (asks only for risky steps)"], ["도구를 쓸 때마다 묻기", "ツールを使うたびに確認", "Ask for every tool use"],
+  ["파일 고치기는 묻지 않기", "ファイル編集は確認しない", "Don't ask for file edits"], ["계획만 세우고 고치지 않기", "計画だけ立てて編集しない", "Plan only, no edits"], ["권한 모드: {*}", "権限モード: {*}", "Permission mode: {*}"],
+  ["🎯 목표", "🎯 目標", "🎯 Goal"], ["✔ 목표 달성", "✔ 目標達成", "✔ Goal met"], ["/goal — 멈추기 전에 이 조건을 확인합니다", "/goal — 止まる前にこの条件を確認します", "/goal — checked before Claude stops"],
+  ["예: 테스트가 모두 통과하고 린트 오류가 없는지", "例: テストがすべて通り、リントエラーがないか", "e.g. all tests pass and no lint errors"], ["풀기", "解除", "Clear"], ["바꾸기", "変更", "Change"], ["걸기", "設定", "Set"],
+  ["🎯 목표 바꾸기·풀기", "🎯 目標を変更・解除", "🎯 Change or clear goal"], ["🎯 목표 걸기", "🎯 目標を設定", "🎯 Set a goal"],
+  ["🧾 변경 보기", "🧾 変更を見る", "🧾 View changes"], ["브랜치 전체", "ブランチ全体", "Whole branch"], ["한 줄", "1列", "Unified"], ["나란히", "並べて", "Side by side"],
+  ["파일 {}", "ファイル {}", "Files {}"], ["커밋 {}", "コミット {}", "Commits {}"], ["커밋 {}+", "コミット {}+", "Commits {}+"],
+  ["{*} 과 비교", "{*} と比較", "vs {*}"], ["바이너리 파일 — 내용은 보이지 않습니다", "バイナリファイル — 内容は表示しません", "Binary file — contents not shown"],
+  ["내용은 그대로이고 이름만 바뀌었습니다", "内容はそのままで名前だけ変わりました", "Renamed only — contents unchanged"], ["바뀐 내용이 없습니다(권한·모드 변경)", "内容の変更はありません(権限・モードの変更)", "No content change (permission / mode)"],
+  ["이 브랜치에 바뀐 것이 없습니다", "このブランチに変更はありません", "Nothing changed on this branch"], ["브랜치 전체 보기", "ブランチ全体を見る", "View the whole branch"],
+  ["이 브랜치에는 {*} 에 없는 커밋이 없습니다 — 커밋 안 한 변경만 있습니다", "このブランチには {*} にないコミットはありません — 未コミットの変更のみです", "This branch has no commits beyond {*} — only uncommitted changes"],
+  ["기본 브랜치(main 등)를 찾지 못해 커밋 안 한 변경만 보여 줍니다", "デフォルトブランチ(main など)が見つからないため、未コミットの変更だけを表示します", "Couldn't find the default branch (main etc.) — showing uncommitted changes only"],
+  ["새 파일이 많아 {}개는 빼고 보였습니다", "新しいファイルが多いため {} 件は省きました", "Too many new files — {} left out"], ["보드 창", "ボード画面", "Board"],
+  ["파일 위치를 찾는 중…", "ファイルの場所を探しています…", "Finding where the file is…"],
+  ["원래 위치를 찾지 못했습니다: {*}", "元の場所が見つかりませんでした: {*}", "Couldn't find where it is: {*}"],
+  ["같은 파일이 다른 곳에도 있어 이 세션 폴더 쪽(없으면 처음 찾은 곳)을 넣었습니다 — 경로를 확인해 주세요", "同じファイルが他の場所にもあるため、このセッションのフォルダ側(なければ最初に見つけた場所)を入れました — パスを確認してください", "The same file exists elsewhere too — inserted the one in this session's folder (or the first found); check the path"],
+  ["지금은 이 입력창에 넣을 수 없습니다", "今はこの入力欄に入れられません", "Can't insert into this box right now"],
+  ["비교 범위", "比較範囲", "Compare"],
+  ["마지막 커밋 이후 바뀐 것 + 새로 만든 파일", "最後のコミット以降の変更 + 新しいファイル", "Changes since the last commit + new files"],
+  ["기본 브랜치(main)와 갈라진 곳부터 지금까지 — 이 브랜치의 커밋과 커밋 안 한 변경 모두", "デフォルトブランチ(main)から分かれた所から今まで — このブランチのコミットと未コミットの変更すべて", "Since the branch left the default branch (main) — its commits and uncommitted changes"],
+  ["보기", "表示", "View"],
+  ["한 줄로 ( V )", "1列で ( V )", "Unified ( V )"],
+  ["이전·이후 나란히 ( V )", "変更前・後を並べて ( V )", "Before / after side by side ( V )"],
+  ["다시 읽기", "再読み込み", "Reload"],
+  ["지금 HEAD", "現在の HEAD", "Current HEAD"],
+  ["수정", "修正", "Modified"],
+  ["새 파일", "新規ファイル", "New file"],
+  ["이름 바꿈", "名前変更", "Renamed"],
+  ["기본 앱으로 열기 (⌥ 클릭: Finder)", "既定のアプリで開く (⌥ クリック: Finder)", "Open in the default app (⌥-click: Finder)"],
+  ["(너무 커서 내용은 생략 — {}바이트)", "(大きすぎるため内容は省略 — {} バイト)", "(too large — contents omitted, {} bytes)"],
+  ["커밋 안 한 변경 — 바뀐 파일 {}개(+{} −{}) · 새 파일 {}개 · 눌러서 보기 ( /diff )", "未コミットの変更 — 変更ファイル {} 件(+{} −{})・新規ファイル {} 件・クリックで表示 ( /diff )", "Uncommitted changes — {} changed files (+{} −{}) · {} new files · click to view ( /diff )"],
+  ["커밋 안 한 변경 — 바뀐 파일 {}개(+{} −{}) · 눌러서 보기 ( /diff )", "未コミットの変更 — 変更ファイル {} 件(+{} −{})・クリックで表示 ( /diff )", "Uncommitted changes — {} changed files (+{} −{}) · click to view ( /diff )"],
+  ["스킬", "スキル", "Skill"],
+  ["터미널 창", "ターミナル画面", "Terminal"],
+  ["명령", "コマンド", "Command"],
+  ["플러그인", "プラグイン", "Plugin"],
+  ["Claude 요청", "Claude への依頼", "Claude prompt"],
+  ["· 자동 확인 {} — 새 항목 없어 건너뜀", "・自動確認 {} — 新しい項目がないためスキップ", "· auto check {} — nothing new, skipped"],
+  ["자동 정리는 커넥터가 모아 둔 새 항목이 있을 때만 돕니다(사용량을 아끼려고)", "自動整理はコネクタが集めた新しい項目があるときだけ動きます(使用量を節約するため)", "The automatic run only starts when connectors have collected new items (to save usage)"],
+  ["서식을 껐습니다 — 마크다운 글로 바뀌었습니다", "書式をオフにしました — Markdown テキストに変わりました", "Formatting off — converted to Markdown text"],
+  ["서식 모드 — 붙여넣은 서식이 보이는 그대로. 보낼 때 마크다운으로 바뀝니다 · Enter 전송 · Shift+Enter 줄바꿈(빈 목록 항목에선 목록 나가기, 코드·인용 끝에서 두 번이면 블록 밖으로) · 목록·인용·코드 맨 앞 Backspace 서식 풀기 · Tab/⇧Tab 목록 들여쓰기 · ⌘\\ 서식 끄기(마크다운 글로)", "書式モード — 貼り付けた書式がそのまま見えます。送信時に Markdown に変わります · Enter 送信 · Shift+Enter 改行(空のリスト項目ではリストを抜ける、コード・引用の末尾で2回でブロックの外へ) · リスト・引用・コードの先頭で Backspace 書式解除 · Tab/⇧Tab リストのインデント · ⌘\\ 書式オフ(Markdown テキストに)", "Formatted mode — pasted formatting shows as is and is sent as Markdown · Enter send · Shift+Enter new line (on an empty list item it leaves the list; twice at the end of a code block or quote leaves the block) · Backspace at the start of a list, quote or code block removes its formatting · Tab/⇧Tab indent list items · ⌘\\ formatting off (to Markdown)"],
+  ["서식 붙여넣은 입력창에서", "書式付きで貼り付けた入力欄で", "In a box with pasted formatting,"],
+  ["서식 끄기 — 보통 입력창의 마크다운 글로(코드 블록은 ``` 로 둘러싼 글). 블록만 빠져나오려면 코드·인용 끝에서", "書式オフ — 通常の入力欄の Markdown テキストに(コードブロックは ``` で囲んだテキスト)。ブロックだけ抜けるにはコード・引用の末尾で", "formatting off — back to the plain box as Markdown (a code block becomes a ``` fenced block). To leave just a block, at the end of a code block or quote press"],
+  ["두 번, 블록 맨 앞에서", "を2回、ブロックの先頭で", "twice; at the start of a block,"],
+  ["는 그 블록의 서식만 풀기. 처음부터 글만 붙이려면", "でそのブロックの書式だけ解除。最初からテキストだけ貼るには", "removes just that block's formatting. To paste plain text from the start, use"],
+  ["변경 보기 창에서", "変更ビューで", "In the changes view,"],
+  ["다음·이전 파일 · 한 줄/나란히 전환 · 지금 파일 접기·펴기. 입력창에", "次・前のファイル · 1列/並べて切替 · 今のファイルを折りたたむ・開く。入力欄に", "next / previous file · unified / side by side · fold the current file. Type"],
+  ["를 치면 이 창이 열립니다", "と入力するとこの画面が開きます", "in the message box to open it"],
+  ["백그라운드 세션을 새 터미널 탭에 붙였지만 입력칸이 뜨지 않았습니다 — 그 탭을 확인해 주세요", "バックグラウンドセッションを新しいターミナルタブにつなぎましたが入力欄が出ません — そのタブを確認してください", "Attached the background session in a new terminal tab, but the input box didn't appear — check that tab"],
+  ["새 탭에서 다른 조작이 진행 중입니다 — 잠시 뒤 다시 해 주세요", "新しいタブで別の操作が進行中です — 少し後でもう一度どうぞ", "Another action is running in the new tab — try again shortly"],
+  ["백그라운드로 돌고 있지 않습니다 — 「전환」으로 이어 여세요", "バックグラウンドで動いていません — 「切り替え」で再開してください", "Not running in the background — reopen it with Switch"],
+  ["변경 보기 — 보드 창에서(파일 목록·나란히 보기)", "変更を見る — ボード画面で(ファイル一覧・並べて表示)", "View changes — on the board (file list, side by side)"], ["커밋 안 한 변경", "未コミットの変更", "uncommitted changes"], ["커밋 안 한 변경이 없습니다", "未コミットの変更はありません", "No uncommitted changes"], ["너무 길어 앞부분만 보였습니다", "長すぎるため先頭だけ表示しました", "Too long — showing the beginning only"],
+  ["갈래·곁일 — /branch · /fork · /subtask", "分岐・サブタスク — /branch · /fork · /subtask", "Branch / side task — /branch · /fork · /subtask"], ["⑂ 갈래·곁일", "⑂ 分岐・サブタスク", "⑂ Branch / side task"],
+  ["작업 중에는 쓸 수 없습니다 — 끝난 뒤에(명령이 요청으로 끼어들지 않게)", "作業中は使えません — 終わってから(コマンドが依頼に混ざらないよう)", "Not while working — wait until it finishes (so the command isn't mixed into the prompt)"],
+  ["⑂ 여기서 갈라 대화하기", "⑂ ここで分岐して会話", "⑂ Branch here and chat"], ["/branch — 이 터미널이 갈래로 넘어가고, 원본은 탭에 남습니다", "/branch — このターミナルが分岐に移り、元はタブに残ります", "/branch — this terminal moves to the branch; the original stays as a tab"],
+  ["갈래 이름(비우면 첫 요청에서)", "分岐名(空なら最初の依頼から)", "Branch name (blank: from the first prompt)"], ["갈라 대화", "分岐して会話", "Branch"],
+  ["🛰 갈라서 맡기기", "🛰 分岐して任せる", "🛰 Fork and hand off"], ["/fork — 대화를 물려받은 백그라운드 세션이 따로 일합니다", "/fork — 会話を引き継いだバックグラウンドセッションが別に作業します", "/fork — a background session with this conversation works on its own"],
+  ["맡길 일", "任せる作業", "Task to hand off"], ["맡기기", "任せる", "Hand off"],
+  ["↪ 곁일 맡기기", "↪ サブタスクを任せる", "↪ Side task"], ["/subtask — 서브에이전트가 하고 결과를 이 대화로 돌려줍니다", "/subtask — サブエージェントが行い、結果をこの会話に返します", "/subtask — a subagent does it and reports back here"], ["곁일", "サブタスク", "Side task"],
+  ["백그라운드 세션(claude agents) — 상태·열기·멈추기", "バックグラウンドセッション(claude agents) — 状態・開く・停止", "Background sessions (claude agents) — status, open, stop"],
+  ["🛰 백그라운드 세션", "🛰 バックグラウンドセッション", "🛰 Background sessions"], ["백그라운드 세션이 없습니다", "バックグラウンドセッションはありません", "No background sessions"],
+  ["칸으로", "列へ", "Column"], ["열기", "開く", "Open"], ["멈추기", "停止", "Stop"], ["· 진행 {}", "・進行中 {}", "· {} active"], ["끝남", "完了", "done"], ["대기", "待機", "idle"],
+  ["멈췄습니다(대화는 남아 있어 다시 열 수 있습니다)", "停止しました(会話は残っているので再度開けます)", "Stopped (the conversation is kept; you can open it again)"], ["새 터미널 탭에 붙였습니다", "新しいターミナルタブにつなぎました", "Attached in a new terminal tab"],
+  ["작업 중에는 되돌릴 수 없습니다 — 끝난 뒤(또는 중단한 뒤)에", "作業中は戻せません — 終わってから(または中断してから)", "Can't rewind while working — after it finishes (or is stopped)"],
+  ["⚠ 전부 허용 ▾", "⚠ すべて許可 ▾", "⚠ Bypass ▾"], ["⚠ 전부 허용", "⚠ すべて許可", "⚠ Bypass"],
+  ["응답 완료 · 대기", "応答完了・待機", "replied · idle"], ["꺼짐 · 기록만 남음", "停止済み・記録のみ", "gone · record only"],
+  ["목록에서 지우기", "一覧から削除", "Remove"], ["한 번 더 누르면 지움", "もう一度押すと削除", "Press again to remove"],
+  ["{} 시작", "{} 開始", "started {}"], ["마지막 응답 {}", "最終応答 {}", "last reply {}"], ["목록에서 지웠습니다", "一覧から削除しました", "Removed"],
+  ["claude agents · 터미널 없이 도는 세션(/fork·/background·--bg·웹에서 시작)", "claude agents・ターミナルなしで動くセッション(/fork・/background・--bg・Web から開始)",
+    "claude agents · sessions running without a terminal (/fork, /background, --bg, started on the web)"],
+  ["보드의 그 세션 칸(대화 전체)으로", "ボードのそのセッション列(会話全体)へ", "Go to that session's column (full conversation)"],
+  ["Orca 새 탭에서 claude attach — 그 세션 화면에 붙어 직접 조작", "Orca の新しいタブで claude attach — そのセッション画面に入って直接操作", "claude attach in a new Orca tab — work in that session directly"],
+  ["claude stop — 프로세스를 끝냄(대화는 남음)", "claude stop — プロセスを終了(会話は残る)", "claude stop — ends the process (the conversation is kept)"],
+  ["claude rm — 목록에서 지움(두 번 누르기)", "claude rm — 一覧から削除(2回押す)", "claude rm — remove from the list (press twice)"],
+  ["⚙ 백그라운드 작업", "⚙ バックグラウンド作業", "⚙ Background tasks"], ["⚙ 백그라운드 작업 {}", "⚙ バックグラウンド作業 {}", "⚙ Background tasks {}"],
+  ["진행 {}", "進行中 {}", "{} running"], ["끝남 {}", "完了 {}", "{} done"], ["진행 중 · {}", "進行中・{}", "running · {}"], ["끝남 · {}", "完了・{}", "done · {}"],
+  ["실패 · {}", "失敗・{}", "failed · {}"], ["중단 · {}", "中断・{}", "stopped · {}"], ["{}째", "{}経過", "{} so far"], ["{} 요약", "{}の要約", "summary {}"],
+  ["서브에이전트", "サブエージェント", "Subagent"], ["백그라운드 명령", "バックグラウンドコマンド", "Background command"], ["백그라운드 작업", "バックグラウンド作業", "Background task"],
+  ["아직 기록이 없습니다", "まだ記録がありません", "Nothing recorded yet"], ["(출력 없음)", "(出力なし)", "(no output)"],
+  ["눌러서 무엇을 하는지 보기", "押すと何をしているか表示", "Click to see what it's doing"],
+  ["갈래·곁일 — /branch(여기서 갈라 대화) · /fork(갈라서 맡기기) · /subtask(곁일)", "分岐・サイドタスク — /branch(ここで分岐して会話)・/fork(分岐して任せる)・/subtask(サイドタスク)", "Branch & side tasks — /branch (talk on a branch from here) · /fork (branch and hand off) · /subtask (side task)"], ["갈래·곁일", "分岐・サイドタスク", "Branch & side tasks"], ["진행", "進行中", "running"],
+  ["💬 답 대신 대화로", "💬 回答せず会話で", "💬 Chat instead"],
+  ["Chat about this — 질문에 답하지 않고 넘긴 뒤 입력창에서 대화로 이어 갑니다", "Chat about this — 質問に答えずに入力欄で会話を続けます", "Chat about this — skip the questions and continue in the message box"],
+  ["질문에 답하지 않고 대화로 넘겼습니다 — 하고 싶은 말을 입력창에 쓰세요", "質問に答えず会話に切り替えました — 入力欄に書いてください", "Skipped the questions — write what you want in the message box"],
+  ["정리 일꾼이 모인 항목을 읽어 카드로 만듭니다 — 브레인 대화에는 끼어들지 않습니다(사용량이 듭니다)", "整理ワーカーが集まった項目を読んでカードにします — ブレインの会話には割り込みません(使用量がかかります)", "A separate worker reads collected items into cards — it doesn't interrupt the Brain chat (uses quota)"],
+  ["정리 일꾼이 모인 항목을 읽어 카드로 만듭니다 — 브레인 대화에는 끼어들지 않습니다", "整理ワーカーが集まった項目を読んでカードにします — ブレインの会話には割り込みません", "A separate worker reads collected items into cards — it doesn't interrupt the Brain chat"],
+  ["카드가 없습니다. 「지금 정리」를 누르면 정리 일꾼이 슬랙에서 나를 부른 것들을 모아 옵니다.", "カードがありません。「今すぐ整理」を押すと整理ワーカーが Slack で自分宛てのものを集めます。", "No cards. Press \"지금 정리\" and the worker gathers what mentions you on Slack."],
+  ["아직 정리 기록이 없습니다 — 「지금 정리」나 자동 정리가 돌면 결과가 여기 나옵니다", "まだ整理の記録がありません — 「今すぐ整理」か自動整理が動くと結果がここに出ます", "No runs yet — results of \"지금 정리\" or auto runs show here"],
+  ["{} {} 정리 중…", "{} {} 整理中…", "{} {} organizing…"], ["{} {} 정리 실패", "{} {} 整理失敗", "{} {} run failed"], ["{} {} 정리 · 새 카드", "{} {} 整理・新しいカード", "{} {} run · new cards"],
+  ["자동", "自動", "auto"], ["직접", "手動", "manual"], ["정리 일꾼이 따로 정리합니다 — 결과는 인박스 탭 맨 위", "整理ワーカーが別に整理します — 結果はインボックスタブの上部", "The worker organizes separately — results at the top of the inbox tab"], ["급함 {}", "至急 {}", "urgent {}"], ["요약 ▾", "要約 ▾", "Summary ▾"], ["요약 접기", "要約を閉じる", "Hide summary"],
+  ["기록", "履歴", "History"], ["기록 접기", "履歴を閉じる", "Hide history"],
+  ["정리 일꾼을 돌립니다 — 끝나면 인박스 맨 위에 결과가 나옵니다", "整理ワーカーを動かします — 終わるとインボックス上部に結果が出ます", "Running the worker — the result appears at the top of the inbox"],
+  ["정리를 시작했습니다", "整理を始めました", "Started"], ["이미 정리하는 중입니다", "すでに整理中です", "Already running"],
+  ["고치기(더블클릭과 같음) — Enter 저장 · Esc 취소", "編集(ダブルクリックと同じ) — Enter 保存・Esc 取り消し", "Edit (same as double-click) — Enter saves · Esc cancels"],
+  ["다음에 할 일  Enter 추가 · ⌘Enter 추가+끝나면 보내기 · Shift+Enter 줄바꿈", "次にやること  Enter 追加・⌘Enter 追加して応答後に送信・Shift+Enter 改行", "Next action  Enter add · ⌘Enter add + send after reply · Shift+Enter new line"],
+  ["예약 풀기 ( ⌘Enter )", "予約を解除 ( ⌘Enter )", "Unqueue ( ⌘Enter )"],
+  ["응답이 끝나면 이 할 일을 바로 보내도록 예약 ( ⌘Enter )", "応答が終わったらこのタスクをすぐ送るよう予約 ( ⌘Enter )", "Queue to send when the reply finishes ( ⌘Enter )"],
+  ["할 일에서", "タスクで", "On a task"], ["「응답 끝나면 보내기」 예약·풀기(⏭). 넥스트 액션 입력칸에서는 추가하면서 바로 예약", "「応答後に送る」予約・解除(⏭)。ネクストアクション入力欄では追加と同時に予約", "Queue or unqueue \"send after reply\" (⏭). In the next-action box: add and queue at once"],
+  ["추가하고 예약했습니다 — 지금 쉬고 있어 곧 보냅니다", "追加して予約しました — いま待機中なのですぐ送ります", "Added and queued — it's idle, sending shortly"],
+  ["추가하고 예약했습니다 — 응답이 끝나면 보냅니다", "追加して予約しました — 応答が終わったら送ります", "Added and queued — will send when the reply finishes"],
+  ["세션에 붙은 할 일만 예약할 수 있습니다", "セッションのタスクだけ予約できます", "Only a session's tasks can be queued"], ["완료한 할 일입니다", "完了したタスクです", "This task is done"],
+  ["📎 첨부", "📎 添付", "📎 Files"], ["원문과 그 스레드에 붙은 파일 — 누르면 슬랙에서 열기", "原文とそのスレッドの添付ファイル — 押すと Slack で開く", "Files on the original message and its thread — click to open in Slack"],
+  ["원문과 스레드에 첨부 파일이 없습니다", "原文とスレッドに添付ファイルはありません", "No files on the message or its thread"], ["슬랙에서 열기", "Slack で開く", "Open in Slack"],
+  ["새 세션 기본 effort", "新規セッションの既定 effort", "Default effort for new sessions"],
+  ["「＋ 새 세션」 창에서 처음 골라져 있는 effort(claude --effort). 브레인이 effort 없이 새 세션을 열 때도 이 값.",
+    "「＋ 新規セッション」画面で最初に選ばれている effort(claude --effort)。ブレインが effort なしで新規セッションを開くときもこの値。",
+    "Effort preselected in the \"+ New session\" dialog (claude --effort). Also used when the Brain opens a session without one."],
+  ["⏵⏵ 자동(추천)", "⏵⏵ 自動(おすすめ)", "⏵⏵ Auto (recommended)"], ["⏸ 수동 — 명령마다 묻기", "⏸ 手動 — コマンドごとに確認", "⏸ Manual — ask for each command"],
+  ["⏵⏵ 편집 허용", "⏵⏵ 編集を許可", "⏵⏵ Accept edits"], ["⏸ 계획", "⏸ 計画", "⏸ Plan"],
+  ["권한 모드 — 자동은 Claude 가 판단해 진행하고 위험해 보이는 것만 묻습니다", "権限モード — 自動は Claude が判断して進め、危なそうなものだけ確認します", "Permission mode — auto lets Claude proceed and asks only for risky things"],
+  ["브레인 권한 모드", "ブレインの権限モード", "Brain permission mode"],
+  ["「브레인 시작」 때 처음 골라져 있는 권한 모드. auto 는 Claude 가 판단해 진행하고 위험해 보이는 것만 묻습니다 · manual 은 명령마다 묻습니다. 켜져 있는 브레인은 패널 머리의 권한 칩으로 바꿉니다.",
+    "「ブレイン開始」で最初に選ばれている権限モード。auto は Claude が判断して進め、危なそうなものだけ確認します・manual はコマンドごとに確認します。動いているブレインはパネル上部の権限チップで変えます。",
+    "Permission mode preselected when starting the Brain. auto lets Claude proceed and asks only for risky things; manual asks for each command. Change a running Brain with the permission chip in the panel header."],
+  ["🔐 확인 필요", "🔐 要確認", "🔐 Needs you"], ["터미널의 선택 창 — 골라서 넣습니다", "ターミナルの選択画面 — 選ぶと入力します", "The terminal's prompt — pick to answer"],
+  ["⏻ 세션 종료", "⏻ セッション終了", "⏻ End session"], ["Claude Code 를 닫고(/exit) 터미널 탭도 닫기", "Claude Code を閉じて(/exit)ターミナルタブも閉じる", "Close Claude Code (/exit) and its terminal tab"],
+  ["이 세션을 종료할까요?", "このセッションを終了しますか?", "End this session?"], ["작업을 멈추고 세션을 종료할까요?", "作業を止めてセッションを終了しますか?", "Stop the task and end the session?"],
+  ["터미널에서 /exit 를 친 것처럼 Claude Code 를 닫고 탭도 닫습니다. 대화는 남아 있어 나중에 claude --resume 으로 이어 갈 수 있습니다",
+    "ターミナルで /exit を打ったように Claude Code を閉じ、タブも閉じます。会話は残るので後で claude --resume で続けられます",
+    "Closes Claude Code as if you typed /exit, and the tab too. The conversation is kept; continue later with claude --resume"],
+  ["멈추고 종료", "止めて終了", "Stop and end"], ["작업 중입니다.", "作業中です。", "It's working."], ["종료", "終了", "End"], ["종료하는 중…", "終了中…", "Ending…"],
+  ["새 워크트리로 시작", "新しいワークツリーで開始", "Start in a new worktree"],
+  ["claude --worktree — 그 저장소의 .claude/worktrees/ 에 새 워크트리(새 브랜치)를 만들어 거기서 시작합니다. 끄면 고른 폴더에서 그대로",
+    "claude --worktree — そのリポジトリの .claude/worktrees/ に新しいワークツリー(新しいブランチ)を作ってそこで開始します。オフにすると選んだフォルダーのまま",
+    "claude --worktree — creates a new worktree (new branch) under the repository's .claude/worktrees/ and starts there. Off: start in the chosen folder"],
+  ["↶ 여기서부터 되돌리는 중…", "↶ ここから巻き戻し中…", "↶ Rewinding from here…"], ["↶ 되돌리는 중…", "↶ 巻き戻し中…", "↶ Rewinding…"],
+  ["터미널의 /rewind 를 조작하고 있습니다", "ターミナルの /rewind を操作しています", "Operating /rewind in the terminal"],
+  ["누르면 무엇을 하는지 · 끝난 것은 30분 뒤 사라짐", "押すと内容を表示・完了したものは30分後に消えます", "Click to see what it's doing · finished ones go after 30 min"],
+  ["백그라운드 작업이 끝났습니다", "バックグラウンド作業は終わりました", "Background tasks have finished"], ["⚙ {} 진행", "⚙ {} 進行中", "⚙ {} running"],
+  ["⚙ {} 진행 · {} 끝남", "⚙ {} 進行中・{} 完了", "⚙ {} running · {} done"], ["⚙ {} 끝남", "⚙ {} 完了", "⚙ {} done"],
+  ["이 세션이 띄운 백그라운드 작업(서브에이전트·명령) — 눌러서 목록", "このセッションが起動したバックグラウンド作業(サブエージェント・コマンド) — 押すと一覧", "Background tasks this session started (subagents, commands) — click for the list"],
+  ["마지막 확인 {}/{} ({}) {}", "最終確認 {}/{} ({}) {}", "Last checked {}/{} ({}) {}"], ["마지막 정리 {}/{} ({}) {}", "最終整理 {}/{} ({}) {}", "Last sorted {}/{} ({}) {}"],
+];
+
+const I18N = (() => {
+  const col = { ja: 1, en: 2 }[LANG];
+  const exact = new Map(), patterns = [];
+  if (!col) return { exact, patterns };
+  for (const row of I18N_ROWS) {
+    const ko = row[0].replace(/\s+/g, " ").trim(), to = row[col];
+    if (!/\{\*?\}/.test(ko)) { exact.set(ko, to); continue; }
+    // {} 는 옮길 수 있는 부분(숫자·이름이거나 사전에 있는 말), {*} 는 그대로 두는 부분(세션 제목 같은 사용자 글)
+    const raw = (ko.match(/\{\*?\}/g) || []).map(x => x === "{*}");
+    const re = new RegExp("^" + ko.split(/\{\*?\}/).map(s => s.replace(/[.*+?^$()|[\]\\]/g, "\\$&")).join("(.+?)") + "$");
+    patterns.push([re, to, ko.replace(/\{\*?\}/g, "").length, raw]);
+  }
+  patterns.sort((a, b) => b[2] - a[2]);
+  return { exact, patterns };
+})();
+window.__i18nMissing = new Set();
+const I18N_DONE = new Set();
+
+// 한국어 문구 하나를 옮긴다. 없으면 null
+// 원문 → 번역(없으면 null) 기억. 사전은 불러온 뒤 바뀌지 않으니, 같은 글(1초마다 바뀌는 「N초」 등)에 패턴을 다시 돌리지 않는다
+const I18N_MEMO = new Map();
+function i18nText(text, depth = 0) {
+  const key = text.replace(/\s+/g, " ").trim();
+  if (!key || !/[가-힣]/.test(key)) return null;
+  // 앞뒤 공백만 살리고 통째로 바꾼다(가운데 공백이 둘인 원문도 같은 키로 찾는다)
+  const wrap = to => text.replace(/^(\s*)[\s\S]*?(\s*)$/, (_, a, z) => a + to + z);
+  if (I18N_DONE.has(key)) return null;   // 이미 옮긴 결과(그 안에 사용자 글로 한국어가 남은 것) — 다시 찾지 않는다
+  // 기억은 바깥 호출(depth 0)만 — 안쪽 조각은 깊이 제한 때문에 결과가 달라질 수 있다
+  if (depth === 0 && I18N_MEMO.has(key)) { const v = I18N_MEMO.get(key); return v == null ? null : wrap(v); }
+  const v = i18nCore(key, depth);
+  if (depth === 0) {
+    if (I18N_MEMO.size > 5000) I18N_MEMO.clear();
+    I18N_MEMO.set(key, v);
+  }
+  if (v == null && depth === 0) window.__i18nMissing.add(key);
+  return v == null ? null : wrap(v);
+}
+function i18nCore(key, depth) {
+  const hit = I18N.exact.get(key);
+  if (hit != null) return hit;
+  if (depth < 4) {
+    // 바뀌는 부분({})이 숫자·이름이거나 그것도 사전에 있을 때만 그 패턴을 쓴다
+    for (const [re, to, , raw] of I18N.patterns) {
+      const m = re.exec(key);
+      if (!m) continue;
+      const parts = [];
+      let ok = true;
+      for (let i = 1; i < m.length; i++) {
+        const g = m[i];
+        const tg = raw[i - 1] || !/[가-힣]/.test(g) ? g : i18nText(g, depth + 1);
+        if (tg == null) { ok = false; break; }
+        parts.push(tg);
+      }
+      if (!ok) continue;
+      let i = 0;
+      const out = to.replace(/\{\*?\}/g, () => parts[i++]);
+      if (/[가-힣]/.test(out)) I18N_DONE.add(out.replace(/\s+/g, " ").trim());
+      return out;
+    }
+  }
+  return null;
+}
+// 코드에서 직접 쓰는 번역(한국어가 그대로 기본값)
+function t(text) { return LANG === "ko" ? text : (i18nText(text) ?? text); }
+
+const I18N_ATTRS = ["title", "placeholder", "aria-label"];
+function i18nElementAttrs(el) {
+  for (const a of I18N_ATTRS) {
+    const v = el.getAttribute && el.getAttribute(a);
+    if (v && /[가-힣]/.test(v)) {
+      const lines = v.split("\n").map(l => i18nText(l) ?? l).join("\n");
+      if (lines !== v) el.setAttribute(a, lines);
+    }
+  }
+}
+function i18nTree(root) {
+  if (!root || LANG === "ko") return;
+  if (root.nodeType === 3) {
+    if (root.parentElement && root.parentElement.closest(I18N_SKIP)) return;
+    const v = i18nText(root.data);
+    if (v != null && v !== root.data) root.data = v;
+    return;
+  }
+  if (root.nodeType !== 1) return;
+  if (root.closest(I18N_SKIP)) { if (/^(TEXTAREA|INPUT)$/.test(root.tagName)) i18nElementAttrs(root); return; }
+  i18nElementAttrs(root);
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    // 입력칸은 쓴 글은 두고 안내 문구(placeholder·title)만 옮긴다
+    acceptNode: n => n.nodeType === 1 ? (n.matches(I18N_SKIP)
+      ? (/^(TEXTAREA|INPUT)$/.test(n.tagName) && i18nElementAttrs(n), NodeFilter.FILTER_REJECT) : NodeFilter.FILTER_ACCEPT)
+      : (/[가-힣]/.test(n.data) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP),
+  });
+  for (let n = w.nextNode(); n; n = w.nextNode()) {
+    if (n.nodeType === 1) { i18nElementAttrs(n); continue; }
+    const v = i18nText(n.data);
+    if (v != null && v !== n.data) n.data = v;
+  }
+}
+if (LANG !== "ko") {
+  document.documentElement.lang = LANG;
+  const start = () => {
+    i18nTree(document.body);
+    new MutationObserver(list => {
+      for (const m of list) {
+        if (m.type === "childList") m.addedNodes.forEach(i18nTree);
+        else if (m.type === "characterData") i18nTree(m.target);
+        else if (m.type === "attributes") i18nElementAttrs(m.target);
+      }
+    }).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: I18N_ATTRS });
+  };
+  if (document.body) start(); else document.addEventListener("DOMContentLoaded", start);
+}

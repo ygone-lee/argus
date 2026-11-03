@@ -1,0 +1,54 @@
+{
+  "permissions": {
+    "defaultMode": "default",
+    "allow": [
+      "Bash(./argus:*)",
+      "Edit(./inbox/**)",
+      "Read",
+      "Grep",
+      "Glob",
+      "ToolSearch",
+      "mcp__claude_ai_Slack__slack_search_public_and_private",
+      "mcp__claude_ai_Slack__slack_search_public",
+      "mcp__claude_ai_Slack__slack_search_channels",
+      "mcp__claude_ai_Slack__slack_search_users",
+      "mcp__claude_ai_Slack__slack_read_thread",
+      "mcp__claude_ai_Slack__slack_read_channel",
+      "mcp__claude_ai_Slack__slack_read_user_profile",
+      "mcp__claude_ai_Slack__slack_read_list",
+      "mcp__claude_ai_Slack__slack_read_canvas",
+      "mcp__claude_ai_Slack__slack_list_user_channels",
+      "mcp__claude_ai_Slack__slack_get_reactions"
+    ],
+    "deny": [
+      "NotebookEdit",
+      "WebFetch",
+      "mcp__claude_ai_Slack__slack_send_message",
+      "mcp__claude_ai_Slack__slack_send_message_draft",
+      "mcp__claude_ai_Slack__slack_schedule_message",
+      "mcp__claude_ai_Slack__slack_add_reaction",
+      "mcp__claude_ai_Slack__slack_create_conversation",
+      "mcp__claude_ai_Slack__slack_create_canvas",
+      "mcp__claude_ai_Slack__slack_update_canvas",
+      "mcp__claude_ai_Slack__slack_create_list",
+      "mcp__claude_ai_Slack__slack_update_list",
+      "mcp__claude_ai_Slack__slack_add_list_record",
+      "mcp__claude_ai_Slack__slack_update_list_record",
+      "mcp__claude_ai_Slack__slack_get_file_upload_url",
+      "mcp__claude_ai_Slack__slack_complete_file_upload"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/argus _docs-hook",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

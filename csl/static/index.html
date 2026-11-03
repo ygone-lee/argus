@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Argus</title>
+<link rel="icon" id="favicon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='12' fill='%23d97757'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="view-board">
+<header class="topbar">
+  <div class="brand"><span class="brand-mark"></span>Argus</div>
+  <!-- 브레인 패널(왼쪽 서랍) 여닫기 — 사이드바 아이콘. 할 일 수는 아이콘 귀퉁이에 -->
+  <button class="drawer-btn" id="brainBtn" title="Argus Brain 패널 열기·닫기 — 세션 현황·인박스 ( B )" aria-label="브레인 패널">
+    <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <rect class="drawer-fill" x="3.25" y="4.25" width="4.5" height="11.5" rx="1.6" fill="currentColor"/><path d="M8 4v12" stroke="currentColor" stroke-width="1.5"/></svg>
+    <span class="drawer-label">브레인</span><span class="brain-badge" id="brainBadge" hidden></span></button>
+  <nav class="views" id="views">
+    <button class="view-tab on" data-view="board" title="세션 칸 보기 ( S )">세션</button>
+    <button class="view-tab" data-view="inbox" title="인박스 칸반 — 할 일·진행 중·완료 ( I )">인박스 <span class="vt-n" id="vtInbox"></span></button>
+    <button class="view-tab" data-view="activity" title="모든 세션의 새 응답·확인 필요·질문·오류를 시간순으로 ( A )">활동 <span class="vt-n" id="vtActivity"></span></button>
+  </nav>
+  <!-- 세션 보기 안에서: 가로 칸 / 카드 격자 ( 세션 보기에서 S 를 한 번 더 누르면 바뀐다 ) -->
+  <div class="mode-toggle" id="modeToggle">
+    <button class="mode-btn" data-mode="cols" title="가로 칸 보기 — 대화를 보며 일할 때 ( 세션 보기에서 S )">⇆ 칸</button>
+    <button class="mode-btn" data-mode="cards" title="카드 보기 — 전체 세션을 한눈에 ( 세션 보기에서 S )">▦ 카드</button>
+  </div>
+  <div class="counters" id="counters"></div>
+  <div class="usage" id="usage" hidden></div>
+  <div class="spacer"></div>
+  <div class="search-wrap">
+    <input class="search" id="search" type="search" placeholder="대화 검색 — 내 요청·Claude 응답  ( / )" autocomplete="off">
+    <div class="search-panel" id="searchPanel" hidden></div>
+  </div>
+  <button class="new-btn agents-btn" id="agentsBtn" title="백그라운드 세션(claude agents) — 상태·열기·멈추기" hidden></button>
+  <button class="new-btn proj-btn" id="projBtn" title="프로젝트별로 보기" aria-haspopup="true"></button>
+  <button class="new-btn" id="newBtn" title="새 Claude Code 세션 — Orca 터미널에 띄웁니다" aria-haspopup="true">＋ 새 세션</button>
+  <!-- 검색 말고는 ⋮ 메뉴 안에. 켜고 끄는 항목은 눌러도 메뉴가 열린 채 상태만 바뀐다 -->
+  <div class="top-menu-wrap">
+    <button class="top-menu-btn" id="topMenuBtn" title="보기·알림·하루 정리·단축키" aria-label="메뉴" aria-haspopup="true">⋮</button>
+    <div class="top-menu" id="topMenu" hidden>
+      <label class="tm-item toggle" title="종료·보관된 세션도 표시"><input type="checkbox" id="showEnded"> 종료·보관 세션도 보기</label>
+      <button class="tm-item" id="remoteBtn" title="보드에서 대화를 보낸 세션은 리모트 컨트롤(claude.ai/code·모바일 앱)이 꺼져 있으면 자동으로 켭니다"></button>
+      <button class="tm-item" id="soundBtn" title="새 응답·확인 필요 시 소리"></button>
+      <button class="tm-item" id="notifyBtn" title="브라우저 알림"></button>
+      <div class="tm-sep"></div>
+      <button class="tm-item" id="dailyBtn" data-tm-close title="그날 모든 세션에서 한 일을 claude -p 로 정리한 작업 일지">📅 하루 정리 <kbd>D</kbd></button>
+      <label class="tm-item toggle tm-lang" title="화면 언어">🌐 <select id="langSel"></select></label>
+      <button class="tm-item" id="connectorsBtn" data-tm-close title="슬랙·Gmail 등 바깥 서비스에서 나에게 온 것을 모아 브레인 인박스로">🔌 커넥터</button>
+      <button class="tm-item" id="settingsBtn" data-tm-close title="하루 정리 시각·브레인 폴더·보관 기간 등">⚙ 설정</button>
+      <button class="tm-item" id="helpBtn" data-tm-close title="단축키 ( ? )">⌨ 단축키 <kbd>?</kbd></button>
+    </div>
+  </div>
+</header>
+
+<div class="layout" id="layout">
+  <aside class="brain-panel" id="brainPanel" hidden>
+    <div class="bp-head">
+      <b>🧠 Argus Brain</b>
+      <div class="bp-tabs"><button class="bp-tab on" data-bp-tab="chat">대화</button><button class="bp-tab" data-bp-tab="inbox">인박스 <span id="bpInboxCount"></span></button></div>
+      <span class="spacer"></span>
+      <select id="bpAuto" title="브레인이 수집된 항목을 카드로 자동 정리하는 주기(수집과는 별개 — 수집은 커넥터마다 몇 분 간격으로 늘 돌고, 사용량이 들지 않습니다). 정리할 때마다 Claude 사용량이 듭니다">
+        <option value="0">자동 정리 끔</option><option value="10">10분마다 정리</option><option value="15">15분마다 정리</option>
+        <option value="30">30분마다 정리</option><option value="60">1시간마다 정리</option></select>
+      <button class="btn ghost bp-clear" id="bpClear" title="브레인 대화 비우기(/clear) — 지침을 새로 읽힐 때. 두 번 눌러 확인">↺</button>
+      <button class="btn ghost" id="bpClose" title="접기 ( B )">✕</button>
+    </div>
+    <div class="bp-body" id="bpChat"></div>
+    <div class="bp-body bp-inbox" id="bpInbox" hidden></div>
+    <div class="bp-resize" id="bpResize" title="끌어서 너비 조절 · 더블클릭: 기본 너비"></div>
+  </aside>
+  <section class="board" id="board"></section>
+  <section class="cards" id="cards" hidden></section>
+  <section class="activity" id="activity" hidden></section>
+  <section class="kanban" id="kanban" hidden></section>
+
+</div>
+
+<div class="help settings" id="connectors" hidden>
+  <div class="help-box settings-box">
+    <div class="help-head"><h2>커넥터</h2><button class="btn ghost" data-conn-close>닫기 (Esc)</button></div>
+    <p class="muted conn-intro">바깥 서비스에서 나에게 온 것을 모아 브레인 인박스로 넘깁니다. 키·토큰은 macOS 키체인에만 저장됩니다.</p>
+    <div class="settings-body" id="connBody"></div>
+  </div>
+</div>
+
+<div class="help settings" id="settings" hidden>
+  <div class="help-box settings-box">
+    <div class="help-head"><h2>설정</h2><button class="btn ghost" data-settings-close>닫기 (Esc)</button></div>
+    <div class="settings-body" id="settingsBody"></div>
+    <div class="settings-foot"><span class="muted" id="settingsMsg"></span>
+      <button class="btn" data-settings-close>취소</button><button class="btn primary" id="settingsSave">저장</button></div>
+  </div>
+</div>
+
+<div class="switcher" id="switcher" hidden>
+  <div class="sw-box">
+    <input class="sw-input" id="swInput" type="text" placeholder="세션 이름·프로젝트·브랜치 몇 글자" autocomplete="off" spellcheck="false">
+    <div class="sw-list" id="swList"></div>
+    <div class="sw-foot muted"><kbd>↑</kbd><kbd>↓</kbd> 고르기 · <kbd>Enter</kbd> 이동 · <kbd>Esc</kbd> 닫기</div>
+  </div>
+</div>
+
+<div class="help" id="help" hidden>
+  <div class="help-box">
+    <div class="help-head"><h2>단축키</h2><button class="btn ghost" data-close>닫기 (Esc)</button></div>
+    <table>
+      <tr><td><kbd>⌘</kbd> <kbd>1</kbd>~<kbd>9</kbd></td><td>N번 칸으로 이동 — <kbd>⌃</kbd>·<kbd>⌥</kbd>+숫자도 같음. 입력 중에도 동작</td></tr>
+      <tr><td><kbd>←</kbd> <kbd>→</kbd> · <kbd>H</kbd> <kbd>L</kbd></td><td>이전·다음 칸 (vim 키 H·J·K·L 은 ← ↓ ↑ → 와 같음)</td></tr>
+      <tr><td><kbd>↑</kbd> · <kbd>K</kbd></td><td>지금 칸의 넥스트 액션으로 — 맨 아래 할 일부터, 계속 ↑ 면 위로 올라가 입력칸까지</td></tr>
+      <tr><td>할 일에서 <kbd>↑</kbd> <kbd>↓</kbd></td><td>위·아래 할 일로. 맨 아래에서 ↓ 면 칸 선택으로, 한 번 더 ↓ 면 채팅 입력창</td></tr>
+      <tr><td>할 일에서 <kbd>Space</kbd> · <kbd>Delete</kbd> · <kbd>Enter</kbd></td><td>완료 표시 · 삭제(두 번 눌러야 지움) · 채팅 입력창에 넣기(전송은 직접)</td></tr>
+      <tr><td>할 일에서 <kbd>E</kbd> · <kbd>F2</kbd></td><td>고치기(더블클릭과 같음) — Enter 저장 · Esc 취소</td></tr>
+      <tr><td>할 일에서 <kbd>⌘</kbd> <kbd>Enter</kbd></td><td>「응답 끝나면 보내기」 예약·풀기(⏭). 넥스트 액션 입력칸에서는 추가하면서 바로 예약</td></tr>
+      <tr><td>넥스트 액션 입력칸 마지막 줄에서 <kbd>↓</kbd></td><td>첫 할 일로(없으면 칸 선택)</td></tr>
+      <tr><td><kbd>↓</kbd> · <kbd>J</kbd> · <kbd>C</kbd> · <kbd>Enter</kbd></td><td>지금 칸의 채팅 입력창으로</td></tr>
+      <tr><td>카드 보기에서 <kbd>←</kbd><kbd>↓</kbd><kbd>↑</kbd><kbd>→</kbd> · <kbd>H</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd></td><td>카드 고르기(화면에서 그 방향의 카드로) · <kbd>Enter</kbd> 펼쳐 대화 · <kbd>T</kbd>·<kbd>P</kbd> 는 고른 카드에</td></tr>
+      <tr><td><kbd>↑</kbd> (입력창 첫 줄에서)</td><td>입력창에서 나와 칸 선택 상태로 — 이어서 <kbd>←</kbd> <kbd>→</kbd> 로 칸 이동</td></tr>
+      <tr><td><kbd>N</kbd></td><td>지금 칸의 넥스트 액션 입력칸으로(접혀 있으면 펴고)</td></tr>
+      <tr><td><kbd>T</kbd></td><td>지금 칸의 터미널로 이동</td></tr>
+      <tr><td><kbd>P</kbd></td><td>지금 칸 고정·해제(고정한 칸은 맨 앞에 머묾)</td></tr>
+      <tr><td><kbd>F</kbd></td><td>지금 칸의 대화에서 검색</td></tr>
+      <tr><td><kbd>/</kbd></td><td>전체 대화 검색(<kbd>↑</kbd><kbd>↓</kbd> 고르기 · <kbd>Enter</kbd> 그 대화로)</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>입력창·검색에서 빠져나오기(쓰던 글은 그대로) — 그 칸이 골라진 상태로 돌아가 바로 칸 이동. 펼친 카드는 한 번 더 누르면 접힘</td></tr>
+      <tr><td><kbd>S</kbd> · <kbd>I</kbd> · <kbd>A</kbd></td><td>보기 전환 — 세션 칸 · 인박스 칸반 · 활동(칸을 다루는 키는 세션 보기에서만)</td></tr>
+      <tr><td><kbd>D</kbd></td><td>하루 정리(작업 일지)</td></tr>
+      <tr><td><kbd>B</kbd></td><td>브레인 패널 펴기·접기</td></tr>
+      <tr><td><kbd>G</kbd> · <kbd>Shift</kbd> 두 번</td><td>세션 빠른 이동 — 보드 순서 목록에서 <kbd>↑</kbd><kbd>↓</kbd> 로 고르거나 몇 글자 쳐서 거른 뒤 <kbd>Enter</kbd>. Shift 두 번은 입력 중에도 동작</td></tr>
+      <tr><td>서식 붙여넣은 입력창에서 <kbd>⌘</kbd> <kbd>\</kbd></td><td>서식 끄기 — 보통 입력창의 마크다운 글로(코드 블록은 ``` 로 둘러싼 글). 블록만 빠져나오려면 코드·인용 끝에서 <kbd>Shift</kbd> <kbd>Enter</kbd> 두 번, 블록 맨 앞에서 <kbd>Backspace</kbd> 는 그 블록의 서식만 풀기. 처음부터 글만 붙이려면 <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>V</kbd></td></tr>
+      <tr><td>변경 보기 창에서 <kbd>J</kbd> <kbd>K</kbd> · <kbd>V</kbd> · <kbd>X</kbd></td><td>다음·이전 파일 · 한 줄/나란히 전환 · 지금 파일 접기·펴기. 입력창에 <code>/diff</code> 를 치면 이 창이 열립니다</td></tr>
+      <tr><td><kbd>?</kbd></td><td>이 도움말</td></tr>
+    </table>
+    <p class="muted">글자 단축키는 입력창 밖에서만 동작하고, 한글 자판 상태에서도 됩니다.</p>
+  </div>
+</div>
+
+<div class="daily" id="daily" hidden>
+  <div class="daily-box">
+    <aside class="daily-days" id="dailyDays"></aside>
+    <section class="daily-main">
+      <div class="daily-head">
+        <h2 id="dailyTitle">하루 정리</h2>
+        <span class="muted" id="dailyMeta"></span>
+        <span class="spacer"></span>
+        <label class="toggle" title="매일 아침 6시가 지나면 전날 일지를 자동으로 정리합니다(그때 Mac 이 잠들어 있었으면 깨어난 뒤)">
+          <input type="checkbox" id="dailyAuto"> 아침 6시 자동 정리</label>
+        <button class="btn" id="dailyCopy" hidden>복사</button>
+        <button class="btn primary" id="dailyRun">정리하기</button>
+        <button class="btn ghost" data-daily-close>닫기 (Esc)</button>
+      </div>
+      <div class="daily-body md" id="dailyBody"></div>
+    </section>
+  </div>
+</div>
+<div class="model-menu" id="modelMenu" hidden></div>
+<div class="col-menu" id="colMenu" hidden></div>
+<div class="col-menu x-menu" id="xMenu" hidden></div>
+<div class="help diff-modal" id="diffModal" hidden>
+  <div class="help-box diff-box dv-box">
+    <div class="dv-head">
+      <div class="dv-h1"><h2>🧾 <span class="diff-title">변경</span></h2><span class="spacer"></span>
+        <div class="dv-seg" role="group" aria-label="비교 범위">
+          <button data-dmode="work" title="마지막 커밋 이후 바뀐 것 + 새로 만든 파일">커밋 안 한 변경</button>
+          <button data-dmode="branch" title="기본 브랜치(main)와 갈라진 곳부터 지금까지 — 이 브랜치의 커밋과 커밋 안 한 변경 모두">브랜치 전체</button></div>
+        <div class="dv-seg" role="group" aria-label="보기">
+          <button data-dview="unified" title="한 줄로 ( V )">한 줄</button>
+          <button data-dview="split" title="이전·이후 나란히 ( V )">나란히</button></div>
+        <button class="btn ghost dv-reload" data-dreload title="다시 읽기">↻</button>
+        <button class="btn ghost" data-close>닫기 (Esc)</button></div>
+      <div class="dv-sub muted"></div>
+    </div>
+    <div class="diff-body dv-body"></div>
+  </div>
+</div>
+<div class="help diff-modal task-modal" id="taskModal" hidden>
+  <div class="help-box diff-box">
+    <div class="help-head"><h2><span class="task-title">백그라운드 작업</span></h2><button class="btn ghost" data-close>닫기 (Esc)</button></div>
+    <div class="task-meta muted"></div>
+    <div class="diff-body task-body"></div>
+  </div>
+</div>
+<div class="col-menu ctx-menu" id="ctxMenu" hidden></div>
+<div class="col-menu ctx-menu new-menu" id="newMenu" hidden></div>
+<div class="col-menu proj-menu" id="projMenu" hidden></div>
+<div class="toast" id="toast"></div>
+<script src="i18n.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

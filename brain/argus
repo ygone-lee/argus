@@ -1,0 +1,3 @@
+#!/bin/sh
+# Argus 브레인이 쓰는 보드 명령. 사용법: ./argus (인자 없이 실행하면 도움말)
+exec /usr/bin/python3 "$(cd "$(dirname "$0")/.." && pwd)/csl/cli.py" "$@"
