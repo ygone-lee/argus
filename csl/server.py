@@ -19,7 +19,9 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from csl import brain, cardchat, commands, config, connectors, daily, delegate, focus, gitreport, hook, inboxrun, locate, notesreport, sendqueue, store, terminals  # noqa: E402
+from csl import brain, cardchat, commands, config, connectors, daily, delegate, focus, gitreport, hook, inboxrun, locate, notesreport, sendqueue, store, terminals, webterm  # noqa: E402
+from csl.terminals import tmux as tmux_term  # noqa: E402
+from csl.terminals import web as web_term  # noqa: E402
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
@@ -596,7 +598,7 @@ def reap_tabs():
     t = terminals.default()
     if not t:
         return
-    cands = set(LAUNCHED)
+    cands = {h for h in LAUNCHED if t.valid(h)}   # 그 터미널의 탭만(보드 터미널 %N 은 Orca 탭이 아니다 — 지우면 칸이 숨었다)
     conn = store.connect()
     try:
         for (term,) in conn.execute("SELECT terminal FROM sessions WHERE state='ended' AND ended_at > ? AND terminal IS NOT NULL",
@@ -797,7 +799,8 @@ def list_state(conn, days, show_archived):
     sessions = []
     for r in rows:
         s = dict(r)
-        handle, is_brain = focus.handle_of(s), brain.is_brain(s.get("cwd"))
+        tg, is_brain = focus.target_of(s), brain.is_brain(s.get("cwd"))
+        handle = tg.handle if tg else None
         # 요청도 기록 파일도 없는 세션은 아직 아무것도 안 한 것 — 백그라운드 데몬이 미리 띄워 둔 세션 등이라 숨긴다
         if not s["turn_count"] and not s["pinned"] and not s["open_notes"] and s["state"] != "waiting" \
                 and not os.path.isfile(r["transcript_path"] or "") \
@@ -807,6 +810,7 @@ def list_state(conn, days, show_archived):
         follow_rename(conn, s)
         follow_compact(conn, s)
         s["term_handle"] = handle   # 보드에서 새로 띄운 세션을 찾는 데 쓴다
+        s["term_web"] = bool(tg and tg.terminal.name == "web")   # 보드 터미널(xterm.js)에서 도는 세션 — 칸 안에서 터미널을 연다
         s["brain"] = is_brain       # 브레인 세션은 칸 대신 브레인 패널에
         s.pop("terminal", None)
         s["ctx"] = store.context_info(s["session_id"], s.get("transcript_path"))
@@ -1023,7 +1027,48 @@ class Handler(BaseHTTPRequestHandler):
             _release_terminals()
 
     def do_GET(self):
+        m = re.fullmatch(r"/api/term/([\w\-]+)/ws", urlparse(self.path).path)
+        if m and (self.headers.get("Upgrade") or "").lower() == "websocket":
+            return self._term_ws(m.group(1), parse_qs(urlparse(self.path).query))
         self._dispatch("GET")
+
+    def _term_ws(self, sid, query):
+        """보드 터미널(xterm.js) 웹소켓: 그 세션의 tmux 세션에 붙는다. 같은 출처·토큰·보드 터미널 세션만."""
+        origins = {"http://%s:%d" % (h, store.PORT) for h in ALLOWED_HOSTS}
+        if not self._host_ok() or (self.headers.get("Origin") or "") not in origins \
+                or not webterm.token_ok((query.get("token") or [""])[0]):
+            return self._send(403, {"error": "forbidden"})
+        key = self.headers.get("Sec-WebSocket-Key")
+        if not key:
+            return self._send(400, {"error": "웹소켓 요청이 아닙니다"})
+        if sid == "launch":   # 막 띄운 세션(훅이 기록하기 전 — 폴더 신뢰 확인 창 등): 보드가 띄운 창만
+            h = (query.get("handle") or [""])[0]
+            web = terminals.registry().get("web")
+            tg = terminals.Target(web, h) if web and web.valid(h) and h in LAUNCHED else None
+        else:
+            conn = store.connect()
+            try:
+                row = conn.execute("SELECT * FROM sessions WHERE session_id=?", (sid,)).fetchone()
+            finally:
+                conn.close()
+            tg = focus.target_of(dict(row)) if row else None
+        if not tg or tg.terminal.name != "web":
+            return self._send(404, {"error": "보드 터미널에서 띄운 세션이 아닙니다"})
+        name, tmux_bin = tg.terminal.session_of(tg.handle), tmux_term._bin()
+        if not name or not tmux_bin:
+            return self._send(410, {"error": "보드 터미널이 닫혔습니다"})
+        try:
+            cols, rows = int((query.get("cols") or ["120"])[0]), int((query.get("rows") or ["36"])[0])
+        except ValueError:
+            cols, rows = 120, 36
+        self.send_response(101, "Switching Protocols")
+        self.send_header("Upgrade", "websocket")
+        self.send_header("Connection", "Upgrade")
+        self.send_header("Sec-WebSocket-Accept", webterm.accept_key(key))
+        self.end_headers()
+        self.close_connection = True
+        webterm.relay(webterm.WebSocket(self.rfile, self.wfile),
+                      [tmux_bin, "-u"] + web_term.SERVER + ["attach-session", "-t", "=" + name], cols, rows)
 
     def do_POST(self):
         self._dispatch("POST")
@@ -1427,11 +1472,16 @@ class Handler(BaseHTTPRequestHandler):
                 extra.append("--worktree")
             # 모델을 아예 안 보냈으면(브레인 ./argus new) 설정의 새 세션 기본 모델. 보드 창은 고른 값을 늘 보낸다("" = Claude Code 설정대로)
             model = body["model"] if "model" in body else config.get(conn, "new_default_model")
-            tg, err = focus.new_claude_terminal(cwd, model or None, extra=" ".join(extra))
+            # terminal: "web" 이면 보드 터미널(칸 안의 xterm.js)에. 없으면 기본 터미널(Orca 등)
+            tg, err = focus.new_claude_terminal(cwd, model or None, extra=" ".join(extra),
+                                                terminal="web" if body.get("terminal") == "web" else None)
             if not tg:
                 return self._send(502, {"error": err})
             LAUNCHED[tg.handle] = store.now()
             return self._send(200, {"ok": True, "handle": tg.handle})
+        if method == "GET" and path == "/api/term/token":
+            # 보드 터미널 웹소켓 토큰(서버를 띄울 때마다 새로). Host 검사를 지난 같은 출처 화면만 읽을 수 있다(CORS 없음)
+            return self._send(200, {"token": webterm.TOKEN, "available": bool(tmux_term._bin())})
         if method == "GET" and path == "/api/folders":
             # 새 세션 폴더 후보: 터미널(Orca 등)에 열린 프로젝트 먼저, 그다음 최근 세션의 프로젝트(워크트리) 폴더
             projects = focus.open_projects()

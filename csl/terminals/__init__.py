@@ -31,6 +31,10 @@ class Terminal:
         """훅이 기록한 터미널 정보(dict)가 이 터미널의 것인지."""
         return bool(self.handle_of(term))
 
+    def claims(self, environ):
+        """env_keys 가 보였을 때 정말 이 터미널인지(같은 변수를 쓰는 터미널끼리 가른다). 기본은 그렇다."""
+        return True
+
     def handle_of(self, term):
         """기록된 터미널 정보에서 핸들. 없으면 None."""
         return None
@@ -99,7 +103,7 @@ class Terminal:
         return False
 
 
-ORDER = ["orca", "tmux"]   # 기본 터미널 우선순위(앞이 기본). 목록에 없는 구현체는 뒤에
+ORDER = ["orca", "web", "tmux"]   # 기본 터미널 우선순위(앞이 기본). 목록에 없는 구현체는 뒤에. web 은 tmux 보다 먼저 봐야 한다(같은 변수)
 _registry = None
 
 
@@ -120,7 +124,7 @@ def registry():
 
 def default():
     """새 세션을 띄울 터미널: 쓸 수 있는 것 중 첫 번째. 없으면 None."""
-    return next((t for t in registry().values() if t.available()), None)
+    return next((t for t in registry().values() if t.available() and getattr(t, "auto_default", True)), None)
 
 
 def of_record(term):
@@ -137,6 +141,6 @@ def env_info(environ):
     다른 터미널 안에서 도는 것(inner — Orca 탭 안의 tmux)을 먼저 본다: 바깥 탭에 쓰면 엉뚱한 창으로 간다."""
     for t in sorted(registry().values(), key=lambda t: not getattr(t, "inner", False)):
         got = {k: environ[v] for k, v in t.env_keys.items() if environ.get(v)}
-        if got:
+        if got and t.claims(environ):
             return dict(got, backend=t.name)
     return {}

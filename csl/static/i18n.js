@@ -6,7 +6,7 @@ const I18N_LANGS = { ko: "한국어", ja: "日本語", en: "English" };
 // 고른 언어가 없으면 브라우저 언어(한국어·日本語, 그 밖은 English)
 const BROWSER_LANG = (() => { const l = (navigator.languages || [navigator.language || ""]).join(",").toLowerCase(); const first = l.split(",").map(x => x.slice(0, 2)).find(x => x === "ko" || x === "ja" || x === "en"); return first || "en"; })();
 const LANG = (() => { try { return JSON.parse(localStorage.getItem("csl.lang")) || BROWSER_LANG; } catch (e) { return BROWSER_LANG; } })();
-const I18N_SKIP = ".md, .bubble, .col-title, .title-text, .rename-input, .col-recap, .recap-clamp, .steps, .tdetail, .mid-text, " +
+const I18N_SKIP = ".col-term, .md, .bubble, .col-title, .title-text, .rename-input, .col-recap, .recap-clamp, .steps, .tdetail, .mid-text, " +
   ".ib-summary, .ib-rec b, .ib-rec .muted, .ib-meta b, .ib-prompt, .ask-qhead, .ask-opt b, .ask-opt .muted, .nm-folder b, " +
   ".note-text, .daily-body, .sr-text, .sr-title, .sr-scope, .msg-notice .muted, .notice-sum, .ib-target, #langSel, " +
   ".chip.proj, .pm-name, .cmp-text, .note-input, .ctx-note, .nm-prompt, textarea, script, style, code, pre, " +
@@ -133,6 +133,15 @@ const I18N_ROWS = [
   ["커넥터를 지웠습니다", "コネクタを削除しました", "Connector removed"], ["연결됨 · {}", "接続済み・{}", "Connected · {}"], ["가져왔습니다 · 새 항목 {}개", "取得しました・新しい項目 {} 件", "Fetched · {} new"],
   ["저장했습니다", "保存しました", "Saved"], ["아직 비어 있는 칸: {}", "まだ空の項目: {}", "Still empty: {}"], ["저장했지만 연결 확인에 실패했습니다: {}", "保存しましたが接続確認に失敗しました: {}", "Saved, but the test failed: {}"],
   ["연결된 커넥터가 없습니다", "接続中のコネクタはありません", "No connectors"], ["커넥터 관리", "コネクタ管理", "Manage connectors"],
+  // 보드 터미널(칸 안의 xterm.js)
+  ["⌨ 터미널", "⌨ ターミナル", "⌨ Terminal"], ["💬 대화", "💬 会話", "💬 Chat"], ["대화 보기로", "会話表示へ", "Back to the conversation"],
+  ["이 세션의 터미널을 칸 안에서 열기(보드 터미널)", "このセッションのターミナルを列の中で開く(ボードターミナル)", "Open this session's terminal inside the column (board terminal)"],
+  ["보드 터미널로 열기", "ボードターミナルで開く", "Open in the board terminal"], ["칸 안의 터미널", "列の中のターミナル", "terminal in the column"],
+  ["Orca 같은 바깥 터미널 대신 보드가 가진 터미널(tmux)에 띄우고, 칸 안에서 터미널을 바로 씁니다", "Orca などの外部ターミナルではなくボードのターミナル(tmux)で起動し、列の中でそのままターミナルを使います", "Start it in the board's own terminal (tmux) instead of an outside one like Orca, and use the terminal right inside the column"],
+  ["터미널에 연결하는 중…", "ターミナルに接続中…", "Connecting to the terminal…"], ["터미널 화면(xterm.js)을 불러오지 못했습니다", "ターミナル画面(xterm.js)を読み込めませんでした", "Couldn't load the terminal view (xterm.js)"],
+  ["터미널 연결이 끊겼습니다", "ターミナルの接続が切れました", "The terminal connection dropped"], ["다시 연결", "再接続", "Reconnect"],
+  ["새 세션 터미널", "新しいセッションのターミナル", "New session terminal"], ["Claude Code 가 뜨면 칸 안으로 옮겨 갑니다", "Claude Code が起動すると列の中へ移ります", "Moves into its column once Claude Code is up"],
+  ["창만 닫기(세션은 보드 터미널에서 계속 돕니다)", "ウィンドウだけ閉じる(セッションはボードターミナルで動き続けます)", "Close the window only (the session keeps running in the board terminal)"],
   // 커넥터 빠른 연결(슬랙 앱을 매니페스트 링크로 만들고 토큰 붙여 넣기)
   ["빠른 연결", "クイック接続", "Quick connect"], ["Slack 앱 만들기 ↗", "Slack アプリを作成 ↗", "Create the Slack app ↗"],
   ["「Slack 앱 만들기」 → 워크스페이스 고르기 → Next → Create (필요한 권한은 미리 채워져 있습니다. 「created by a 3rd party」 경고는 링크로 채운 매니페스트라 늘 나오는 것이니 그대로 진행)", "「Slack アプリを作成」→ ワークスペースを選ぶ → Next → Create(必要な権限は入力済みです。「created by a 3rd party」の警告はリンクで埋めたマニフェストなので必ず出ます。そのまま進めてください)", "\"Create the Slack app\" → pick the workspace → Next → Create (the needed scopes are prefilled; the \"created by a 3rd party\" warning always shows for a manifest filled in from a link — just continue)"],

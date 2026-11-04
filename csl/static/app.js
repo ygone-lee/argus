@@ -978,6 +978,8 @@ function liveBrain(s) { return s.brain && s.state !== "ended" && !s.archived; }
 const isBranch = s => s.branch_kind === "branch" || s.branch_kind === "fork";
 // 에이전트 팀의 팀원(팀장이 tmux 창 등에 띄운 세션): 칸을 따로 세우지 않고 팀장 칸 위 탭으로
 const isTeammate = s => s.branch_kind === "team";
+// 보드 터미널: 칸 안에서 터미널을 켜 둔 세션(open) · 붙어 있는 xterm(live: 칸의 .col-term → 연결)
+const TERM = { lib: null, token: null, open: new Set(load("csl.termOpen", [])), live: new Map() };
 S.famSel = load("csl.famSel", {});   // 가족 뿌리 session_id → 고른 갈래
 function famRootOf(s, byId) {
   let cur = s;
@@ -1162,6 +1164,7 @@ function colSkeleton(sid) {
       <div class="cf-recap"></div>
     </div>
     <div class="col-thread"></div>
+    <div class="col-term" hidden></div>
     <div class="ask-card" data-sid="${esc(sid)}" hidden></div>
     <div class="ask-card prompt-card" data-sid="${esc(sid)}" hidden></div>
     ${composerHtml(sid)}
@@ -1204,6 +1207,8 @@ function updateCol(col, s, rank, lastPin) {
         ${remoteBadge(s, d)}
         ${pinned ? `<button class="col-pin on" data-action="pin" data-sid="${esc(sid)}" title="고정 해제 ( P )">📌 고정됨</button>` : ""}
         ${forkChip(s, d)}
+        ${s.term_web && d !== "ended" ? `<button class="col-term-btn ${TERM.open.has(sid) ? "on" : ""}" data-action="term-toggle" data-sid="${esc(sid)}"
+          title="${TERM.open.has(sid) ? "대화 보기로" : "이 세션의 터미널을 칸 안에서 열기(보드 터미널)"}">${TERM.open.has(sid) ? "💬 대화" : "⌨ 터미널"}</button>` : ""}
         <button class="col-menu-btn" data-action="col-menu" data-sid="${esc(sid)}" title="보관 · 원격 · 고정" aria-label="칸 메뉴">⋮</button>
       </div>
       <div class="title-line col-title-line">
@@ -1257,6 +1262,7 @@ function updateCol(col, s, rank, lastPin) {
     }
   }
   updateFamily(col, s);
+  syncTerm(col, s);
   updateComposer(col.querySelector(".composer"), s);
   updateAsk(col.querySelector(".ask-card"), s);
   updatePrompt(col.querySelector(".prompt-card"), s);
@@ -2018,6 +2024,7 @@ $("#resumeModal").addEventListener("click", e => {
 async function focusTerminal(sid) {
   const s = sid && sessionById(sid);
   if (!s) return toast("먼저 칸을 고르세요(⌘1~9 또는 ← →)");
+  if (s.term_web && s.state !== "ended") return openTermIn(sid);   // 보드 터미널 — 바깥 앱이 아니라 칸 안에서
   if (focusing) return;
   focusing = true;
   try {
@@ -2902,6 +2909,7 @@ async function openNewMenu() {
       <div><label class="nm-label">effort</label>
         <select class="nm-model nm-effort">${NEW_EFFORTS.map(v => `<option value="${v}" ${v === ((S.settings || {}).new_default_effort || "high") ? "selected" : ""}>${v}</option>`).join("")}</select></div>
     </div>
+    <label class="nm-check" title="Orca 같은 바깥 터미널 대신 보드가 가진 터미널(tmux)에 띄우고, 칸 안에서 터미널을 바로 씁니다"><input type="checkbox" class="nm-web" ${last.web ? "checked" : ""}> 보드 터미널로 열기 <span class="muted">칸 안의 터미널</span></label>
     <label class="nm-check" title="claude --worktree — 그 저장소의 .claude/worktrees/ 에 새 워크트리(새 브랜치)를 만들어 거기서 시작합니다. 끄면 고른 폴더에서 그대로"><input type="checkbox" class="nm-wt" checked> 새 워크트리로 시작 <span class="muted">claude -w</span></label>
     <div class="ctx-foot"><span class="muted">Orca 터미널 탭이 새로 열립니다</span>
       <button class="btn primary" data-new-run>시작</button></div>`;
@@ -2932,18 +2940,19 @@ async function runNewSession() {
   const cwd = menu.querySelector(".nm-cwd").value.trim();
   const prompt = menu.querySelector(".nm-prompt").value.trim();
   const model = menu.querySelector(".nm-model").value, effort = menu.querySelector(".nm-effort").value;
-  const worktree = menu.querySelector(".nm-wt").checked;
+  const worktree = menu.querySelector(".nm-wt").checked, web = menu.querySelector(".nm-web").checked;
   if (!cwd) { menu.querySelector(".nm-cwd").focus(); return; }
   if (btn.disabled) return;   // Enter 두 번 — 터미널이 두 개 뜨던 것
   btn.disabled = true;
   btn.textContent = "띄우는 중…";
   try {
-    const r = await api("POST", "/api/sessions/new", { cwd, model, effort, worktree });
-    try { localStorage.setItem(NEW_KEY, JSON.stringify({ cwd, model, effort })); } catch (e) { /* 저장소 없음 */ }
+    const r = await api("POST", "/api/sessions/new", { cwd, model, effort, worktree, terminal: web ? "web" : "" });
+    try { localStorage.setItem(NEW_KEY, JSON.stringify({ cwd, model, effort, web })); } catch (e) { /* 저장소 없음 */ }
     menu.hidden = true;
-    S.pendingNew = { handle: r.handle, prompt, at: Date.now(), sid: null };
+    S.pendingNew = { handle: r.handle, prompt, at: Date.now(), sid: null, web };
     if (menu.dataset.inbox) api("PATCH", "/api/inbox/" + menu.dataset.inbox, { status: "sent" }).catch(() => {});
-    toast("Orca 에 새 터미널을 열었습니다 · Claude 가 뜨면 칸이 생깁니다");
+    if (web) openLaunchTerm(r.handle);   // 칸이 생기기 전(폴더 신뢰 확인 창 등)에도 보이게 — 칸이 생기면 그리로 옮긴다
+    else toast("Orca 에 새 터미널을 열었습니다 · Claude 가 뜨면 칸이 생깁니다");
   } catch (e) {
     toast("새 세션 실패: " + e.message);
     btn.disabled = false;
@@ -2956,7 +2965,7 @@ async function watchNewSession() {
   if (!p) return;
   const s = S.sessions.find(x => x.term_handle === p.handle && x.state !== "ended");
   if (!s) {
-    if (Date.now() - p.at > 60000) {
+    if (Date.now() - p.at > (p.web ? 600000 : 60000)) {   // 보드 터미널은 창에서 확인 창을 직접 보고 있다 — 넉넉히
       S.pendingNew = null;
       toast("새 세션이 아직 안 보입니다 — Orca 터미널을 확인하세요(폴더 신뢰 확인 창일 수 있습니다)");
     }
@@ -2964,7 +2973,9 @@ async function watchNewSession() {
   }
   if (!p.sid) {
     p.sid = s.session_id;
+    if (p.web) { closeLaunchTerm(); TERM.open.add(s.session_id); save("csl.termOpen", [...TERM.open]); S.uiVer++; }
     await focusCol(s.session_id);
+    if (p.web) focusTermSoon(s.session_id);   // 칸으로 옮긴 터미널에 바로 칠 수 있게
   }
   if (!p.prompt) { S.pendingNew = null; return; }
   if (s.state !== "idle" && s.state !== "done") return;   // 시작이 끝나 입력을 받을 수 있을 때
@@ -4937,6 +4948,150 @@ document.addEventListener("pointerdown", e => {
 });
 $("#helpBtn").addEventListener("click", () => { $("#help").hidden = false; });
 
+// ------------------------------------------------------------------ 보드 터미널(xterm.js)
+// 보드 터미널(tmux -L argus-web)에서 도는 세션은 칸 안에서 터미널을 연다. 서버의 /api/term/<세션>/ws 웹소켓이
+// `tmux attach` 를 PTY 로 띄워 바이트를 그대로 잇는다(같은 출처·서버를 띄울 때마다 바뀌는 토큰만). 화면은 vendor/xterm
+const TERM_THEME = { background: "#1c1b19", foreground: "#e8e4dc", cursor: "#e0805c", cursorAccent: "#1c1b19",
+  selectionBackground: "rgba(224,128,92,.35)" };
+function loadXterm() {
+  if (!TERM.lib) {
+    const css = document.createElement("link");
+    css.rel = "stylesheet";
+    css.href = "/vendor/xterm/xterm.css";
+    document.head.append(css);
+    const js = src => new Promise((ok, no) => {
+      const el = document.createElement("script");
+      el.src = src;
+      el.onload = ok;
+      el.onerror = () => no(new Error("터미널 화면(xterm.js)을 불러오지 못했습니다"));
+      document.head.append(el);
+    });
+    TERM.lib = js("/vendor/xterm/xterm.js").then(() => js("/vendor/xterm/addon-fit.js"));
+    TERM.lib.catch(() => { TERM.lib = null; });
+  }
+  return TERM.lib;
+}
+async function termToken(fresh) {
+  if (fresh || !TERM.token) TERM.token = (await api("GET", "/api/term/token")).token;
+  return TERM.token;
+}
+function saveTermOpen() { save("csl.termOpen", [...TERM.open]); }
+function toggleTerm(sid) {
+  if (TERM.open.has(sid)) TERM.open.delete(sid); else TERM.open.add(sid);
+  saveTermOpen();
+  S.uiVer++;
+  renderBoard();
+  if (TERM.open.has(sid)) focusTermSoon(sid);
+}
+function openTermIn(sid) {
+  if (!TERM.open.has(sid)) { TERM.open.add(sid); saveTermOpen(); S.uiVer++; renderBoard(); }
+  focusCol(sid).then(() => focusTermSoon(sid));
+}
+function focusTermSoon(sid) {   // 터미널이 붙을 때까지(스크립트·연결) 잠깐 기다렸다가 포커스
+  let n = 0;
+  const tick = () => {
+    const col = colEl(sid), rec = col && TERM.live.get(col.querySelector(".col-term"));
+    if (rec && rec.term) return rec.term.focus();
+    if (++n < 30) setTimeout(tick, 100);
+  };
+  tick();
+}
+// 칸을 그릴 때마다: 켜 둔 보드 터미널 세션이면 붙이고, 아니면 뗀다(칸이 사라진 터미널도 정리)
+function syncTerm(col, s) {
+  for (const box of [...TERM.live.keys()]) if (!box.isConnected) disposeTerm(box);
+  const on = !!(s.term_web && s.state !== "ended" && TERM.open.has(s.session_id));
+  col.classList.toggle("term-mode", on);
+  const box = col.querySelector(".col-term");
+  if (!box) return;
+  box.hidden = !on;
+  const cur = TERM.live.get(box);
+  if (cur && (!on || cur.sid !== s.session_id)) disposeTerm(box);
+  if (on && !TERM.live.has(box)) mountTerm(box, { sid: s.session_id });
+}
+async function mountTerm(box, q) {   // q: { sid } 또는 막 띄운 세션의 { handle }
+  const rec = { sid: q.sid || null, handle: q.handle || null, term: null, fit: null, ws: null, closed: false, tries: 0 };
+  TERM.live.set(box, rec);
+  setHtml(box, `<div class="term-status muted">터미널에 연결하는 중…</div>`);
+  try { await loadXterm(); await termToken(); }
+  catch (e) { setHtml(box, `<div class="term-status">${esc(e.message)}</div>`); return; }
+  if (TERM.live.get(box) !== rec) return;   // 그사이 뗐다
+  box.textContent = "";
+  const host = document.createElement("div");
+  host.className = "term-host";
+  box.append(host);
+  const mono = getComputedStyle(document.documentElement).getPropertyValue("--mono").trim() || "Menlo, monospace";
+  const term = new Terminal({ fontFamily: mono, fontSize: 12.5, cursorBlink: true, macOptionIsMeta: true, scrollback: 2000, theme: TERM_THEME });
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.open(host);
+  try { fit.fit(); } catch (e) { /* 아직 크기가 없다 */ }
+  Object.assign(rec, { term, fit });
+  const enc = new TextEncoder();
+  const send = data => { if (rec.ws && rec.ws.readyState === 1) rec.ws.send(data); };
+  term.onData(d => send(enc.encode(d)));
+  term.onBinary(d => send(Uint8Array.from(d, c => c.charCodeAt(0) & 255)));
+  term.onResize(({ cols, rows }) => send(JSON.stringify({ resize: [cols, rows] })));
+  rec.ro = new ResizeObserver(() => { if (box.offsetParent) try { fit.fit(); } catch (e) { /* 숨김 */ } });
+  rec.ro.observe(box);
+  connectTerm(box, rec);
+}
+function connectTerm(box, rec) {
+  const old = box.querySelector(".term-gone");
+  if (old) old.remove();
+  const p = new URLSearchParams({ token: TERM.token, cols: rec.term.cols, rows: rec.term.rows });
+  if (rec.handle) p.set("handle", rec.handle);
+  const ws = new WebSocket(`ws://${location.host}/api/term/${encodeURIComponent(rec.sid || "launch")}/ws?${p}`);
+  ws.binaryType = "arraybuffer";
+  let opened = false;
+  ws.onopen = () => { opened = true; rec.tries = 0; };
+  ws.onmessage = ev => rec.term.write(new Uint8Array(ev.data));
+  ws.onclose = async () => {
+    if (rec.closed || TERM.live.get(box) !== rec) return;
+    // 서버를 다시 띄우면 토큰이 바뀐다 — 새 토큰으로 몇 번 다시 붙어 본다. 그래도 안 되면 버튼
+    if (rec.tries++ < 3) {
+      await new Promise(r => setTimeout(r, opened ? 300 : 1500));
+      try { await termToken(true); } catch (e) { /* 서버가 아직 안 떴다 */ }
+      if (!rec.closed && TERM.live.get(box) === rec) return connectTerm(box, rec);
+    }
+    const gone = document.createElement("div");
+    gone.className = "term-gone";
+    gone.innerHTML = `<span>터미널 연결이 끊겼습니다</span><button class="btn" data-action="term-reconnect">다시 연결</button>`;
+    box.append(gone);
+  };
+  rec.ws = ws;
+}
+function disposeTerm(box) {
+  const rec = TERM.live.get(box);
+  if (!rec) return;
+  TERM.live.delete(box);
+  rec.closed = true;
+  if (rec.ro) rec.ro.disconnect();
+  if (rec.ws) try { rec.ws.close(); } catch (e) { /* 이미 닫힘 */ }
+  if (rec.term) rec.term.dispose();
+  box.textContent = "";
+}
+// 막 띄운 보드 터미널 세션: 훅이 세션을 기록하기 전(폴더 신뢰 확인 창 등)에는 칸이 없으니 창에서 보여 준다
+function openLaunchTerm(handle) {
+  const m = $("#termModal"), box = m.querySelector(".col-term");
+  disposeTerm(box);
+  m.hidden = false;
+  box.hidden = false;
+  mountTerm(box, { handle }).then(() => { const r = TERM.live.get(box); if (r && r.term) r.term.focus(); });
+}
+function closeLaunchTerm() {
+  const m = $("#termModal");
+  disposeTerm(m.querySelector(".col-term"));
+  m.hidden = true;
+}
+$("#termModal").addEventListener("click", e => { if (e.target.closest("[data-term-close]")) closeLaunchTerm(); });
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-action='term-toggle'], [data-action='term-reconnect']");
+  if (!b) return;
+  if (b.dataset.action === "term-toggle") return toggleTerm(b.dataset.sid);
+  const box = b.closest(".col-term"), rec = box && TERM.live.get(box);
+  if (rec) { rec.tries = 0; termToken(true).catch(() => {}).finally(() => connectTerm(box, rec)); }
+});
+
 // ------------------------------------------------------------------ 커넥터 창
 // 바깥 서비스(슬랙·Gmail …)마다 인스턴스를 두고 키·설정을 넣는다. 종류는 csl/connectors/*.py 플러그인에서 온다
 const CONN = { data: null, form: null, confirmDel: null };
@@ -6237,6 +6392,7 @@ document.addEventListener("keydown", e => {
 }, true);
 document.addEventListener("keyup", e => {
   if (e.key !== "Shift" || !SHIFT2.down) return;
+  if (e.target.closest && e.target.closest(".xterm")) { SHIFT2.down = false; SHIFT2.at = 0; return; }   // 터미널 안의 Shift 는 터미널 것
   SHIFT2.down = false;
   if (!SHIFT2.clean) { SHIFT2.at = 0; return; }
   const now = Date.now();

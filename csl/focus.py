@@ -414,12 +414,15 @@ def open_projects():
     return t.projects() if t else []
 
 
-def new_claude_terminal(cwd, model=None, extra=""):
-    """cwd 에서 claude 를 띄운 터미널을 기본 터미널에 새로 만든다. (Target, 오류 문구)
+def new_claude_terminal(cwd, model=None, extra="", terminal=None):
+    """cwd 에서 claude 를 띄운 터미널을 기본 터미널(terminal 을 주면 그 터미널 — "web" 은 보드 터미널)에 새로 만든다.
+    (Target, 오류 문구)
 
     첫 메시지는 여기서 넘기지 않는다 — 세션이 뜬 뒤 보드의 보내기로 보내야 여러 줄·이미지가 그대로 간다.
     """
-    t = terminals.default()
+    t = terminals.registry().get(terminal) if terminal else terminals.default()
+    if t and not t.available():
+        return None, "%s 을(를) 쓸 수 없습니다(tmux 가 필요합니다)" % t.label
     if not t:
         return None, "새 세션을 띄울 수 있는 터미널이 없습니다(지원: %s)" % ", ".join(
             x.label for x in terminals.registry().values())

@@ -87,6 +87,14 @@ had to get right that are easy to miss:
 - **Opening a session.** `create()` opens a window with the user's login shell and types the command into it, so `PATH`
   is the user's and an error message stays readable — running the command directly would close the window on failure.
 
+### Variant: the board terminal (`web.py`)
+
+[`csl/terminals/web.py`](../csl/terminals/web.py) reuses all of tmux by overriding one method, `_t()`, so every tmux
+call goes to the board's own server (`-L argus-web`). The server sets `ARGUS_WEB=1` for every pane; since tmux and the
+board terminal both see `TMUX_PANE`, `claims(environ)` lets the board terminal take only panes that have it (it is in
+`ORDER` before tmux). `auto_default = False` keeps it from becoming the default terminal — the new-session dialog asks
+for it. It has no outside app, so `switch()` returns False and the board opens the terminal in the column instead.
+
 ## Testing
 
 Start a Claude Code session in your terminal, then poke at your implementation from the repository root:
