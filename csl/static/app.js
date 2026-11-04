@@ -281,7 +281,8 @@ function md(src) {
   const L = String(src || "").replace(/[\r\u0000]/g, "").split("\n");   // NUL 은 inline 의 자리표시와 겹친다
   const out = [];
   let i = 0;
-  const isBlockStart = l => /^\s*```|^#{1,6}\s|^\s*[-*+]\s|^\s*\d+[.)]\s|^>|^\s*\|/.test(l);
+  // 구분선(--- ***)도 문단을 끊는다 — 글 바로 아래 줄의 --- 가 글자로 남던 것
+  const isBlockStart = l => /^\s*```|^#{1,6}\s|^\s*[-*+]\s|^\s*\d+[.)]\s|^>|^\s*\||^\s*(-{3,}|\*{3,})\s*$/.test(l);
   while (i < L.length) {
     const l = L[i];
     if (FENCE.test(l)) {
@@ -949,6 +950,8 @@ function findNote(nid) {
   }
   return null;
 }
+// 할 일은 마크다운으로 그린다 — 고치기·입력창에 넣기는 그린 글이 아니라 원문으로
+function noteRaw(el) { const n = el && findNote(el.dataset.nid); return n ? n.text : (el ? el.innerText : ""); }
 function noteHtml(n, qNo) {
   const meta = n.done && n.done_at ? `<span class="note-meta">완료 ${rel(n.done_at)}</span>`
     : `<span class="note-meta">${rel(n.created_at)}${qNo ? ` · <span class="note-q-tag">⏭ 응답 끝나면 ${qNo}번째로 보냄</span>` : ""}</span>`;
@@ -958,7 +961,7 @@ function noteHtml(n, qNo) {
   // 버튼은 글 옆이 아니라 아래 시각 줄 오른쪽에 — 글 칸이 칸 너비를 다 쓰게
   return `<li class="note ${n.done ? "done" : ""} ${qNo ? "queued" : ""}" data-nid="${n.id}" tabindex="-1">
     <input type="checkbox" ${n.done ? "checked" : ""} data-action="note-done" data-nid="${n.id}">
-    <div><div class="note-text" data-action="note-edit" data-nid="${n.id}" title="더블클릭해서 고치기">${esc(n.text)}</div>${noteImgsHtml(n)}
+    <div><div class="note-text md" data-action="note-edit" data-nid="${n.id}" title="더블클릭해서 고치기">${mdCached(n.text)}</div>${noteImgsHtml(n)}
       <div class="note-foot">${meta}<span class="note-acts">${n.session_id && !n.done ? `<button class="note-use" data-action="note-use" data-nid="${n.id}" data-sid="${esc(n.session_id)}" title="이 할 일을 그 세션 입력창에 넣기(전송은 직접)">↳ 입력</button>` : ""}${q}<button class="note-del" data-action="note-del" data-nid="${n.id}" title="삭제">×</button></span></div></div>
   </li>`;
 }
@@ -3340,7 +3343,7 @@ function noteKey(e) {
       e.preventDefault();
       if (li.classList.contains("done")) { toast("완료한 할 일입니다 — Space 로 완료를 풀면 넣을 수 있습니다"); return true; }
       S.noteFocus = null;
-      fillComposer(sid, li.querySelector(".note-text").textContent, noteImages(findNote(nid) || {}));
+      fillComposer(sid, noteRaw(li.querySelector(".note-text")), noteImages(findNote(nid) || {}));
       return true;
     case "Escape":
       e.preventDefault();
@@ -4454,7 +4457,9 @@ function toast(msg) {
 function startEdit(el) {
   if (el.isContentEditable) return;
   S.editingNote = true;
-  const before = el.textContent;
+  const before = noteRaw(el), shown = el.innerHTML;   // 고치는 동안은 마크다운 원문, 그만두면 그린 모습으로
+  el.textContent = before;
+  el.classList.remove("md");
   el.contentEditable = "true";
   el.focus();
   document.getSelection().selectAllChildren(el);
@@ -4464,10 +4469,11 @@ function startEdit(el) {
     el.contentEditable = "false";
     S.editingNote = false;
     const text = el.innerText.trim();
+    const restore = () => { el.innerHTML = shown; el.classList.add("md"); };
     if (commit && text && text !== before) {
-      try { await api("PATCH", "/api/notes/" + el.dataset.nid, { text }); }
-      catch (err) { el.textContent = before; toast(err.message); }
-    } else el.textContent = before;
+      try { await api("PATCH", "/api/notes/" + el.dataset.nid, { text }); el.innerHTML = mdCached(text); el.classList.add("md"); }
+      catch (err) { restore(); toast(err.message); }
+    } else restore();
     await refresh(el.closest(".col") && el.closest(".col").dataset.col);
   };
   const onBlur = () => finish(true);
@@ -4649,7 +4655,7 @@ document.addEventListener("click", async e => {
   }
   if (a === "note-use") {
     const li = el.closest(".note");
-    return fillComposer(el.dataset.sid, li.querySelector(".note-text").textContent, noteImages(findNote(el.dataset.nid) || {}));
+    return fillComposer(el.dataset.sid, noteRaw(li.querySelector(".note-text")), noteImages(findNote(el.dataset.nid) || {}));
   }
   if (a === "cmp-send") return sendCompose(el.closest(".composer"));
   if (a === "cmp-more") return openSendMenu(el);
