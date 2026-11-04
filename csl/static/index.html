@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Argus</title>
 <link rel="icon" id="favicon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='12' fill='%23d97757'/%3E%3C/svg%3E">
+<script>/* 테마: 첫 그림부터 맞춰 그린다(밝은 화면이 잠깐 비치지 않게). 고른 값 csl.theme — system·light·dark */
+(function () { var p; try { p = JSON.parse(localStorage.getItem("csl.theme")); } catch (e) {}
+  document.documentElement.dataset.theme = p === "dark" || (p !== "light" && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light"; })();</script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="view-board">
@@ -46,6 +49,8 @@
       <div class="tm-sep"></div>
       <button class="tm-item" id="dailyBtn" data-tm-close title="그날 모든 세션에서 한 일을 claude -p 로 정리한 작업 일지">📅 하루 정리 <kbd>D</kbd></button>
       <label class="tm-item toggle tm-lang" title="화면 언어">🌐 <select id="langSel"></select></label>
+      <label class="tm-item toggle tm-lang" title="화면 테마 ( ⇧T 로 라이트·다크 바꾸기 )">🌓 <select id="themeSel">
+        <option value="system">시스템 설정 따르기</option><option value="light">라이트</option><option value="dark">다크</option></select></label>
       <button class="tm-item" id="connectorsBtn" data-tm-close title="슬랙·Gmail 등 바깥 서비스에서 나에게 온 것을 모아 브레인 인박스로">🔌 커넥터</button>
       <button class="tm-item" id="settingsBtn" data-tm-close title="하루 정리 시각·브레인 폴더·보관 기간 등">⚙ 설정</button>
       <button class="tm-item" id="helpBtn" data-tm-close title="단축키 ( ? )">⌨ 단축키 <kbd>?</kbd></button>
@@ -125,6 +130,7 @@
       <tr><td><kbd>Esc</kbd></td><td>입력창·검색에서 빠져나오기(쓰던 글은 그대로) — 그 칸이 골라진 상태로 돌아가 바로 칸 이동. 펼친 카드는 한 번 더 누르면 접힘</td></tr>
       <tr><td><kbd>S</kbd> · <kbd>I</kbd> · <kbd>A</kbd></td><td>보기 전환 — 세션 칸 · 인박스 칸반 · 활동(칸을 다루는 키는 세션 보기에서만)</td></tr>
       <tr><td><kbd>D</kbd></td><td>하루 정리(작업 일지)</td></tr>
+      <tr><td><kbd>Shift</kbd> <kbd>T</kbd></td><td>라이트·다크 테마 바꾸기 — 시스템 설정을 따르게 하려면 ⋮ 메뉴의 🌓 에서</td></tr>
       <tr><td><kbd>B</kbd></td><td>브레인 패널 펴기·접기</td></tr>
       <tr><td><kbd>G</kbd> · <kbd>Shift</kbd> 두 번</td><td>세션 빠른 이동 — 보드 순서 목록에서 <kbd>↑</kbd><kbd>↓</kbd> 로 고르거나 몇 글자 쳐서 거른 뒤 <kbd>Enter</kbd>. Shift 두 번은 입력 중에도 동작</td></tr>
       <tr><td>서식 붙여넣은 입력창에서 <kbd>⌘</kbd> <kbd>\</kbd></td><td>서식 끄기 — 보통 입력창의 마크다운 글로(코드 블록은 ``` 로 둘러싼 글). 블록만 빠져나오려면 코드·인용 끝에서 <kbd>Shift</kbd> <kbd>Enter</kbd> 두 번, 블록 맨 앞에서 <kbd>Backspace</kbd> 는 그 블록의 서식만 풀기. 처음부터 글만 붙이려면 <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>V</kbd></td></tr>

@@ -4721,6 +4721,8 @@ document.addEventListener("keydown", e => {
   const view = { KeyS: "board", KeyI: "inbox", KeyA: "activity" }[e.code];
   if (view === "board" && !e.shiftKey && S.view === "board") { e.preventDefault(); return setBoardMode(S.boardMode === "cards" ? "cols" : "cards"); }
   if (view && !e.shiftKey) { e.preventDefault(); return setView(view); }
+  // ⇧T: 라이트 ↔ 다크(지금 보이는 것의 반대로 고정). 시스템 설정 따르기로 돌리려면 ⋮ 메뉴에서
+  if (e.code === "KeyT" && e.shiftKey) { e.preventDefault(); return setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"); }
   // vim 이동: h ← · j ↓ · k ↑ · l → (Shift 없이)
   const code = (!e.shiftKey && VIM_KEYS[e.code]) || e.code;
   // 카드 보기: 방향키·hjkl 로 카드 고르기, Enter 로 펼쳐 대화. T·P 는 고른 카드에
@@ -5204,6 +5206,22 @@ renderToggles();
 // 화면 언어(i18n.js). 바꾸면 다시 불러온다
 $("#langSel").innerHTML = Object.entries(I18N_LANGS).map(([k, v]) => `<option value="${k}" ${k === LANG ? "selected" : ""}>${v}</option>`).join("");
 $("#langSel").addEventListener("change", e => { save("csl.lang", e.target.value); location.reload(); });
+// 테마: 시스템 설정 따르기(기본) · 라이트 · 다크. <html data-theme> 에 실제로 쓸 것(light·dark)을 둔다 — 첫 그림은 index.html 의 머리 스크립트가
+const THEME_MQ = matchMedia("(prefers-color-scheme: dark)");
+function themePref() { const p = load("csl.theme", "system"); return ["light", "dark"].includes(p) ? p : "system"; }
+function applyTheme() {
+  const p = themePref();
+  document.documentElement.dataset.theme = p === "dark" || (p === "system" && THEME_MQ.matches) ? "dark" : "light";
+}
+function setTheme(p) {
+  save("csl.theme", p);
+  $("#themeSel").value = p;
+  applyTheme();
+}
+THEME_MQ.addEventListener("change", applyTheme);   // 시스템 설정을 따를 때 OS 가 바뀌면 바로
+$("#themeSel").value = themePref();
+$("#themeSel").addEventListener("change", e => setTheme(e.target.value));
+applyTheme();
 if (location.hash) history.replaceState(null, "", location.pathname);   // 예전 주소(#/s/…) 정리
 (async () => {
   await poll();

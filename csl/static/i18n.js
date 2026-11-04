@@ -419,6 +419,10 @@ const I18N_ROWS = [
   ["팀장", "リーダー", "Lead"], ["일을 마친 팀원입니다 — 이어서 시킬 일은 팀장 탭에서", "作業を終えたメンバーです — 続きの指示はリーダーのタブから", "This teammate has finished — give further work from the lead's tab"],
   ["에이전트 팀의 팀원 {*}", "エージェントチームのメンバー {*}", "Agent team member {*}"],
   ["에이전트 팀의 팀원 {}명 — 칸 보기의 탭에서 고릅니다", "エージェントチームのメンバー {}人 — 列表示のタブで選びます", "{} agent-team members — pick them from the tabs in column view"],
+  // 테마
+  ["시스템 설정 따르기", "システム設定に従う", "Match system"], ["라이트", "ライト", "Light"], ["다크", "ダーク", "Dark"],
+  ["화면 테마 ( ⇧T 로 라이트·다크 바꾸기 )", "画面テーマ ( ⇧T でライト・ダーク切り替え )", "Theme ( ⇧T toggles light/dark )"],
+  ["라이트·다크 테마 바꾸기 — 시스템 설정을 따르게 하려면 ⋮ 메뉴의 🌓 에서", "ライト・ダークテーマの切り替え — システム設定に従わせるには ⋮ メニューの 🌓 から", "Toggle light/dark theme — to match the system again, use 🌓 in the ⋮ menu"],
   // 인박스 카드: 맡길 세션 고르기(▾)
   ["맡길 세션 고르기", "任せるセッションを選ぶ", "Choose a session"],
   ["맡기기·입력창에·넥스트 액션에 이 세션으로 보냅니다", "任せる・入力欄へ・ネクストアクションへ をこのセッションに送ります", "Delegate, fill input and next action go to this session"],
