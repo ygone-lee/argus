@@ -573,6 +573,18 @@ def follow_rename(conn, s):
 
 
 LAUNCHED = {}   # 보드에서 띄운 Orca 터미널 핸들 → 시각(서버가 켜져 있는 동안)
+# 보드가 띄운 브레인 탭 {"handle", "terminal", "at"} — 세션은 훅(SessionStart)으로 잡히는데, 처음 실행이면 그 전에
+# 폴더 신뢰·권한 모드 같은 확인 창이 터미널에 뜬다. 그동안 브레인 패널이 그 탭 화면을 읽어 보드에서 고르게 한다
+BRAIN_LAUNCH = {}
+
+
+def brain_launch_target():
+    """보드가 띄운 브레인 탭(15분 안) Target 또는 None."""
+    h, name = BRAIN_LAUNCH.get("handle"), BRAIN_LAUNCH.get("terminal")
+    if not h or store.now() - BRAIN_LAUNCH.get("at", 0) > 900:
+        return None
+    t = terminals.registry().get(name)
+    return terminals.Target(t, h) if t and t.valid(h) else None
 REAPED = set()  # 닫은 탭(다시 보지 않게)
 
 
@@ -1055,7 +1067,36 @@ class Handler(BaseHTTPRequestHandler):
             if not tg:
                 return self._send(502, {"error": err})
             LAUNCHED[tg.handle] = store.now()
+            BRAIN_LAUNCH.clear()
+            BRAIN_LAUNCH.update(handle=tg.handle, terminal=tg.terminal.name, at=store.now())
             return self._send(200, {"ok": True, "handle": tg.handle})
+        if path == "/api/brain/launch" and method == "GET":
+            # 띄운 브레인이 세션으로 잡히기 전: 확인 창(선택지)·뜨는 중·입력칸까지 뜸(곧 잡힘)·탭이 닫힘
+            if brain.current(conn):
+                BRAIN_LAUNCH.clear()
+                return self._send(200, {"state": "running"})
+            tg = brain_launch_target()
+            if not tg:
+                return self._send(200, {"state": "none"})
+            if tg.terminal.info(tg.handle) is None:
+                BRAIN_LAUNCH.clear()
+                return self._send(200, {"state": "gone"})
+            v = focus.prompt_view(tg)
+            if v:
+                return self._send(200, {"state": "prompt", "prompt": v})
+            if focus.input_line(tg) is not None:
+                return self._send(200, {"state": "ready"})
+            return self._send(200, {"state": "starting", "screen": focus.dialog_text(tg)})
+        if path in ("/api/brain/launch/answer", "/api/brain/launch/focus") and method == "POST":
+            tg = brain_launch_target()
+            if not tg:
+                return self._send(409, {"error": "보드가 띄운 브레인 탭을 찾지 못했습니다 — 다시 시작해 주세요"})
+            if path.endswith("/focus"):
+                ok = tg.terminal.switch(tg.handle)
+                return self._send(200 if ok else 502, {"ok": ok, "message": "브레인 터미널로 이동했습니다"} if ok
+                                  else {"error": "터미널 탭으로 이동하지 못했습니다"})
+            ok, msg = focus.answer_prompt(tg, int(body.get("n") or 0), body.get("label") or "")
+            return self._send(200 if ok else 409, {"ok": True, "message": msg} if ok else {"error": msg})
         if method == "POST" and path == "/api/brain/settings":
             every, err = config.validate("brain_slack_every", body.get("slack_every") or 0)
             if err:

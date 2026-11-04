@@ -2179,6 +2179,8 @@ async function renderBrain() {
   const chat = $("#bpChat");
   const b = brainSession();
   if (!b) {
+    if (S.brainLaunch) return pollBrainLaunch();   // 띄운 브레인이 아직 세션으로 잡히기 전 — 확인 창·뜨는 중
+    pollBrainLaunch();   // 새로고침 뒤에도 뜨는 중이던 브레인을 이어 본다(2초에 한 번만 묻는다)
     if (!chat.querySelector(".bp-empty")) {
       chat.innerHTML = `<div class="bp-empty">
         <p><b>브레인이 꺼져 있습니다.</b><br>저장소의 <code>brain/</code> 폴더에서 Claude Code 를 띄워 세션 현황과 슬랙 인박스를 맡깁니다.
@@ -2719,9 +2721,72 @@ async function startBrain() {
   const model = ($("#bpModel") || {}).value || "", permission_mode = ($("#bpPerm") || {}).value || "";
   try {
     await api("POST", "/api/brain/start", { model, permission_mode });
-    toast("브레인을 띄웠습니다 · Orca 에 brain 터미널이 생깁니다");
-    $("#bpChat").innerHTML = '<div class="bp-empty"><p>브레인이 뜨는 중… (처음이면 폴더 신뢰 확인 창이 터미널에 뜰 수 있습니다)</p></div>';
+    toast("브레인을 띄웠습니다 · 터미널에 brain 탭이 생깁니다");
+    S.brainLaunch = { state: "starting" };
+    S.brainLaunchAt = 0;
+    renderBrainLaunch();
+    pollBrainLaunch();
   } catch (e) { toast("브레인 시작 실패: " + e.message); }
+}
+// 띄운 브레인이 세션으로 잡히기 전(훅은 Claude Code 가 다 뜬 뒤에 온다): 처음 실행이면 폴더 신뢰·권한 모드 확인 창이
+// 터미널에 떠서 멈춘다 — 그 창의 선택지를 패널에 보여 보드에서 고르거나 터미널로 가게 한다
+S.brainLaunch = null;   // {state: starting·prompt·ready, prompt?, screen?}
+S.brainLaunchAt = 0;
+async function pollBrainLaunch(force) {
+  if (!S.brainOpen || brainSession() || (!force && Date.now() - S.brainLaunchAt < 2000)) return;
+  S.brainLaunchAt = Date.now();
+  let L;
+  try { L = await api("GET", "/api/brain/launch"); } catch (e) { return; }
+  if (brainSession()) return;
+  if (L.state === "none" || L.state === "running") {
+    if (S.brainLaunch) { S.brainLaunch = null; $("#bpChat").innerHTML = ""; renderBrain(); }
+    return;
+  }
+  if (L.state === "gone") {
+    S.brainLaunch = null;
+    toast("브레인 탭이 닫혔습니다 — 다시 시작해 주세요");
+    $("#bpChat").innerHTML = "";
+    return renderBrain();
+  }
+  S.brainLaunch = L;
+  renderBrainLaunch();
+  setTimeout(() => pollBrainLaunch(), 2100);   // 잡힐 때까지 이어서 본다
+}
+function renderBrainLaunch() {
+  const L = S.brainLaunch, chat = $("#bpChat");
+  if (!L) return;
+  const key = JSON.stringify(L);
+  if (chat._launchKey === key && chat.querySelector(".bp-launch")) return;
+  chat._launchKey = key;
+  const v = L.state === "prompt" && L.prompt;
+  // 폴더 신뢰 창은 1번이 「No, exit」다 — 거절이 아닌 첫 선택지를 강조한다. 안내 문장은 보통 글, 경로만 고정폭
+  const isNo = o => /^(no|exit|cancel|remove|delete|discard)\b|아니|삭제|지우/i.test(o.label);
+  const main = v && (v.options.find(o => !isNo(o)) || v.options[0]);
+  const body = v ? `<div class="prompt-card bp-launch-card"><div class="ask-head"><b>🔐 확인 필요</b><span class="muted">처음 실행 확인 창 — 여기서 고르면 터미널에 넣습니다</span></div>
+      <div class="pc-head">${v.head.map((ln, i) => `<div class="${i === 0 ? "pc-title" : /^[\/~]/.test(ln) ? "pc-line" : "pc-desc"}">${esc(ln)}</div>`).join("")}</div>
+      <div class="pc-opts">${v.options.map(o => `<button class="btn pc-opt ${o === main ? "primary" : ""} ${isNo(o) ? "pc-no" : ""}"
+        data-action="brain-launch-pick" data-n="${o.n}" data-label="${esc(o.label)}" title="${esc(o.hint || o.label)}">
+        <b>${o.n}.</b> ${esc(o.label)}${o.hint ? `<span class="muted">${esc(o.hint)}</span>` : ""}</button>`).join("")}</div>
+      <div class="ask-msg muted pc-msg"></div></div>`
+    : L.state === "ready" ? `<p class="muted">입력칸까지 떴습니다 — 곧 이 패널에 나타납니다</p>`
+    : `<p class="muted">터미널에서 Claude Code 가 뜨기를 기다리는 중입니다</p>${L.screen ? `<div class="bp-launch-screen">${esc(L.screen)}</div>` : ""}`;
+  chat.innerHTML = `<div class="bp-empty bp-launch"><div class="bp-launch-head"><b>브레인이 뜨는 중…</b><span class="spacer"></span>
+    <button class="btn" data-action="brain-launch-term" title="브레인이 뜨고 있는 터미널 탭으로">터미널로 이동 ↗</button></div>${body}</div>`;
+}
+async function brainLaunchAct(el) {
+  if (el.dataset.action === "brain-launch-term") {
+    try { toast((await api("POST", "/api/brain/launch/focus", {})).message); } catch (e) { toast(e.message); }
+    return;
+  }
+  const card = el.closest(".bp-launch-card");
+  card.querySelectorAll(".pc-opt").forEach(x => { x.disabled = true; });
+  try {
+    toast((await api("POST", "/api/brain/launch/answer", { n: +el.dataset.n, label: el.dataset.label })).message);
+  } catch (e) {
+    card.querySelector(".pc-msg").textContent = e.message;
+    card.querySelectorAll(".pc-opt").forEach(x => { x.disabled = false; });
+  }
+  setTimeout(() => pollBrainLaunch(true), 700);   // 다음 창이 이어 뜰 수 있다(신뢰 → 권한 모드)
 }
 async function brainQuick(prompt) {
   const b = brainSession();
@@ -4454,6 +4519,7 @@ document.addEventListener("click", async e => {
   if (a === "ask-send") return sendAsk(el);
   if (a === "ask-chat") return chatAsk(el);
   if (a === "brain-start") return startBrain();
+  if (a === "brain-launch-term" || a === "brain-launch-pick") return brainLaunchAct(el);
   if (a === "brain-quick") return brainQuick(el.dataset.prompt);
   if (a === "inbox-run") return startInboxRun();
   if (a === "inbox-run-sum") { const id = +el.dataset.run; S.runOpen = S.runOpen === id ? null : id; return renderInboxRuns(); }

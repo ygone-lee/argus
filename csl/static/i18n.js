@@ -415,6 +415,17 @@ const I18N_ROWS = [
   ["열기 · 이어서 대화", "開いて続ける", "Open · keep chatting"], ["이 갈래로 전환", "この分岐に切り替え", "Switch to this branch"],
   ["이 터미널은 지금 「{*}」에 있습니다", "このターミナルは今「{*}」にあります", "This terminal is on “{*}” now"],
   ["저장 중…", "保存中…", "Saving…"],
+  // 브레인이 뜨는 중(첫 실행 확인 창)
+  ["브레인이 뜨는 중…", "ブレインを起動中…", "Starting the brain…"], ["터미널로 이동 ↗", "ターミナルへ移動 ↗", "Go to terminal ↗"],
+  ["브레인이 뜨고 있는 터미널 탭으로", "ブレインが起動中のターミナルタブへ", "To the terminal tab the brain is starting in"],
+  ["처음 실행 확인 창 — 여기서 고르면 터미널에 넣습니다", "初回起動の確認画面 — ここで選ぶとターミナルに入力します", "First-run confirmation — pick here and it's entered in the terminal"],
+  ["입력칸까지 떴습니다 — 곧 이 패널에 나타납니다", "入力欄まで表示されました — まもなくこのパネルに現れます", "The input line is up — it will show up in this panel shortly"],
+  ["터미널에서 Claude Code 가 뜨기를 기다리는 중입니다", "ターミナルで Claude Code の起動を待っています", "Waiting for Claude Code to start in the terminal"],
+  ["브레인을 띄웠습니다 · 터미널에 brain 탭이 생깁니다", "ブレインを起動しました・ターミナルに brain タブができます", "Started the brain · a brain tab opens in your terminal"],
+  ["브레인 탭이 닫혔습니다 — 다시 시작해 주세요", "ブレインのタブが閉じられました — もう一度起動してください", "The brain tab was closed — please start it again"],
+  ["브레인 터미널로 이동했습니다", "ブレインのターミナルへ移動しました", "Moved to the brain terminal"],
+  ["보드가 띄운 브레인 탭을 찾지 못했습니다 — 다시 시작해 주세요", "ボードが起動したブレインのタブが見つかりません — もう一度起動してください", "Couldn't find the brain tab the board started — please start it again"],
+  ["터미널 탭으로 이동하지 못했습니다", "ターミナルタブへ移動できませんでした", "Couldn't switch to the terminal tab"],
   // 에이전트 팀(팀원 탭)
   ["팀장", "リーダー", "Lead"], ["일을 마친 팀원입니다 — 이어서 시킬 일은 팀장 탭에서", "作業を終えたメンバーです — 続きの指示はリーダーのタブから", "This teammate has finished — give further work from the lead's tab"],
   ["에이전트 팀의 팀원 {*}", "エージェントチームのメンバー {*}", "Agent team member {*}"],

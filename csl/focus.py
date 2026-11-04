@@ -802,7 +802,7 @@ def prompt_view(t):
         return None
     idx = [i for i, ln in enumerate(lines) if _OPTION.match(ln)]
     if not idx:
-        return None
+        return _plain_menu(lines)
     first = idx[0]
     # 창 위 경계: 입력칸 자리의 가로줄(──) 또는 창 테두리(▔▔ — 종료 때 워크트리 묻는 창 등)
     top = max([i for i, ln in enumerate(lines[:first]) if ln.lstrip().startswith(("──", "▔"))] or [-1])
@@ -817,6 +817,37 @@ def prompt_view(t):
     return {"head": head[-8:], "options": options}
 
 
+_MENU_FOOT = "Enter to confirm"
+
+
+def _plain_menu(lines):
+    """번호 없는 선택 창(첫 실행의 폴더 신뢰 등 — 실측 v2.1.317):
+       「 Quick safety check: … / ❯ No, exit /   Yes, I trust this folder / Enter to confirm · Esc to cancel」
+    커서(❯) 줄과 그 위아래로 같은 들여쓰기(커서 자리만큼 안쪽)인 줄들이 선택지다. 없으면 None."""
+    foot = next((i for i in range(len(lines) - 1, -1, -1) if _MENU_FOOT in lines[i]), None)
+    if foot is None:
+        return None
+    cur = [i for i in range(foot) if lines[i].lstrip().startswith("❯ ")]
+    if not cur:
+        return None
+    c = cur[-1]
+    col = len(lines[c]) - len(lines[c].lstrip()) + 2   # 선택지 글이 시작하는 열
+
+    def item(i):
+        ln = lines[i]
+        return bool(ln.strip()) and (ln.lstrip().startswith("❯ ") or len(ln) - len(ln.lstrip()) == col)
+    start, end = c, c
+    while start - 1 >= 0 and item(start - 1) and not lines[start - 1].lstrip().startswith("❯"):
+        start -= 1
+    while end + 1 < foot and item(end + 1):
+        end += 1
+    top = max([i for i, ln in enumerate(lines[:start]) if ln.lstrip().startswith(("──", "▔"))] or [-1])
+    head = [ln.strip() for ln in lines[top + 1:start] if ln.strip() and not ln.lstrip().startswith(("╌", "─", "▔"))]
+    options = [{"n": k + 1, "label": lines[i].strip().lstrip("❯").strip(), "hint": "", "on": i == c}
+               for k, i in enumerate(range(start, end + 1))]
+    return {"head": head[-8:], "options": options, "plain": True}
+
+
 @_serial
 def answer_prompt(t, n, label):
     """선택 창에서 n 번(그 줄 글이 label 일 때만)을 고른다. Esc 는 보내지 않는다. (성공 여부, 안내 문구)"""
@@ -826,9 +857,22 @@ def answer_prompt(t, n, label):
     opt = next((o for o in v["options"] if o["n"] == n), None)
     if not opt or _norm_text(opt["label"]) != _norm_text(label):
         return False, "선택 창이 바뀌었습니다 — 다시 확인해 주세요"
-    if not 1 <= n <= 9:
+    if v.get("plain"):
+        # 번호 없는 창: 화살표로 커서를 옮기고 그 줄이 맞는지 다시 본 뒤 Enter
+        cur = next((o["n"] for o in v["options"] if o["on"]), 1)
+        if n != cur:
+            _raw(t, (DOWN if n > cur else UP) * abs(n - cur))
+            time.sleep(0.3)
+            v2 = prompt_view(t)
+            now = next((o["label"] for o in (v2 or {}).get("options", []) if o["on"]), None)
+            if _norm_text(now or "") != _norm_text(label):
+                return False, "선택지를 맞추지 못했습니다(지금: %s) — 터미널에서 확인해 주세요" % (now or "알 수 없음")
+            v = v2
+        _raw(t, "\r")
+    elif not 1 <= n <= 9:
         return False, "이 번호는 키로 고를 수 없습니다"
-    _raw(t, str(n))
+    else:
+        _raw(t, str(n))
     for _ in range(10):
         time.sleep(0.3)
         if prompt_view(t) != v:
