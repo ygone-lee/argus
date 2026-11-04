@@ -1657,3 +1657,4 @@ select {
 .ib-run-row:hover, .ib-run-row.on { background: var(--surface-hover); color: var(--text); }
 .ib-run-sum { margin-top: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: 13px; max-height: 360px; overflow: auto; }
 .rename-saving { font-size: 12px; margin-left: 8px; flex: none; }
+.fam-tab.team .fam-tab-t { font-weight: 600; }

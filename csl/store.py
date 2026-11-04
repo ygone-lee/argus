@@ -15,7 +15,7 @@ DB_PATH = os.path.join(DATA_DIR, "board.db")
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 # 이 날수 넘게 아무 일도 없던 세션과 그 대화는 지운다(고정했거나 남은 넥스트 액션이 있으면 둔다)
 # 스키마를 바꾸면 올린다. 연결할 때마다 마이그레이션을 다시 확인하지 않도록(훅은 도구 호출마다 연결한다)
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 23
 PORT = int(os.environ.get("CSL_PORT", "7799"))
 
 SCHEMA = """
@@ -111,6 +111,8 @@ def _migrate(conn):
                       ("permission_mode", "TEXT")):   # 권한 모드(훅 입력 permission_mode — auto·default·acceptEdits·plan …)
         if col not in cols:
             conn.execute("ALTER TABLE sessions ADD COLUMN %s %s" % (col, decl))
+    if "team_agent" not in cols:   # 에이전트 팀의 팀원 이름(--agent-name). 팀장은 continued_from, branch_kind='team'
+        conn.execute("ALTER TABLE sessions ADD COLUMN team_agent TEXT")
     if "link_checked" not in cols:     # 이어받은 세션인지 프로세스 명령줄로 한 번 확인했는지
         conn.execute("ALTER TABLE sessions ADD COLUMN link_checked INTEGER DEFAULT 0")
     if "ask" not in cols:   # 터미널에 떠 있는 질문 창(AskUserQuestion)의 질문·선택지(JSON) — 보드에서 답하기용
@@ -1211,3 +1213,65 @@ def read_usage():
     """계정 사용량(5시간·주간). Claude Code 가 상태줄에 넘기는 rate_limits 를 상태줄 탭이 남긴 것. 없으면 None."""
     tap = _status_rate_limits()
     return dict(tap, source="statusline") if tap else None
+
+
+# ---------------------------------------------------------------- 에이전트 팀
+# 에이전트 팀(TeamCreate)의 팀원은 팀장이 tmux 창 등에 띄운 독립 Claude Code 세션이라 훅이 따로 온다.
+# 보드에서는 팀장 칸 위 탭으로 묶는다: continued_from=팀장, branch_kind='team', team_agent=팀원 이름.
+TEAMS_DIR = os.path.expanduser("~/.claude/teams")
+_TEAM_SESSION = re.compile(r"^session-([0-9a-f]{8})$")
+
+
+def team_head(path, lines=60):
+    """대화 기록 앞부분에서 (팀 이름, 팀원 이름). 팀원이 아니면 None. 팀원의 기록 줄에는 teamName·agentName 이 붙는다."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for i, line in enumerate(f):
+                if i >= lines:
+                    break
+                if '"teamName"' not in line:
+                    continue
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                if d.get("teamName") and d.get("agentName") and d.get("agentName") != "team-lead":
+                    return d["teamName"], d["agentName"]
+    except OSError:
+        pass
+    return None
+
+
+def team_lead(conn, team, sid):
+    """팀 이름 → 팀장 세션 ID: 팀 설정(~/.claude/teams/<팀>/config.json 의 leadSessionId), 없으면 「session-<팀장 앞 8자>」."""
+    lead = None
+    try:
+        with open(os.path.join(TEAMS_DIR, os.path.basename(team), "config.json")) as f:
+            lead = json.load(f).get("leadSessionId")
+    except (OSError, ValueError, AttributeError):
+        pass
+    if not lead:
+        m = _TEAM_SESSION.match(team or "")
+        row = m and conn.execute("SELECT session_id FROM sessions WHERE session_id LIKE ? AND session_id != ?",
+                                 (m.group(1) + "%", sid)).fetchone()
+        lead = row[0] if row else None
+    return lead if isinstance(lead, str) and lead != sid else None
+
+
+def link_team(conn, sid, lead, agent):
+    """팀원 세션을 팀장에 잇는다(아직 어디에도 이어지지 않았을 때만)."""
+    if not lead or lead == sid:
+        return False
+    return conn.execute("UPDATE sessions SET continued_from=?, branch_kind='team', team_agent=? WHERE session_id=?"
+                        " AND continued_from IS NULL", (lead, (agent or "")[:60] or None, sid)).rowcount > 0
+
+
+def link_teams(conn, days=30):
+    """서버 시작 때 한 번: 훅이 팀원 표시를 하기 전부터 있던 팀원 세션을 기록 파일 앞부분으로 찾아 잇는다."""
+    n = 0
+    for r in conn.execute("SELECT session_id, transcript_path FROM sessions WHERE continued_from IS NULL"
+                          " AND transcript_path IS NOT NULL AND started_at > ?", (now() - days * 86400,)).fetchall():
+        got = team_head(r["transcript_path"])
+        if got and link_team(conn, r["session_id"], team_lead(conn, got[0], r["session_id"]), got[1]):
+            n += 1
+    return n

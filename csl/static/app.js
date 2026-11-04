@@ -111,6 +111,8 @@ function promptSummary(text, n = 120) {
   return clamp(text, n);
 }
 function sessionTitle(s) {
+  // 팀원의 첫 요청은 팀장이 보낸 <teammate-message …> 지시문이라 제목으로 쓰지 않고 팀원 이름으로
+  if (!s.title && s.team_agent) return "👥 " + s.team_agent;
   return s.title || promptSummary(s.first_prompt, 60) || "(아직 요청 없음)";
 }
 function displayState(s) {
@@ -971,10 +973,12 @@ function liveBrain(s) { return s.brain && s.state !== "ended" && !s.archived; }
 // 갈래 가족(/branch·/fork): 원본에서 갈라져 나온 세션들은 칸 하나로 묶고 칸 위 탭으로 고른다.
 // 칸에는 고른 갈래(없으면 가장 최근에 움직인 것)가 서고, s._fam = { root, members } 가 붙는다
 const isBranch = s => s.branch_kind === "branch" || s.branch_kind === "fork";
+// 에이전트 팀의 팀원(팀장이 tmux 창 등에 띄운 세션): 칸을 따로 세우지 않고 팀장 칸 위 탭으로
+const isTeammate = s => s.branch_kind === "team";
 S.famSel = load("csl.famSel", {});   // 가족 뿌리 session_id → 고른 갈래
 function famRootOf(s, byId) {
   let cur = s;
-  for (let i = 0; i < 20 && isBranch(cur) && byId.has(cur.continued_from); i++) cur = byId.get(cur.continued_from);
+  for (let i = 0; i < 20 && (isBranch(cur) || isTeammate(cur)) && byId.has(cur.continued_from); i++) cur = byId.get(cur.continued_from);
   return cur.session_id;
 }
 function boardFamilies() {
@@ -990,14 +994,22 @@ function boardFamilies() {
   for (const [root, members] of fams) {
     if (!members.some(matches)) continue;   // 가족 중 하나라도 보이면(원본이 끝났어도 갈래가 살아 있으면) 칸을 둔다
     const recent = (p, q) => q.last_activity - p.last_activity;
-    const sel = members.find(m => m.session_id === S.famSel[root]) || members.filter(m => m.state !== "ended").sort(recent)[0]
-      || [...members].sort(recent)[0];
+    // 고른 탭이 없으면 가장 최근에 움직인 갈래 — 팀원은 팀장 대신 서지 않는다(팀원이 일할 때마다 칸이 바뀌지 않게)
+    const sel = members.find(m => m.session_id === S.famSel[root])
+      || members.filter(m => m.state !== "ended" && !isTeammate(m)).sort(recent)[0]
+      || members.filter(m => !isTeammate(m)).sort(recent)[0] || [...members].sort(recent)[0];
     sel._fam = members.length > 1 ? { root, members: [...members].sort((p, q) => (p.started_at || 0) - (q.started_at || 0)) } : null;
     sel._famPin = Math.max(...members.map(m => m.pinned || 0));
     sel._famAct = Math.max(...members.map(m => m.last_activity || 0));
     out.push(sel);
   }
   return out;
+}
+// 카드 보기의 가족 표시: 갈래 ⑂ N · 팀원 👥 N
+function famChip(fam) {
+  const team = fam.members.filter(isTeammate).length, br = fam.members.length - 1 - team;
+  return (br ? `<span class="chip fam" title="갈래 ${br}개 — 칸 보기의 탭에서 고릅니다">⑂ ${br}</span>` : "") +
+    (team ? `<span class="chip fam" title="에이전트 팀의 팀원 ${team}명 — 칸 보기의 탭에서 고릅니다">👥 ${team}</span>` : "");
 }
 function allBoardSessions() {
   return boardFamilies().sort((a, b) => (!!b._famPin - !!a._famPin) ||
@@ -1248,13 +1260,17 @@ function updateFamily(col, s) {
   const fam = s._fam;
   box.hidden = !fam;
   setHtml(box, fam ? fam.members.map(m => {
-    const d = displayState(m), label = m.session_id === fam.root ? "원본" : "⑂ " + sessionTitle(m);
-    return `<button class="fam-tab ${m.session_id === s.session_id ? "on" : ""}" data-action="fam-tab" data-root="${esc(fam.root)}" data-sid="${esc(m.session_id)}"
-      title="${esc(sessionTitle(m))}${m.bg ? " · 백그라운드(/fork)" : ""}"><span class="dot ${d}"></span><span class="${m.session_id === fam.root ? "fam-tab-o" : "fam-tab-t"}">${esc(clamp(label, 28))}</span>${m.bg ? '<span class="fam-bg">백그라운드</span>' : ""}${
-      m.session_id === fam.root ? "" : `<span class="fam-x" data-action="fam-close" data-sid="${esc(m.session_id)}" title="이 갈래 닫기(두 번 눌러 확인)">✕</span>`}</button>`;
+    const d = displayState(m), team = isTeammate(m);
+    const label = m.session_id === fam.root ? (fam.members.some(isTeammate) && !fam.members.some(isBranch) ? "팀장" : "원본")
+      : team ? "👥 " + (m.team_agent || sessionTitle(m)) : "⑂ " + sessionTitle(m);
+    const tip = team ? `에이전트 팀의 팀원 ${m.team_agent || ""}${m.title ? " — " + sessionTitle(m) : ""}` : sessionTitle(m) + (m.bg ? " · 백그라운드(/fork)" : "");
+    return `<button class="fam-tab ${m.session_id === s.session_id ? "on" : ""} ${team ? "team" : ""}" data-action="fam-tab" data-root="${esc(fam.root)}" data-sid="${esc(m.session_id)}"
+      title="${esc(tip)}"><span class="dot ${d}"></span><span class="${m.session_id === fam.root ? "fam-tab-o" : "fam-tab-t"}">${esc(clamp(label, 28))}</span>${m.bg ? '<span class="fam-bg">백그라운드</span>' : ""}${
+      m.session_id === fam.root || team ? "" : `<span class="fam-x" data-action="fam-close" data-sid="${esc(m.session_id)}" title="이 갈래 닫기(두 번 눌러 확인)">✕</span>`}</button>`;
   }).join("") : "");
   let bar = col.querySelector(".fam-bar");
-  const need = fam && (s.state === "ended" || (s.bg && !s.term_handle));
+  // 팀원은 팀장이 관리한다 — 끝났거나 터미널이 없어도 전환·이어 열기를 권하지 않는다
+  const need = fam && !isTeammate(s) && (s.state === "ended" || (s.bg && !s.term_handle));
   if (!need) { if (bar) bar.remove(); return; }
   if (!bar) {
     bar = document.createElement("div");
@@ -3708,6 +3724,7 @@ function updateComposer(el, s) {
   // 확인 필요라도 질문 카드가 없으면 막지 않는다 — 보낼 때 서버가 화면을 보고 승인 창이 떠 있으면 거절한다
   // (창을 거절·중단하면 훅이 오지 않아 「확인 필요」만 남는 경우가 있다)
   const blocked = d === "waiting" && askOf(s) ? "질문에 답할 차례 — 위 카드에서 답하거나 터미널에서 답해 주세요"
+    : d === "ended" && isTeammate(s) ? "일을 마친 팀원입니다 — 이어서 시킬 일은 팀장 탭에서"
     : d === "ended" && s._fam ? "이 갈래는 지금 터미널에 없습니다 — 위 버튼으로 전환해 주세요"
     : s.bg && !s.term_handle ? "백그라운드 갈래 — 위 「열기」로 터미널에 붙이면 보낼 수 있습니다" : "";
   const hint = blocked || (s.state === "ended" ? "종료된 세션 — 보내면 새 터미널 탭에서 이어 열지 물어봅니다"
@@ -5773,7 +5790,7 @@ function sessionCardHtml(s, rank) {
       <span class="ago" data-ts="${s.last_activity}">${rel(s.last_activity)}</span>${ctxChip(s, d)}<span class="spacer"></span>
       ${remoteBadge(s, d)}${s.pinned ? '<span class="sc-pin" title="고정됨">📌</span>' : ""}${key}</div>
     <div class="sc-title">${esc(sessionTitle(s))}</div>
-    <div class="sc-meta"><span class="chip proj">${esc(s.project_name || base(s.project_root))}</span>${placeChips(s)}${s._fam ? `<span class="chip fam" title="갈래 ${s._fam.members.length - 1}개 — 칸 보기의 탭에서 고릅니다">⑂ ${s._fam.members.length - 1}</span>` : ""}</div>
+    <div class="sc-meta"><span class="chip proj">${esc(s.project_name || base(s.project_root))}</span>${placeChips(s)}${s._fam ? famChip(s._fam) : ""}</div>
     ${d === "waiting" && s.state_detail ? `<div class="sc-wait"><span aria-hidden="true">⏳</span> ${esc(clamp(s.state_detail, 120))}</div>` : ""}
     ${body}
     <div class="sc-foot">${lp ? `<span class="sc-last" title="${esc(clamp(lp, 400))}">▶ ${esc(plainOneLine(lp, 90))}</span>` : '<span></span>'}

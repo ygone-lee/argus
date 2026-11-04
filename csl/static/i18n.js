@@ -415,6 +415,10 @@ const I18N_ROWS = [
   ["열기 · 이어서 대화", "開いて続ける", "Open · keep chatting"], ["이 갈래로 전환", "この分岐に切り替え", "Switch to this branch"],
   ["이 터미널은 지금 「{*}」에 있습니다", "このターミナルは今「{*}」にあります", "This terminal is on “{*}” now"],
   ["저장 중…", "保存中…", "Saving…"],
+  // 에이전트 팀(팀원 탭)
+  ["팀장", "リーダー", "Lead"], ["일을 마친 팀원입니다 — 이어서 시킬 일은 팀장 탭에서", "作業を終えたメンバーです — 続きの指示はリーダーのタブから", "This teammate has finished — give further work from the lead's tab"],
+  ["에이전트 팀의 팀원 {*}", "エージェントチームのメンバー {*}", "Agent team member {*}"],
+  ["에이전트 팀의 팀원 {}명 — 칸 보기의 탭에서 고릅니다", "エージェントチームのメンバー {}人 — 列表示のタブで選びます", "{} agent-team members — pick them from the tabs in column view"],
   // 인박스 카드: 맡길 세션 고르기(▾)
   ["맡길 세션 고르기", "任せるセッションを選ぶ", "Choose a session"],
   ["맡기기·입력창에·넥스트 액션에 이 세션으로 보냅니다", "任せる・入力欄へ・ネクストアクションへ をこのセッションに送ります", "Delegate, fill input and next action go to this session"],
