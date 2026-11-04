@@ -460,7 +460,7 @@ async function fetchSuggestion(sid, key) {
 }
 function sigOf(s) {
   return [s.last_activity, s.state, s.state_at, s.open_notes, s.last_seen_at, s.title, s.recap_at,
-    s.pinned, s.archived, s.turn_count, s.remote, s.rc_requested_at, s.model, s.effort,
+    s.pinned, pinOf(s), s.archived, s.turn_count, s.remote, s.rc_requested_at, s.model, s.effort,
     s.ctx ? s.ctx.used + "/" + s.ctx.pct : "", s.compact_at, s.ask ? s.ask.length : 0, s.aside_sig].join("|");
 }
 
@@ -1005,6 +1005,14 @@ function boardFamilies() {
   }
   return out;
 }
+// 고정도 가족(원본·갈래·팀원) 단위 — 칸에 어느 탭이 서 있든 가족 중 고정된 세션의 값으로 그린다(탭을 바꿔도 고정 묶음에 남게)
+function pinOf(s) { return s._famPin !== undefined ? s._famPin : (s.pinned || 0); }
+// 그 칸의 고정을 실제로 가진 세션들(없으면 빈 목록). 새로 고정할 때는 가족의 원본에 건다
+function pinHolders(sid) {
+  const s = sessionById(sid);
+  return s ? (s._fam ? s._fam.members : [s]).filter(m => m.pinned).sort((a, b) => b.pinned - a.pinned).map(m => m.session_id) : [];
+}
+function pinRoot(sid) { const s = sessionById(sid); return s && s._fam ? s._fam.root : sid; }
 // 카드 보기의 가족 표시: 갈래 ⑂ N · 팀원 👥 N
 function famChip(fam) {
   const team = fam.members.filter(isTeammate).length, br = fam.members.length - 1 - team;
@@ -1119,7 +1127,7 @@ function renderBoard() {
       }
     }
     // 고정 칸 묶음의 마지막 칸 뒤에 간격을 둬서 고정/나머지를 구분
-    const lastPin = !!s.pinned && !(cols[i + 1] && cols[i + 1].pinned);
+    const lastPin = !!pinOf(s) && !(cols[i + 1] && pinOf(cols[i + 1]));
     updateCol(col, s, i + 1, lastPin);
   });
   if (needFetch) setTimeout(() => refreshBoard().then(renderBoard), 0);
@@ -1167,7 +1175,7 @@ function updateCol(col, s, rank, lastPin) {
   if (col._key === key && col._detail === (cached0 && cached0.detail)) return;
   col._key = key;
   col._detail = cached0 && cached0.detail;
-  const pinned = !!s.pinned;
+  const pinned = !!pinOf(s);
   col.className = "col " + d + (S.activeCol === sid ? " active" : "") + (pinned ? " pinned" : "") + (lastPin ? " pin-last" : "") +
     (S.notesFolded.has(sid) ? " notes-folded" : "");
   col.style.order = rank;
@@ -2038,10 +2046,10 @@ function openColMenu(btn) {
     <button class="cm-item" data-cm="archive">🗄 ${s.archived ? "보관 해제" : "보관"} <span class="muted">${s.archived ? "" : "보드에서 숨기기"}</span></button>
     ${s.state !== "ended" ? `<button class="cm-item danger" data-cm="quit">⏻ 세션 종료 <span class="muted">Claude Code 를 닫고(/exit) 터미널 탭도 닫기</span></button>` : ""}
     ${remote}
-    <button class="cm-item" data-cm="pin">📌 ${s.pinned ? "고정 풀기" : "맨 앞에 고정"} <span class="muted">P</span></button>
+    <button class="cm-item" data-cm="pin">📌 ${pinOf(s) ? "고정 풀기" : "맨 앞에 고정"} <span class="muted">P</span></button>
     ${d !== "ended" ? `<button class="cm-item" data-cm="goal">🎯 ${s.goal && !s.goal.met ? "목표 바꾸기·풀기" : "목표 걸기"} <span class="muted">/goal</span></button>` : ""}
     <button class="cm-item" data-cm="diff">🧾 변경 보기 <span class="muted">커밋 안 한 변경</span></button>
-    ${S.colWidths[sid] ? `<button class="cm-item" data-cm="width-reset">↔ 기본 너비로 <span class="muted">${S.colWidths[sid]}px</span></button>` : ""}`;
+    ${colWidthOf(sid) ? `<button class="cm-item" data-cm="width-reset">↔ 기본 너비로 <span class="muted">${colWidthOf(sid)}px</span></button>` : ""}`;
   menu.hidden = false;
   placeMenu(menu, btn, "right", 4);
 }
@@ -3102,7 +3110,7 @@ document.addEventListener("pointermove", e => {
     if (Math.hypot(e.clientX - DRAG.x0, e.clientY - DRAG.y0) < 8) return;
     DRAG.on = true;
     S.dragging = true;
-    DRAG.pinned = new Set(S.sessions.filter(s => s.pinned).map(s => s.session_id));   // 끄는 동안 매 프레임 찾지 않게 한 번만
+    DRAG.pinned = new Set(boardSessions().filter(pinOf).map(s => s.session_id));   // 칸에 선 세션 기준(가족의 고정)   // 끄는 동안 매 프레임 찾지 않게 한 번만
     document.body.classList.add("col-dragging");
     makeGhost(DRAG.col);
     DRAG.col.classList.add("dragging");   // 원래 자리는 비우고(숨김) 빈자리가 대신 선다
@@ -3129,15 +3137,18 @@ function endDrag(cancel, noClick) {
     if (cards) renderCards(true);
     return;
   }
-  const pinned = target.sids.slice(0, target.pinnedCount);
+  // 칸에 선 세션(팀원·갈래 탭일 수 있다) 대신 그 칸의 고정을 가진 세션으로 — 새로 고정하면 가족의 원본에
+  const holder = id => pinHolders(id)[0] || pinRoot(id);
+  const pinned = target.sids.slice(0, target.pinnedCount).map(holder);
   const body = { order: pinned, unpin: [] };
-  if (target.kind === "pin") pinned.splice(target.idx, 0, sid);
-  else body.unpin.push(sid);
+  if (target.kind === "pin") pinned.splice(target.idx, 0, holder(sid));
+  else body.unpin.push(...pinHolders(sid));
+  const unpin = new Set(body.unpin);
   // 다음 폴링 전에도 바로 자리 이동
   S.sessions.forEach(s => {
     const i = pinned.indexOf(s.session_id);
     if (i >= 0) s.pinned = i + 1;
-    else if (s.session_id === sid) s.pinned = 0;
+    else if (unpin.has(s.session_id)) s.pinned = 0;
   });
   renderBoard();
   if (cards) renderCards(true);
@@ -3153,14 +3164,20 @@ window.addEventListener("blur", () => endDrag(true, true));
 // ------------------------------------------------------------------ 칸 너비 조절(오른쪽 가장자리 끌기)
 // 칸마다 브라우저에 기억한다. 더블클릭이나 ⋮ → 「기본 너비로」면 원래대로
 const COL_MIN = 320, COL_MAX = 1600;
+// 너비는 가족(원본·갈래·팀원) 단위로 — 팀원·갈래 탭으로 바꿔도 칸 너비가 그대로. 예전에 갈래 id 로 남은 값도 읽는다
+const SESS_IDX = { has: id => !!sessionById(id), get: sessionById };
+function widthKey(sid) { const s = sessionById(sid); return s ? famRootOf(s, SESS_IDX) : sid; }
+function colWidthOf(sid) { return S.colWidths[widthKey(sid)] || S.colWidths[sid] || 0; }
 function applyColWidth(col, sid) {
-  const w = S.colWidths[sid];
+  const w = colWidthOf(sid);
   const flex = w ? `0 0 ${w}px` : "";
   if (col.style.flex !== flex) col.style.flex = flex;
   col.classList.toggle("custom-width", !!w);
 }
 function setColWidth(sid, w) {
-  if (w) S.colWidths[sid] = Math.round(w); else delete S.colWidths[sid];
+  const key = widthKey(sid);
+  if (key !== sid) delete S.colWidths[sid];
+  if (w) S.colWidths[key] = Math.round(w); else delete S.colWidths[key];
   save("csl.colWidths", S.colWidths);
   const col = colEl(sid);
   if (col) applyColWidth(col, sid);
@@ -3339,9 +3356,12 @@ function noteKey(e) {
 async function togglePin(sid) {
   const s = sessionById(sid);
   if (!s) return;
-  const pin = !s.pinned;
-  await api("POST", `/api/sessions/${sid}/pin`, { pinned: pin });
-  s.pinned = pin ? Date.now() / 1000 : 0;   // 다음 폴링 전에도 바로 자리 이동
+  const pin = !pinOf(s);
+  // 가족 단위: 고정은 원본에 걸고, 풀 때는 가족 중 고정된 세션을 모두 푼다
+  for (const id of pin ? [pinRoot(sid)] : pinHolders(sid)) {
+    await api("POST", `/api/sessions/${id}/pin`, { pinned: pin });
+    sessionById(id).pinned = pin ? Date.now() / 1000 : 0;   // 다음 폴링 전에도 바로 자리 이동
+  }
   toast(pin ? "맨 앞에 고정했습니다" : "고정을 풀었습니다");
   return refresh(sid);
 }
@@ -5948,10 +5968,10 @@ function sessionCardHtml(s, rank) {
   const lp = s.last_prompt && s.last_prompt.prompt;
   const notes = +s.open_notes || 0;
   const key = rank <= 9 ? `<span class="sc-key">⌘${rank}</span>` : "";
-  return `<article class="scard ${d} ${s.pinned ? "pinned" : ""}" data-scard="${esc(s.session_id)}" style="--proj:${projColor(s.project_root || s.cwd)}">
+  return `<article class="scard ${d} ${pinOf(s) ? "pinned" : ""}" data-scard="${esc(s.session_id)}" style="--proj:${projColor(s.project_root || s.cwd)}">
     <div class="sc-top"><span class="rank">${rank}</span><span class="pill ${d}"><span class="dot ${d}"></span>${s.compact_at ? "컴팩트 중" : STATE_LABEL[d]}</span>
       <span class="ago" data-ts="${s.last_activity}">${rel(s.last_activity)}</span>${ctxChip(s, d)}<span class="spacer"></span>
-      ${remoteBadge(s, d)}${s.pinned ? '<span class="sc-pin" title="고정됨">📌</span>' : ""}${key}</div>
+      ${remoteBadge(s, d)}${pinOf(s) ? '<span class="sc-pin" title="고정됨">📌</span>' : ""}${key}</div>
     <div class="sc-title">${esc(sessionTitle(s))}</div>
     <div class="sc-meta"><span class="chip proj">${esc(s.project_name || base(s.project_root))}</span>${placeChips(s)}${s._fam ? famChip(s._fam) : ""}</div>
     ${d === "waiting" && s.state_detail ? `<div class="sc-wait"><span aria-hidden="true">⏳</span> ${esc(clamp(s.state_detail, 120))}</div>` : ""}
