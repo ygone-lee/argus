@@ -180,6 +180,15 @@
     <div class="diff-body task-body"></div>
   </div>
 </div>
+<div class="help resume-modal" id="resumeModal" hidden>
+  <div class="help-box resume-box" role="dialog" aria-modal="true" aria-labelledby="resumeTitle">
+    <div class="help-head"><h2 id="resumeTitle">터미널에 열려 있지 않은 세션입니다</h2></div>
+    <p class="resume-msg"><b class="resume-name"></b><br><span>이 세션은 지금 어느 터미널에서도 실행 중이 아닙니다.</span></p>
+    <p class="resume-sub"></p>
+    <p class="muted resume-note">권한 모드·모델은 Claude Code 기본 설정으로 열립니다.</p>
+    <div class="cm-confirm-btns"><button class="btn" data-close>취소</button><button class="btn primary" data-resume-go>새 탭에서 열기</button></div>
+  </div>
+</div>
 <div class="col-menu ctx-menu" id="ctxMenu" hidden></div>
 <div class="col-menu ctx-menu new-menu" id="newMenu" hidden></div>
 <div class="col-menu proj-menu" id="projMenu" hidden></div>

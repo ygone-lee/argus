@@ -12,7 +12,7 @@ const I18N_SKIP = ".md, .bubble, .col-title, .title-text, .rename-input, .col-re
   ".chip.proj, .pm-name, .cmp-text, .note-input, .ctx-note, .nm-prompt, textarea, script, style, code, pre, " +
   // 카드 보기·곁질문·활동·인박스 칸반·카드 기록·카드 대화의 사용자 내용
   ".fam-tab-t, .goal-t, .ag-main b, .ag-last, .ib-run-sum, .ib-file, .pc-head, .pc-opt, .bgt-desc, .task-title, .task-meta, .task-body, .dv-tbl, .dv-fname, .dv-commit, .diff-title, .sc-title, .sc-recap, .sc-last, .sc-meta .chip, .aside-q, .aside-a, .act-main b, .act-text, .ib-todo, .ibl-text, " +
-  ".sp-desc:not(.board), .kb-h > div, .ibc-u, .ibc-err, .cmp-rich, .sref, .chip.wt, .chip.br, .ib-stage .muted, .ib-reply-text, .cn-name, .act-main .muted, .act-ask-t, .sw-title, .sw-where";
+  ".sp-desc:not(.board), .kb-h > div, .ibc-u, .ibc-err, .cmp-rich, .sref, .chip.wt, .chip.br, .ib-stage .muted, .ib-reply-text, .cn-name, .act-main .muted, .act-ask-t, .sw-title, .sw-where, .resume-name, .ibp-t, .ibp-sub";
 
 // [한국어, 日本語, English]
 const I18N_ROWS = [
@@ -414,6 +414,31 @@ const I18N_ROWS = [
   ["🛰 터미널 없이 백그라운드에서 도는 갈래입니다", "🛰 ターミナルなしでバックグラウンドで動く分岐です", "🛰 This branch runs in the background without a terminal"],
   ["열기 · 이어서 대화", "開いて続ける", "Open · keep chatting"], ["이 갈래로 전환", "この分岐に切り替え", "Switch to this branch"],
   ["이 터미널은 지금 「{*}」에 있습니다", "このターミナルは今「{*}」にあります", "This terminal is on “{*}” now"],
+  ["저장 중…", "保存中…", "Saving…"],
+  // 인박스 카드: 맡길 세션 고르기(▾)
+  ["맡길 세션 고르기", "任せるセッションを選ぶ", "Choose a session"],
+  ["맡기기·입력창에·넥스트 액션에 이 세션으로 보냅니다", "任せる・入力欄へ・ネクストアクションへ をこのセッションに送ります", "Delegate, fill input and next action go to this session"],
+  ["다른 세션 고르기 — 맡기기·입력창에·넥스트 액션에 보낼 세션을 바꿉니다", "別のセッションを選ぶ — 任せる・入力欄へ・ネクストアクションへ の送り先を変えます", "Choose another session — changes where delegate, fill input and next action go"],
+  ["맡길 세션 고르기 — 보드에 열린 세션 중에서", "任せるセッションを選ぶ — ボードで開いているセッションから", "Choose a session to hand this to — from the sessions open on the board"],
+  ["세션 고르기", "セッションを選ぶ", "Choose session"], ["지금", "現在", "Current"],
+  ["「{*}」 세션으로 바꿨습니다", "「{*}」セッションに変更しました", "Switched to \"{*}\""],
+  ["보드에 열린 세션이 없습니다", "ボードに開いているセッションがありません", "No open sessions on the board"],
+  ["그 세션이 없거나 종료됐습니다", "そのセッションがないか終了しています", "That session doesn't exist or has ended"],
+  // 터미널에 없는 세션 이어 열기(팝업)
+  ["터미널에 열려 있지 않은 세션입니다", "ターミナルで開かれていないセッションです", "This session isn't open in a terminal"],
+  ["이 세션은 지금 어느 터미널에서도 실행 중이 아닙니다.", "このセッションは今どのターミナルでも実行されていません。", "This session isn't running in any terminal right now."],
+  ["새 터미널 탭에서 claude --resume 으로 이어 열고, 쓰던 글을 보냅니다.", "新しいターミナルタブで claude --resume で再開し、入力中の内容を送ります。", "Reopens it in a new terminal tab with claude --resume, then sends what you typed."],
+  ["새 터미널 탭에서 claude --resume 으로 이어 엽니다.", "新しいターミナルタブで claude --resume で再開します。", "Reopens it in a new terminal tab with claude --resume."],
+  ["권한 모드·모델은 Claude Code 기본 설정으로 열립니다.", "権限モード・モデルは Claude Code の既定の設定で開きます。", "It opens with Claude Code's default permission mode and model."],
+  ["새 탭에서 열고 보내기", "新しいタブで開いて送信", "Open in a new tab and send"], ["새 탭에서 열기", "新しいタブで開く", "Open in a new tab"],
+  ["새 터미널 탭에서 여는 중…", "新しいターミナルタブで開いています…", "Opening in a new terminal tab…"],
+  ["새 터미널 탭에서 이어 열었습니다", "新しいターミナルタブで再開しました", "Reopened in a new terminal tab"],
+  ["새 터미널 탭에서 여는 중입니다 — 탭에 선택 창이 떠 있으면 먼저 골라 주세요", "新しいターミナルタブで開いています — タブに選択画面が出ていれば先に選んでください", "Opening in a new terminal tab — if the tab shows a picker, choose there first"],
+  ["종료된 세션 — 보내면 새 터미널 탭에서 이어 열지 물어봅니다", "終了したセッション — 送ると新しいターミナルタブで再開するか確認します", "Ended session — sending asks whether to reopen it in a new terminal tab"],
+  ["이 세션은 지금 어느 터미널에서도 실행 중이 아닙니다(탭을 닫았거나 Claude Code 가 꺼졌습니다)", "このセッションは今どのターミナルでも実行されていません(タブを閉じたか Claude Code が終了しました)", "This session isn't running in any terminal (the tab was closed or Claude Code exited)"],
+  ["이미 다른 터미널에서 실행 중입니다 — 「터미널로 이동」으로 찾아 주세요", "すでに別のターミナルで実行中です — 「ターミナルへ移動」で探してください", "It's already running in another terminal — use \"Go to terminal\" to find it"],
+  ["실행 중인지 확인하지 못해 새로 열지 않았습니다 — 그 터미널을 확인해 주세요", "実行中か確認できなかったため開きませんでした — そのターミナルを確認してください", "Couldn't tell whether it's running, so it wasn't reopened — please check its terminal"],
+  ["세션 폴더가 없습니다(워크트리를 지웠나요?): {*}", "セッションのフォルダがありません(ワークツリーを削除しましたか?): {*}", "The session folder is gone (deleted worktree?): {*}"],
   ["이 갈래는 지금 어느 터미널에도 열려 있지 않습니다", "この分岐はどのターミナルでも開かれていません", "This branch isn't open in any terminal"],
   ["새 탭에서 이어 열기", "新しいタブで開く", "Open in a new tab"],
   ["이 갈래는 지금 터미널에 없습니다 — 위 버튼으로 전환해 주세요", "この分岐は今ターミナルにありません — 上のボタンで切り替えてください", "This branch isn't in the terminal now — switch with the button above"],

@@ -65,9 +65,11 @@ async function api(method, path, body) {
   }
   const res = await fetch(path, opt);
   if (!res.ok) {
-    let msg = method + " " + path + " → " + res.status;
-    try { msg = (await res.json()).error || msg; } catch (e) { /* 본문 없음 */ }
-    throw new Error(msg);
+    let msg = method + " " + path + " → " + res.status, data = {};
+    try { data = await res.json() || {}; msg = data.error || msg; } catch (e) { /* 본문 없음 */ }
+    const err = new Error(msg);
+    err.data = data;   // 서버가 덧붙인 것(예: resume — 새 탭에서 이어 열기를 물어볼 세션)
+    throw err;
   }
   return res.json();
 }
@@ -1284,7 +1286,7 @@ S.rwOpen = new Set();   // 되돌려 지운 턴을 펼쳐 본 세션
 function btnOfCol(sid, sel) { const c = colEl(sid); return c && c.querySelector(sel); }
 function openXMenu(anchor, html, align = "left") {
   const m = $("#xMenu");
-  m.classList.remove("wide", "bgt-menu");
+  m.classList.remove("wide", "bgt-menu", "ib-pick-menu");
   m.style.width = "";
   m.dataset.kind = "";
   m.innerHTML = html;
@@ -1406,6 +1408,8 @@ function openForkMenu(btn) {
       <div class="xm-row"><input name="v" placeholder="곁일" required><button class="btn" ${busy ? "disabled" : ""}>맡기기</button></div></form>`);
 }
 $("#xMenu").addEventListener("click", e => {
+  const ip = e.target.closest("[data-ibpick]");
+  if (ip) return pickInboxSession(ip);
   const so = e.target.closest("[data-sendopt]");
   if (so) {
     closeXMenu();
@@ -1903,14 +1907,54 @@ function remoteBadge(s, d) {
 }
 // 이 세션이 열린 터미널 탭으로(단축키 T). 머리의 「↗ 터미널」 버튼은 자리만 차지해 없앴다
 let focusing = false;
+// 어느 터미널에서도 돌고 있지 않은 세션(종료·탭을 닫음 · 서버가 resume 으로 알려 줌): 새 탭에서 이어 열지 물어본다.
+// el(입력칸)을 넘기면 열린 뒤 쓰던 글·이미지를 이어서 보낸다
+function openResume(sid, el) {
+  const s = sessionById(sid), box = $("#resumeModal");
+  if (!s || !box) return;
+  const withText = !!(el && (composerText(el).trim() || (S.compose.get(sid) || []).length));
+  box._sid = sid;
+  box._el = el || null;
+  box.querySelector(".resume-name").textContent = sessionTitle(s) || sid.slice(0, 8);
+  box.querySelector(".resume-sub").textContent = withText
+    ? "새 터미널 탭에서 claude --resume 으로 이어 열고, 쓰던 글을 보냅니다."
+    : "새 터미널 탭에서 claude --resume 으로 이어 엽니다.";
+  const go = box.querySelector("[data-resume-go]");
+  go.textContent = withText ? "새 탭에서 열고 보내기" : "새 탭에서 열기";
+  go.disabled = false;
+  box.hidden = false;
+  go.focus();
+}
+async function runResume() {
+  const box = $("#resumeModal"), sid = box._sid, el = box._el;
+  const go = box.querySelector("[data-resume-go]");
+  if (!sid || go.disabled) return;
+  go.disabled = true;
+  box.hidden = true;
+  toast("새 터미널 탭에서 여는 중…");
+  try {
+    const r = await api("POST", `/api/sessions/${sid}/resume`, {});
+    toast(r.message);
+    await refresh(sid);
+    const cur = el && (el.isConnected ? el : document.querySelector(`.composer[data-sid="${CSS.escape(sid)}"]`));
+    if (r.ready && cur) sendCompose(cur);
+  } catch (err) {
+    toast(err.message);
+  }
+}
+$("#resumeModal").addEventListener("click", e => {
+  if (e.target.id === "resumeModal" || e.target.closest("[data-close]")) { $("#resumeModal").hidden = true; return; }
+  if (e.target.closest("[data-resume-go]")) runResume();
+});
 async function focusTerminal(sid) {
   const s = sid && sessionById(sid);
   if (!s) return toast("먼저 칸을 고르세요(⌘1~9 또는 ← →)");
-  if (displayState(s) === "ended") return toast("종료된 세션입니다");
   if (focusing) return;
   focusing = true;
   try {
-    toast((await api("POST", `/api/sessions/${sid}/focus`, {})).message);
+    const r = await api("POST", `/api/sessions/${sid}/focus`, {});
+    if (r.resume) openResume(sid);
+    else toast(r.message);
   } catch (err) {
     toast("이동하지 못했습니다");
   } finally {
@@ -2327,6 +2371,7 @@ async function loadInbox(force, rerender = force) {
   box.querySelectorAll(".ib-prompt").forEach(t => { const k = t.className + "#" + t.dataset.id; if (drafts[k] != null) t.value = drafts[k]; });
   reopenDetails(box, opened);
 }
+const CHEVRON = '<svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M3.5 6 8 10.5 12.5 6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 function inboxCardHtml(x) {
   // 종류: me(내가 할 일 — 답장·승인·권한·일정·결정) · session/new(Claude Code 세션에 맡길 일) · none(예전 카드)
   const kind = x.rec_type === "me" || x.rec_type === "none" ? "me" : "work";
@@ -2341,6 +2386,19 @@ function inboxCardHtml(x) {
   const canNew = x.prompt && (x.rec_type === "new" || (x.rec_type === "session" && !target) || (kind === "me" && !target));
   const active = ["sent", "working", "waiting", "summarizing", "needs"].includes(x.stage);
   const canDelegate = target && x.prompt && !active && (x.status === "new" || x.status === "doing");
+  // ▾ 다른 세션 고르기: 브레인이 고른 세션이 아닐 때 맡기기·입력창에·넥스트 액션에 보낼 세션을 바꾼다
+  const canPick = !done && !active && (x.prompt || kind === "work");
+  const pick = canPick ? `<button class="btn ${canDelegate || (kind === "work" && canFill) ? "primary" : ""} ib-pick" data-action="ib-pick" data-id="${x.id}" aria-haspopup="true"
+    title="다른 세션 고르기 — 맡기기·입력창에·넥스트 액션에 보낼 세션을 바꿉니다">${CHEVRON}</button>` : "";
+  const delegateBtn = canDelegate ? `<button class="btn primary ib-fill" data-action="ib-delegate" data-id="${x.id}"
+        title="${esc(sessionTitle(target))} 세션에 프롬프트를 보내고, 끝나면 결과 요약과 답장 초안을 이 카드에 넣습니다">▶ <span class="ib-target">${esc(clamp(sessionTitle(target), 18))}</span> <span>에 맡기기</span></button>` : "";
+  const fillBtn = canFill ? `<button class="btn ${kind === "work" && !canDelegate ? "primary" : ""} ib-fill" data-action="ib-fill" data-id="${x.id}"
+        title="${esc(sessionTitle(target))} — 그 칸의 입력창에 넣기(전송은 직접)">→ <span class="ib-target">${esc(clamp(sessionTitle(target), 22))}</span> <span>입력창에</span></button>` : "";
+  // ▾ 는 첫 세션 버튼에 붙인다(입력칸의 보내기 ▾ 처럼). 세션 버튼이 없으면(새 세션 추천·보드에 없는 세션) 따로 「세션 고르기 ▾」
+  const split = (b) => pick ? `<span class="ib-split">${b}${pick}</span>` : b;
+  const sessionBtns = delegateBtn ? split(delegateBtn) + fillBtn
+    : fillBtn ? split(fillBtn)
+    : canPick ? `<button class="btn ib-pick-solo" data-action="ib-pick" data-id="${x.id}" aria-haspopup="true" title="맡길 세션 고르기 — 보드에 열린 세션 중에서">세션 고르기 ${CHEVRON}</button>` : "";
   return `<article class="ib-card ${done ? "done" : ""} kind-${kind}" data-id="${x.id}">
     <div class="ib-meta">${x.status === "new" && x.created_at > S.inboxNewSince ? '<span class="ib-new" title="지난번 인박스를 본 뒤 새로 온 카드">NEW</span>' : ""}<span class="ib-kind ${kind}">${kind === "me" ? "🧑 내가 할 일" : "🤖 세션 작업"}</span>${urg ? `<span class="ib-urg ${x.urgency}">${urg}</span>` : ""}<span class="ib-src" title="${esc(((S.connTypes || {})[x.source || "slack"] || {}).name || x.source || "")}">${((S.connTypes || {})[x.source || "slack"] || {}).icon || "💬"}</span><b>${esc(x.channel || "")}</b>
       <span class="muted">${esc(x.author || "")} · ${x.slack_at ? rel(x.slack_at) : ""}</span>
@@ -2356,10 +2414,7 @@ function inboxCardHtml(x) {
     ${x.prompt ? `<details class="ib-pd"><summary>${kind === "me" ? "세션에 맡길 부분 — 프롬프트" : "보낼 프롬프트"}</summary><textarea class="ib-prompt ib-work" data-id="${x.id}" rows="6">${esc(x.prompt)}</textarea></details>` : ""}
     <div class="ib-actions">
       ${kind === "me" && brainSession() ? `<button class="btn primary ib-fill" data-action="ib-note" data-id="${x.id}" title="브레인 칸의 넥스트 액션에 내 할 일로 넣기">→ <span>내 할 일에</span></button>` : ""}
-      ${canDelegate ? `<button class="btn primary ib-fill" data-action="ib-delegate" data-id="${x.id}"
-        title="${esc(sessionTitle(target))} 세션에 프롬프트를 보내고, 끝나면 결과 요약과 답장 초안을 이 카드에 넣습니다">▶ <span class="ib-target">${esc(clamp(sessionTitle(target), 18))}</span> <span>에 맡기기</span></button>` : ""}
-      ${canFill ? `<button class="btn ${kind === "work" && !canDelegate ? "primary" : ""} ib-fill" data-action="ib-fill" data-id="${x.id}"
-        title="${esc(sessionTitle(target))} — 그 칸의 입력창에 넣기(전송은 직접)">→ <span class="ib-target">${esc(clamp(sessionTitle(target), 22))}</span> <span>입력창에</span></button>` : ""}
+      ${sessionBtns}
       ${canNew ? `<button class="btn ${kind === "work" ? "primary" : ""}" data-action="ib-new" data-id="${x.id}">새 세션으로</button>` : ""}
       ${kind === "work" && target ? `<button class="btn ib-fill" data-action="ib-note" data-id="${x.id}" title="${esc(sessionTitle(target))} 칸의 넥스트 액션에 할 일로 넣기">
         → <span class="ib-target">${esc(clamp(sessionTitle(target), 18))}</span> <span>넥스트 액션에</span></button>` : ""}
@@ -2565,6 +2620,31 @@ async function setInboxStatus(id, status) {
   await loadInbox(true);
   if (S.view === "inbox") loadKanban(true);
 }
+// 인박스 카드 ▾: 맡길 세션 고르기 — 보드에 열린 세션(브레인·종료·보관 제외), 최근 것부터. 고르면 카드의 세션이 바뀐다
+function openInboxPick(btn, x) {
+  const list = S.sessions.filter(s => !s.brain && s.state !== "ended" && !s.archived)
+    .sort((a, b) => (b.last_activity || 0) - (a.last_activity || 0));
+  if (!list.length) return toast("보드에 열린 세션이 없습니다");
+  const rows = list.map(s => {
+    const cur = s.session_id === x.rec_session;
+    return `<button class="cm-item xm-opt ibp-row ${cur ? "on" : ""}" data-ibpick="${esc(s.session_id)}" data-id="${x.id}" ${cur ? "disabled" : ""}>
+      <span class="ibp-main"><span class="dot ${displayState(s)}"></span><span class="ibp-t">${esc(clamp(sessionTitle(s) || s.session_id.slice(0, 8), 40))}</span>${cur ? '<span class="ibp-cur">지금</span>' : ""}</span>
+      <span class="muted ibp-sub">${esc(s.project_name || base(s.cwd || ""))}${s.last_activity ? " · " + rel(s.last_activity) : ""}</span></button>`;
+  }).join("");
+  const m = openXMenu(btn, `<div class="xm-head">맡길 세션 고르기 <span class="muted">맡기기·입력창에·넥스트 액션에 이 세션으로 보냅니다</span></div><div class="ibp-list">${rows}</div>`);
+  m.classList.add("ib-pick-menu");
+  placeMenu(m, btn, "left");   // 폭을 바꾼 뒤 다시 맞춘다
+}
+async function pickInboxSession(el) {
+  closeXMenu();
+  const s = sessionById(el.dataset.ibpick);
+  try {
+    await api("PATCH", "/api/inbox/" + el.dataset.id, { rec_session: el.dataset.ibpick });
+    toast(`「${s ? sessionTitle(s) : el.dataset.ibpick.slice(0, 8)}」 세션으로 바꿨습니다`);
+  } catch (e) { toast(e.message); }
+  await loadInbox(true);
+  if (S.view === "inbox") loadKanban(true);
+}
 async function inboxAction(a, el) {
   const id = el.dataset.id, x = inboxItem(id);
   if (!x) return;
@@ -2584,6 +2664,7 @@ async function inboxAction(a, el) {
     if (S.view === "inbox") loadKanban(true);
     return;
   }
+  if (a === "ib-pick") return openInboxPick(el, x);
   if (a === "ib-fill") {
     // 보내지는 않고 그 세션 입력창에 채워 둔다 — 확인하고 Enter 는 직접
     if (!await fillComposer(x.rec_session, inboxPrompt(id, el))) return;   // 칸을 못 꺼냄(focusCol 이 안내함) — 카드는 그대로
@@ -3396,16 +3477,21 @@ function startRename(btn) {
   const finish = async (commit) => {
     if (done) return;
     done = true;
-    S.renaming = null;
     const title = input.value.trim();
     if (commit && title && title !== s.title) {
-      try {
+      // 서버가 터미널에 /rename 을 보내고 확인하는 데 몇 초 걸린다 — 그동안 입력칸이 그대로면 Enter 가 안 먹은 것처럼 보여
+      // 바로 새 이름으로 바꿔 보이고 「저장 중…」을 붙인다(입력칸이 빠지며 오는 blur 는 done 으로 막힌다)
+      line.innerHTML = `<span class="col-title title-text">${esc(title)}</span><span class="muted rename-saving">저장 중…</span>`;
+      const live = sessionById(sid);
+      if (live) live.title = title;
+      try {   // 저장이 끝날 때까지 S.renaming 을 두어 폴링이 머리를 옛 이름으로 다시 그리지 않게
         const r = await api("POST", `/api/sessions/${sid}/rename`, { title });
         toast(r.message);
       } catch (err) {
         toast(err.message);
       }
     }
+    S.renaming = null;
     // 머리 부분을 강제로 다시 그리게
     document.querySelectorAll(".col-head").forEach(el => { el._html = null; });
     await refresh(sid);
@@ -3622,9 +3708,10 @@ function updateComposer(el, s) {
   // 확인 필요라도 질문 카드가 없으면 막지 않는다 — 보낼 때 서버가 화면을 보고 승인 창이 떠 있으면 거절한다
   // (창을 거절·중단하면 훅이 오지 않아 「확인 필요」만 남는 경우가 있다)
   const blocked = d === "waiting" && askOf(s) ? "질문에 답할 차례 — 위 카드에서 답하거나 터미널에서 답해 주세요"
-    : d === "ended" ? (s._fam ? "이 갈래는 지금 터미널에 없습니다 — 위 버튼으로 전환해 주세요" : "종료된 세션입니다")
+    : d === "ended" && s._fam ? "이 갈래는 지금 터미널에 없습니다 — 위 버튼으로 전환해 주세요"
     : s.bg && !s.term_handle ? "백그라운드 갈래 — 위 「열기」로 터미널에 붙이면 보낼 수 있습니다" : "";
-  const hint = blocked || (d === "waiting" ? "확인 필요 — 터미널에 승인 창이 떠 있으면 보내지 않습니다(창이 닫혀 있으면 그대로 보냅니다)"
+  const hint = blocked || (s.state === "ended" ? "종료된 세션 — 보내면 새 터미널 탭에서 이어 열지 물어봅니다"
+    : d === "waiting" ? "확인 필요 — 터미널에 승인 창이 떠 있으면 보내지 않습니다(창이 닫혀 있으면 그대로 보냅니다)"
     : s.compact_at ? "컴팩트 중 — 보내면 요약이 끝난 뒤 처리됩니다"
     : d === "working" ? "보내면 지금 단계가 끝나는 대로 Claude 가 읽어 이번 작업에 반영합니다" : "");
   el.classList.toggle("blocked", !!blocked);
@@ -3747,14 +3834,15 @@ async function sendCompose(el) {
     if (cmd && cmd.kind === "interactive") setTimeout(() => focusTerminal(sid), 400);
     setTimeout(refresh, 600);
   } catch (err) {
-    toast(err.message);
+    if (err.data && err.data.resume) openResume(sid, el);
+    else toast(err.message);
   } finally {
     el.classList.remove("sending");
     ta.readOnly = false;
     if (richOf(el)) richOf(el).contentEditable = el.classList.contains("blocked") ? "false" : "true";
     el.querySelector(".cmp-send").disabled = el.classList.contains("blocked");
     setHint(el, el._hint || "");
-    if (!sent) (richOn(el) ? richOf(el) : ta).focus();
+    if (!sent && $("#resumeModal").hidden) (richOn(el) ? richOf(el) : ta).focus();   // 이어 열기 팝업이 떴으면 그 버튼에 둔다
   }
 }
 // 보내기 ▾ (슬랙의 보내기 옆 메뉴처럼): 지금 보내기 · 응답이 끝나면 보내기 · 넥스트 액션에만 넣기
@@ -4597,7 +4685,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") {
     // 위에 뜬 것부터 하나만 닫는다. 같은 Esc 로 펼친 카드까지 접히지 않게 뒤 처리기로 넘기지 않는다
     if (DRAG.on) { endDrag(true); e.stopImmediatePropagation(); return; }
-    const open = ["#xMenu", "#taskModal", "#diffModal", "#colMenu", "#ctxMenu", "#newMenu", "#projMenu", "#topMenu", "#help", "#settings", "#connectors"].find(id => !$(id).hidden);
+    const open = ["#resumeModal", "#xMenu", "#taskModal", "#diffModal", "#colMenu", "#ctxMenu", "#newMenu", "#projMenu", "#topMenu", "#help", "#settings", "#connectors"].find(id => !$(id).hidden);
     if (open) { $(open).hidden = true; e.stopImmediatePropagation(); return; }
     if (document.activeElement === $("#search") || !$("#searchPanel").hidden) { closeSearch(); e.stopImmediatePropagation(); return; }
     // 입력창에서 빠져나오기(쓰던 글은 그대로). 메모 고치기·이름 바꾸기는 각자 Esc 를 처리한다
