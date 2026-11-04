@@ -41,12 +41,13 @@ def gws_json(args, lists=False):
 
 class Field:
     """설정 창에 그릴 칸. kind: text · secret · int · bool · textarea"""
-    def __init__(self, key, label, kind="text", default="", help="", required=True):
+    def __init__(self, key, label, kind="text", default="", help="", required=True, prefix=""):
         self.key, self.label, self.kind, self.default, self.help, self.required = key, label, kind, default, help, required
+        self.prefix = prefix   # secret: 맞는 값의 앞머리(예: xoxp-). 붙여 넣으면 화면이 바로 저장·연결 확인한다
 
     def describe(self):
         return {"key": self.key, "label": self.label, "kind": self.kind, "default": self.default, "help": self.help,
-                "required": self.required}
+                "required": self.required, "prefix": self.prefix}
 
 
 class Item:
@@ -64,6 +65,8 @@ class Connector:
     fields = []
     default_every = 2   # 분
     role = "inbox"      # inbox: 모아서 브레인 인박스로 · info: 모으지 않고 브레인이 필요할 때 query 로 조회만
+    # 추가 창 위에 그릴 빠른 연결 안내: {"button", "url"(키를 받으러 갈 곳), "steps": [...], "links": [[글, 주소], ...]}
+    setup = None
 
     def poll(self, ctx):
         raise NotImplementedError
@@ -251,6 +254,12 @@ def test(conn, iid):
         states = _states(conn)
         states.setdefault(iid, {}).update(st, account=msg, error=None)
         store.set_setting(conn, "connector_state", states)
+        if st.get("team") and (inst.get("name") or cls.name) == cls.name:   # 이름을 안 바꿨으면 워크스페이스 이름으로
+            items = instances(conn)
+            for i in items:
+                if i["id"] == iid:
+                    i["name"] = str(st["team"])[:60]
+            save_instances(conn, items)
     return msg
 
 
@@ -315,7 +324,7 @@ def describe(conn):
     reg, states = registry(), _states(conn)
     pend = {r[0]: r[1] for r in conn.execute("SELECT instance, COUNT(*) FROM feed_items WHERE done=0 GROUP BY instance")}
     types = [{"type": c.type, "name": c.name, "icon": c.icon, "description": c.description, "every": c.default_every,
-              "role": c.role, "fields": [f.describe() for f in c.fields]} for c in reg.values()]
+              "role": c.role, "setup": c.setup, "fields": [f.describe() for f in c.fields]} for c in reg.values()]
     out = []
     for i in instances(conn):
         cls, st = reg.get(i["type"]), states.get(i["id"]) or {}

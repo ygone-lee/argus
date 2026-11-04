@@ -116,7 +116,7 @@ That's it. Keep working in Claude Code as usual — every open session shows up 
 
 - **[Orca](#working-with-sessions-orca-tmux) or [tmux](#working-with-sessions-orca-tmux)** — run your Claude Code sessions in Orca, or inside tmux in any terminal app (iTerm2, Ghostty, Terminal.app …), to reply, answer prompts and control sessions from the board. Without it the board still records and shows everything, and iTerm2 / Terminal.app tabs can still be brought to the front.
 - **Argus Brain** — click the 브레인 (Brain) icon next to the Argus logo, or press `B`, and start it. See [Argus Brain](#feature-reference) in the feature reference.
-- **Connectors** — ⋮ → 🔌 커넥터 (Connectors) to collect Slack mentions/DMs and Gmail into the Brain's inbox. Secrets go into the macOS Keychain.
+- **Connectors** — ⋮ → 🔌 커넥터 (Connectors) to collect Slack mentions/DMs and Gmail into the Brain's inbox. Secrets go into the macOS Keychain. For Slack, "Create the Slack app" opens Slack with a read-only app manifest prefilled: pick the workspace → Create → Install → copy the User OAuth Token (xoxp-…) and paste it — Argus saves it, checks the connection and names the connector after the workspace.
 
 **To remove Argus:** `/usr/bin/python3 ~/.argus/install.py --uninstall` (or `install.py --uninstall` in your clone) removes the hooks and restores your original status line, then delete the Argus folder. Your data stays in `~/.claude/session-log` until you delete that folder.
 

@@ -131,13 +131,17 @@ Restart the board (`./ctl.sh restart`), open ⋮ → 🔌 커넥터, add **GitHu
 | `fields` | — | Settings form, a list of `Field`s (below). |
 | `default_every` | — | Minutes between polls for a new instance (the user can change it). `0` = manual only. |
 | `role` | — | `"inbox"` (default) collects items. `"info"` collects nothing; the Brain calls `query()` instead. |
+| `setup` | — | Quick-connect guide shown above the "add" form: `{"button": label, "url": where to get the key, "steps": [...], "links": [[label, url], ...]}`. Slack builds its `url` from an app manifest, so creating the app is a few clicks. |
 | `test(ctx)` | recommended | Verify the connection and return a short label (account, workspace). Raise to report an error. |
 | `poll(ctx)` | yes (inbox) | Return a list of new `Item`s. Raise to report an error — other connectors keep running. |
 | `query(ctx, *args)` | yes (info) | Return whatever the Brain asked for (see "Info connectors"). |
 
-### `Field(key, label, kind="text", default="", help="", required=True)`
+### `Field(key, label, kind="text", default="", help="", required=True, prefix="")`
 
 `kind` is one of `text`, `textarea`, `int`, `bool`, `secret`.
+
+`prefix` (secrets only) is how a valid value starts, e.g. `"xoxp-"`. The form warns when a pasted value doesn't match,
+offers a "paste from clipboard" button, and on a new instance pasting a matching value saves it and runs `test()` at once.
 
 **Secrets** (`kind="secret"`) never touch the settings file or logs: the value goes straight into the macOS Keychain
 (`argus-connector-<instance>-<key>`, written through `security -i` so it never appears in a process list). Users can

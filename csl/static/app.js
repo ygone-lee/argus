@@ -4952,13 +4952,20 @@ function connFormHtml() {
   const fields = t.fields.map(fd => {
     const id = "connf-" + fd.key, v = val(fd.key) ?? fd.default;
     const ctl = fd.kind === "secret"
-      ? `<input type="password" id="${id}" autocomplete="off" spellcheck="false" placeholder="${inst && inst.secrets[fd.key] ? esc(inst.secrets[fd.key] === "저장됨" ? "저장됨 — 바꿀 때만 입력" : inst.secrets[fd.key]) : "붙여 넣기 (또는 keychain:항목이름)"}">`
+      ? `<input type="password" id="${id}" autocomplete="off" spellcheck="false" ${fd.prefix ? `data-prefix="${esc(fd.prefix)}"` : ""} placeholder="${inst && inst.secrets[fd.key] ? esc(inst.secrets[fd.key] === "저장됨" ? "저장됨 — 바꿀 때만 입력" : inst.secrets[fd.key]) : fd.prefix ? `${esc(fd.prefix)}… 붙여 넣기 (또는 keychain:항목이름)` : "붙여 넣기 (또는 keychain:항목이름)"}">` +
+        (fd.prefix && navigator.clipboard && navigator.clipboard.readText ? `<button class="btn" data-conn="paste" data-key="${fd.key}" title="복사해 둔 토큰을 넣고 바로 연결 확인">클립보드에서 붙여넣기</button>` : "")
       : fd.kind === "bool" ? `<input type="checkbox" id="${id}" ${v ? "checked" : ""}>`
       : fd.kind === "int" ? `<input type="number" id="${id}" value="${esc(String(v ?? ""))}">`
       : `<input type="text" id="${id}" value="${esc(String(v ?? ""))}" spellcheck="false">`;
     return `<div class="cfg-row wide"><label for="${id}"><b>${esc(fd.label)}</b>${fd.help ? `<span class="muted">${esc(fd.help)}</span>` : ""}</label><div class="cfg-ctl">${ctl}</div></div>`;
   }).join("");
-  return `<section class="conn-form"><h3 class="conn-h">${t.icon} ${esc(t.name)} ${inst ? "설정" : "추가"}</h3>
+  const su = t.setup, links = su ? (su.links || []).map(([label, url]) =>
+    `<a class="linkish" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`).join(" · ") : "";
+  const guide = !su ? "" : inst ? (links ? `<div class="conn-setup-links muted">${links}</div>` : "")
+    : `<div class="conn-setup"><div class="conn-setup-head"><b>빠른 연결</b>
+        <a class="btn primary" href="${esc(su.url)}" target="_blank" rel="noopener noreferrer">${esc(su.button || "열기 ↗")}</a></div>
+      <ol>${(su.steps || []).map(x => `<li>${esc(x)}</li>`).join("")}</ol>${links ? `<div class="conn-setup-links muted">${links}</div>` : ""}</div>`;
+  return `<section class="conn-form"><h3 class="conn-h">${t.icon} ${esc(t.name)} ${inst ? "설정" : "추가"}</h3>${guide}
     <div class="cfg-row"><label for="connf-name"><b>이름</b><span class="muted">목록과 인박스에 보이는 이름(예: 워크스페이스·계정)</span></label>
       <div class="cfg-ctl"><input type="text" id="connf-name" value="${esc(inst ? inst.name : t.name)}"></div></div>
     ${t.role === "info" ? `<input type="hidden" id="connf-every" value="0">` : `<div class="cfg-row"><label for="connf-every"><b>수집 간격(분)</b><span class="muted">0 이면 「지금 가져오기」로만</span></label>
@@ -4997,8 +5004,17 @@ async function connAction(btn) {
     loadInbox(true);
     return loadConnectors();
   }
+  if (a === "paste") {   // 복사해 둔 토큰을 칸에 넣고, 모양이 맞으면 바로 저장·연결 확인
+    const el = $("#connf-" + btn.dataset.key);
+    let v = "";
+    try { v = (await navigator.clipboard.readText()).trim(); } catch (e) { $("#connMsg").textContent = "클립보드를 읽지 못했습니다 — 칸에 직접 붙여 넣어 주세요"; return el.focus(); }
+    el.value = v;
+    return connSecretReady(el);
+  }
   if (a === "save") {
     const f = CONN.form, t = CONN.data.types.find(x => x.type === f.type);
+    const bad = [...$("#connBody").querySelectorAll("input[data-prefix]")].map(connPrefixError).find(Boolean);
+    if (bad) { $("#connMsg").textContent = bad; return; }
     const config = {};
     for (const fd of t.fields) {
       const el = $("#connf-" + fd.key);
@@ -5022,6 +5038,27 @@ async function connAction(btn) {
     finally { btn.disabled = false; }
   }
 }
+// 토큰 칸: 정해진 앞머리(xoxp- 등)가 아니면 무엇이 틀렸는지 알려 준다. keychain:항목이름 은 그대로 둔다
+function connPrefixError(el) {
+  const v = el.value.trim(), p = el.dataset.prefix;
+  if (!v || !p || v.startsWith(p) || v.startsWith("keychain:")) return "";
+  if (p === "xoxp-" && /^xoxb-/.test(v)) return "Bot 토큰(xoxb-)입니다 — 같은 화면의 「User OAuth Token」(xoxp-…)을 넣어 주세요";
+  return `${p}… 로 시작하는 값이 아닙니다 — 복사한 값을 확인해 주세요`;
+}
+// 새 커넥터에 토큰을 붙여 넣으면(모양이 맞을 때) 「추가하고 연결 확인」까지 바로
+function connSecretReady(el) {
+  const err = connPrefixError(el), msg = $("#connMsg");
+  if (msg) msg.textContent = err;
+  if (err || !el.value.trim().startsWith(el.dataset.prefix) || (CONN.form && CONN.form.id)) return;
+  const save = $("#connBody [data-conn='save']");
+  if (save) connAction(save);
+}
+$("#connectors").addEventListener("input", e => {
+  const el = e.target.closest("input[data-prefix]");
+  if (!el) return;
+  if (e.inputType === "insertFromPaste") connSecretReady(el);
+  else if (!connPrefixError(el)) $("#connMsg").textContent = "";
+});
 $("#connectorsBtn").addEventListener("click", openConnectors);
 $("#connectors").addEventListener("click", e => {
   if (e.target.closest("[data-conn-close]") || e.target === $("#connectors")) { $("#connectors").hidden = true; return; }
