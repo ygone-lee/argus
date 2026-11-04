@@ -3477,16 +3477,21 @@ function startRename(btn) {
   const finish = async (commit) => {
     if (done) return;
     done = true;
-    S.renaming = null;
     const title = input.value.trim();
     if (commit && title && title !== s.title) {
-      try {
+      // 서버가 터미널에 /rename 을 보내고 확인하는 데 몇 초 걸린다 — 그동안 입력칸이 그대로면 Enter 가 안 먹은 것처럼 보여
+      // 바로 새 이름으로 바꿔 보이고 「저장 중…」을 붙인다(입력칸이 빠지며 오는 blur 는 done 으로 막힌다)
+      line.innerHTML = `<span class="col-title title-text">${esc(title)}</span><span class="muted rename-saving">저장 중…</span>`;
+      const live = sessionById(sid);
+      if (live) live.title = title;
+      try {   // 저장이 끝날 때까지 S.renaming 을 두어 폴링이 머리를 옛 이름으로 다시 그리지 않게
         const r = await api("POST", `/api/sessions/${sid}/rename`, { title });
         toast(r.message);
       } catch (err) {
         toast(err.message);
       }
     }
+    S.renaming = null;
     // 머리 부분을 강제로 다시 그리게
     document.querySelectorAll(".col-head").forEach(el => { el._html = null; });
     await refresh(sid);
