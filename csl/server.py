@@ -138,12 +138,29 @@ def _release_terminals():
     _HELD.locks = []
 
 
+NOT_RUNNING = "이 세션은 지금 어느 터미널에서도 실행 중이 아닙니다(탭을 닫았거나 Claude Code 가 꺼졌습니다)"
+
+
+def not_running(conn, sid):
+    """Claude Code 실행 목록으로 보아 그 세션을 돌리는 프로세스가 없으면 True. 목록을 못 읽으면 False(모름).
+
+    탭을 강제로 닫거나 재부팅하면 종료 훅이 오지 않아 보드에는 「대기」로 남는다 — 그런 세션을 가려낸다.
+    방금(1분 안) 활동한 세션은 믿지 않는다: 막 뜨는 중이거나 실행 목록이 늦게 바뀐 것일 수 있다."""
+    run = focus.running_sessions()
+    if run is None or sid in run:
+        return False
+    row = conn.execute("SELECT last_activity FROM sessions WHERE session_id=?", (sid,)).fetchone()
+    return bool(row) and store.now() - (row[0] or 0) > 60
+
+
 def terminal_target(conn, sess, need_alive=True):
     """보드에서 글을 보낼 터미널(csl/terminals 의 Target). (Target, None) 또는 (None, 오류 문구)
 
     찾은 터미널은 이 요청이 끝날 때까지 잡아 둔다(예약 보내기·위임·브레인이 그사이 같은 터미널에 키를 넣지 않게).
     그 전에 이 요청의 DB 쓰기를 커밋한다 — 터미널 조작(수 초) 내내 쓰기 잠금을 쥐면 모든 세션의 훅이 막힌다."""
     conn.commit()
+    if need_alive and not_running(conn, sess["session_id"]):
+        return None, NOT_RUNNING
     tg, found = focus.resolve_target(sess)
     if not tg:
         if need_alive:
@@ -1695,6 +1712,12 @@ class Handler(BaseHTTPRequestHandler):
             why = brain_guard(conn, body, sess["session_id"])
             if why:
                 return self._send(403, {"error": why})
+            # 어느 터미널에서도 돌고 있지 않으면(종료·탭을 닫음) 보드가 「새 탭에서 이어 열기」를 물어본다(resume)
+            if sess["state"] == "ended":
+                return self._send(409, {"error": "종료된 세션입니다",
+                                        "resume": sess["session_id"] not in (focus.running_sessions() or {})})
+            if not_running(conn, sess["session_id"]):
+                return self._send(409, {"error": NOT_RUNNING, "resume": True})
             if sess["state"] == "waiting":
                 # 승인·질문 창에 글자가 들어가면 엉뚱한 선택이 될 수 있다. 다만 창을 거절·중단하면 훅이 오지 않아
                 # 「확인 필요」가 남는다 — 화면에 입력칸이 보이면(창이 없으면) 지난 상태로 보고 보낸다
@@ -1703,8 +1726,6 @@ class Handler(BaseHTTPRequestHandler):
                 conn.execute("UPDATE sessions SET state='done', state_detail=NULL, ask=NULL WHERE session_id=?",
                              (sess["session_id"],))
                 sess["state"] = "done"
-            if sess["state"] == "ended":
-                return self._send(409, {"error": "종료된 세션입니다"})
             text = CONTROL_CHARS.sub("", (body.get("text") or "").replace("\r\n", "\n")).strip()
             images = body.get("images") or []
             if not text and not images:
@@ -1997,6 +2018,40 @@ class Handler(BaseHTTPRequestHandler):
                          (row["continued_from"], row["session_id"]))
             conn.execute("UPDATE sessions SET archived=1 WHERE session_id=?", (row["session_id"],))
             return self._send(200, {"ok": True, "message": msg})
+        m = re.fullmatch(r"/api/sessions/([\w\-]+)/resume", path)
+        if m and method == "POST":
+            # 어느 터미널에서도 돌고 있지 않은 세션(종료·탭을 닫음)을 새 터미널 탭에서 `claude --resume` 으로 이어 연다.
+            # 보드가 먼저 물어보고 부른다. 입력칸이 뜰 때까지 기다려 ready 를 알려 주면 보드가 쓰던 글을 이어서 보낸다
+            sess = session_row(conn, m.group(1))
+            if sess is None:
+                return self._send(404, {"error": "no session"})
+            sid = sess["session_id"]
+            why = brain_guard(conn, body, sid)
+            if why:
+                return self._send(403, {"error": why})
+            if sid in (focus.running_sessions() or {}):
+                return self._send(409, {"error": "이미 다른 터미널에서 실행 중입니다 — 「터미널로 이동」으로 찾아 주세요"})
+            if sess["state"] != "ended" and not not_running(conn, sid):
+                return self._send(409, {"error": "실행 중인지 확인하지 못해 새로 열지 않았습니다 — 그 터미널을 확인해 주세요"})
+            cwd = sess["cwd"] or ""
+            if not os.path.isdir(cwd):
+                return self._send(409, {"error": "세션 폴더가 없습니다(워크트리를 지웠나요?): " + cwd})
+            tg, err = focus.new_claude_terminal(cwd, extra="--resume " + shlex.quote(sid))
+            if not tg:
+                return self._send(502, {"error": err})
+            LAUNCHED[tg.handle] = store.now()
+            conn.execute("UPDATE sessions SET terminal=? WHERE session_id=?", (json.dumps(tg.terminal.remember({}, tg.handle)), sid))
+            conn.commit()
+            # 입력칸이 뜨고, 훅(SessionStart)이 세션을 다시 연 것(종료 → 대기)까지 본다 — 그래야 이어서 보낸 글이 거절되지 않는다
+            ready, end = False, time.time() + 30
+            while time.time() < end:
+                st = conn.execute("SELECT state FROM sessions WHERE session_id=?", (sid,)).fetchone()[0]
+                if st != "ended" and focus.input_line(tg) is not None:
+                    ready = True
+                    break
+                time.sleep(0.5)
+            return self._send(200, {"ok": True, "ready": ready, "message": "새 터미널 탭에서 이어 열었습니다" if ready else
+                                    "새 터미널 탭에서 여는 중입니다 — 탭에 선택 창이 떠 있으면 먼저 골라 주세요"})
         m = re.fullmatch(r"/api/sessions/([\w\-]+)/(switch|attach)", path)
         if m and method == "POST":
             sess = session_row(conn, m.group(1))
@@ -2046,6 +2101,8 @@ class Handler(BaseHTTPRequestHandler):
             row = session_row(conn, m.group(1))
             if row is None:
                 return self._send(404, {"error": "no session"})
+            if row["state"] == "ended" or not_running(conn, row["session_id"]):
+                return self._send(200, {"ok": False, "message": NOT_RUNNING, "resume": True})
             ok, message, found = focus.focus(row)
             if found:   # 제목으로 새로 찾은 Orca 핸들은 다음을 위해 기억
                 conn.execute("UPDATE sessions SET terminal=? WHERE session_id=?", (json.dumps(found), row["session_id"]))

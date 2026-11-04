@@ -569,6 +569,11 @@ body.view-board .board::after { order: 999999; }
 .help-box { width: min(620px, 92vw); background: var(--surface); border-radius: 14px; padding: 18px 22px; box-shadow: 0 20px 60px rgba(0, 0, 0, .3); }
 .help-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .help-head h2 { margin: 0; font-size: 17px; }
+.resume-box { width: min(460px, 92vw); }
+.resume-box p { margin: 8px 0; line-height: 1.55; }
+.resume-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.resume-note { font-size: 12.5px; }
+.resume-box .cm-confirm-btns { margin-top: 14px; }
 .help table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .help td { padding: 7px 4px; border-bottom: 1px solid var(--border); vertical-align: top; }
 .help td:first-child { white-space: nowrap; width: 150px; }

@@ -65,9 +65,11 @@ async function api(method, path, body) {
   }
   const res = await fetch(path, opt);
   if (!res.ok) {
-    let msg = method + " " + path + " → " + res.status;
-    try { msg = (await res.json()).error || msg; } catch (e) { /* 본문 없음 */ }
-    throw new Error(msg);
+    let msg = method + " " + path + " → " + res.status, data = {};
+    try { data = await res.json() || {}; msg = data.error || msg; } catch (e) { /* 본문 없음 */ }
+    const err = new Error(msg);
+    err.data = data;   // 서버가 덧붙인 것(예: resume — 새 탭에서 이어 열기를 물어볼 세션)
+    throw err;
   }
   return res.json();
 }
@@ -1903,14 +1905,54 @@ function remoteBadge(s, d) {
 }
 // 이 세션이 열린 터미널 탭으로(단축키 T). 머리의 「↗ 터미널」 버튼은 자리만 차지해 없앴다
 let focusing = false;
+// 어느 터미널에서도 돌고 있지 않은 세션(종료·탭을 닫음 · 서버가 resume 으로 알려 줌): 새 탭에서 이어 열지 물어본다.
+// el(입력칸)을 넘기면 열린 뒤 쓰던 글·이미지를 이어서 보낸다
+function openResume(sid, el) {
+  const s = sessionById(sid), box = $("#resumeModal");
+  if (!s || !box) return;
+  const withText = !!(el && (composerText(el).trim() || (S.compose.get(sid) || []).length));
+  box._sid = sid;
+  box._el = el || null;
+  box.querySelector(".resume-name").textContent = sessionTitle(s) || sid.slice(0, 8);
+  box.querySelector(".resume-sub").textContent = withText
+    ? "새 터미널 탭에서 claude --resume 으로 이어 열고, 쓰던 글을 보냅니다."
+    : "새 터미널 탭에서 claude --resume 으로 이어 엽니다.";
+  const go = box.querySelector("[data-resume-go]");
+  go.textContent = withText ? "새 탭에서 열고 보내기" : "새 탭에서 열기";
+  go.disabled = false;
+  box.hidden = false;
+  go.focus();
+}
+async function runResume() {
+  const box = $("#resumeModal"), sid = box._sid, el = box._el;
+  const go = box.querySelector("[data-resume-go]");
+  if (!sid || go.disabled) return;
+  go.disabled = true;
+  box.hidden = true;
+  toast("새 터미널 탭에서 여는 중…");
+  try {
+    const r = await api("POST", `/api/sessions/${sid}/resume`, {});
+    toast(r.message);
+    await refresh(sid);
+    const cur = el && (el.isConnected ? el : document.querySelector(`.composer[data-sid="${CSS.escape(sid)}"]`));
+    if (r.ready && cur) sendCompose(cur);
+  } catch (err) {
+    toast(err.message);
+  }
+}
+$("#resumeModal").addEventListener("click", e => {
+  if (e.target.id === "resumeModal" || e.target.closest("[data-close]")) { $("#resumeModal").hidden = true; return; }
+  if (e.target.closest("[data-resume-go]")) runResume();
+});
 async function focusTerminal(sid) {
   const s = sid && sessionById(sid);
   if (!s) return toast("먼저 칸을 고르세요(⌘1~9 또는 ← →)");
-  if (displayState(s) === "ended") return toast("종료된 세션입니다");
   if (focusing) return;
   focusing = true;
   try {
-    toast((await api("POST", `/api/sessions/${sid}/focus`, {})).message);
+    const r = await api("POST", `/api/sessions/${sid}/focus`, {});
+    if (r.resume) openResume(sid);
+    else toast(r.message);
   } catch (err) {
     toast("이동하지 못했습니다");
   } finally {
@@ -3622,9 +3664,10 @@ function updateComposer(el, s) {
   // 확인 필요라도 질문 카드가 없으면 막지 않는다 — 보낼 때 서버가 화면을 보고 승인 창이 떠 있으면 거절한다
   // (창을 거절·중단하면 훅이 오지 않아 「확인 필요」만 남는 경우가 있다)
   const blocked = d === "waiting" && askOf(s) ? "질문에 답할 차례 — 위 카드에서 답하거나 터미널에서 답해 주세요"
-    : d === "ended" ? (s._fam ? "이 갈래는 지금 터미널에 없습니다 — 위 버튼으로 전환해 주세요" : "종료된 세션입니다")
+    : d === "ended" && s._fam ? "이 갈래는 지금 터미널에 없습니다 — 위 버튼으로 전환해 주세요"
     : s.bg && !s.term_handle ? "백그라운드 갈래 — 위 「열기」로 터미널에 붙이면 보낼 수 있습니다" : "";
-  const hint = blocked || (d === "waiting" ? "확인 필요 — 터미널에 승인 창이 떠 있으면 보내지 않습니다(창이 닫혀 있으면 그대로 보냅니다)"
+  const hint = blocked || (s.state === "ended" ? "종료된 세션 — 보내면 새 터미널 탭에서 이어 열지 물어봅니다"
+    : d === "waiting" ? "확인 필요 — 터미널에 승인 창이 떠 있으면 보내지 않습니다(창이 닫혀 있으면 그대로 보냅니다)"
     : s.compact_at ? "컴팩트 중 — 보내면 요약이 끝난 뒤 처리됩니다"
     : d === "working" ? "보내면 지금 단계가 끝나는 대로 Claude 가 읽어 이번 작업에 반영합니다" : "");
   el.classList.toggle("blocked", !!blocked);
@@ -3747,14 +3790,15 @@ async function sendCompose(el) {
     if (cmd && cmd.kind === "interactive") setTimeout(() => focusTerminal(sid), 400);
     setTimeout(refresh, 600);
   } catch (err) {
-    toast(err.message);
+    if (err.data && err.data.resume) openResume(sid, el);
+    else toast(err.message);
   } finally {
     el.classList.remove("sending");
     ta.readOnly = false;
     if (richOf(el)) richOf(el).contentEditable = el.classList.contains("blocked") ? "false" : "true";
     el.querySelector(".cmp-send").disabled = el.classList.contains("blocked");
     setHint(el, el._hint || "");
-    if (!sent) (richOn(el) ? richOf(el) : ta).focus();
+    if (!sent && $("#resumeModal").hidden) (richOn(el) ? richOf(el) : ta).focus();   // 이어 열기 팝업이 떴으면 그 버튼에 둔다
   }
 }
 // 보내기 ▾ (슬랙의 보내기 옆 메뉴처럼): 지금 보내기 · 응답이 끝나면 보내기 · 넥스트 액션에만 넣기
@@ -4597,7 +4641,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") {
     // 위에 뜬 것부터 하나만 닫는다. 같은 Esc 로 펼친 카드까지 접히지 않게 뒤 처리기로 넘기지 않는다
     if (DRAG.on) { endDrag(true); e.stopImmediatePropagation(); return; }
-    const open = ["#xMenu", "#taskModal", "#diffModal", "#colMenu", "#ctxMenu", "#newMenu", "#projMenu", "#topMenu", "#help", "#settings", "#connectors"].find(id => !$(id).hidden);
+    const open = ["#resumeModal", "#xMenu", "#taskModal", "#diffModal", "#colMenu", "#ctxMenu", "#newMenu", "#projMenu", "#topMenu", "#help", "#settings", "#connectors"].find(id => !$(id).hidden);
     if (open) { $(open).hidden = true; e.stopImmediatePropagation(); return; }
     if (document.activeElement === $("#search") || !$("#searchPanel").hidden) { closeSearch(); e.stopImmediatePropagation(); return; }
     // 입력창에서 빠져나오기(쓰던 글은 그대로). 메모 고치기·이름 바꾸기는 각자 Esc 를 처리한다

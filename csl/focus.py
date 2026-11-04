@@ -147,12 +147,87 @@ def handle_of(session):
     return tg.handle if tg else None
 
 
+# ---------------------------------------------------------------- 지금 돌고 있는 Claude Code 프로세스
+# Claude Code 는 돌고 있는 세션마다 ~/.claude/sessions/<pid>.json({"pid", "sessionId", "kind", …})을 둔다.
+# 공개된 형식이 아니라 언제든 바뀔 수 있다 — 읽지 못하면 「모름」(None)으로 두고 예전 방식(기록·제목)만 쓴다.
+SESSIONS_DIR = os.path.expanduser("~/.claude/sessions")
+_PS_TTY = re.compile(r"^ttys\d+$")
+
+
+def _pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def running_sessions():
+    """{세션 ID: {"pid", "kind"}} — 지금 살아 있는 Claude Code 프로세스. 실행 목록을 읽을 수 없으면 None(모름)."""
+    try:
+        names = os.listdir(SESSIONS_DIR)
+    except OSError:
+        return None
+    out, readable = {}, False
+    for n in names:
+        if not n.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(SESSIONS_DIR, n)) as f:
+                d = json.load(f)
+            pid, sid = d["pid"], d["sessionId"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0 or not isinstance(sid, str):
+            continue
+        readable = True
+        if _pid_alive(pid):
+            out[sid] = {"pid": pid, "kind": d.get("kind") or ""}
+    return out if readable else None
+
+
+def process_terminal(session_id):
+    """그 세션을 돌리는 Claude Code 프로세스의 환경 변수로 본 터미널 정보({"backend", 핸들 키…, "tty"}). 모르면 {}.
+
+    탭 제목이 같거나 비었거나 바뀌어도 정확한 탭이 나온다. 백그라운드 세션(kind bg)은 띄운 쪽(claude agents 탭)의
+    값을 물려받아 틀리므로 보지 않는다. 환경 변수에는 토큰 같은 값도 있으니 터미널 구현체가 적어 둔 키만 골라 쓰고
+    아무 데도 남기지 않는다."""
+    x = (running_sessions() or {}).get(session_id or "")
+    if not x or x["kind"] == "bg":
+        return {}
+    want = {v for t in terminals.registry().values() for v in t.env_keys.values()}
+    r = _run(["ps", "eww", "-o", "tty=,command=", "-p", str(x["pid"])])
+    if not r or r.returncode != 0 or not r.stdout.strip():
+        return {}
+    toks = r.stdout.split()
+    env = {}
+    for tok in toks[1:]:
+        k, eq, v = tok.partition("=")
+        if eq and k in want:
+            env[k] = v   # 명령 인자 뒤에 환경 변수가 온다 — 같은 이름이면 뒤의 것(환경 변수)
+    got = terminals.env_info(env)
+    if got and _PS_TTY.match(toks[0]):
+        got["tty"] = "/dev/" + toks[0]
+    return got
+
+
 def resolve_target(session):
-    """(Target 또는 None, 새로 찾았으면 세션에 다시 저장할 터미널 정보). 기록된 핸들이 없으면 제목·경로로 찾는다."""
+    """(Target 또는 None, 새로 찾았으면 세션에 다시 저장할 터미널 정보).
+
+    그 세션을 돌리는 프로세스가 알려 주는 탭이 먼저다 — 기록된 탭에서 지금은 다른 세션이 돌 수 있다(/resume·/clear).
+    프로세스로 모르면 기록된 핸들, 그것도 없으면 탭 제목·경로로 찾는다."""
+    term = _terminal(session)
+    got = process_terminal(session.get("session_id"))
+    t = terminals.of_record(got) if got else None
+    h = t.handle_of(got) if t else None
+    if h and t.available() and t.info(h) is not None:
+        new = dict(term, **got)
+        return Target(t, h), (new if new != term else None)
     tg = target_of(session)
     if tg:
         return tg, None
-    term = _terminal(session)
     rec = terminals.of_record(term)
     for t in ([rec] if rec else []) + [x for x in terminals.registry().values() if x is not rec and x.available()]:
         h = t.find(session.get("title"), session.get("cwd"), session.get("project_root"))
