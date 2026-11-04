@@ -33,9 +33,14 @@ def gws_json(args, lists=False):
     import json
     r = subprocess.run([shutil.which("gws") or "/opt/homebrew/bin/gws"] + args, capture_output=True, text=True, timeout=60)
     out = r.stdout
+    # 성공(0)인데 출력이 비었으면 결과가 없는 것이다 — gws +triage 는 맞는 메일이 없으면 「No messages found …」를
+    # stderr 에만 쓰고 끝난다. 실패로 보면 새 메일이 없을 때마다 로그인 오류처럼 보였다
+    if r.returncode == 0 and not out.strip():
+        return {}
     start = out.find("{") if "{" in out or not lists else out.find("[")
     if r.returncode != 0 or start < 0:
-        raise RuntimeError("gws 실패: " + (r.stderr or out).strip()[:200] + " — `gws auth login` 이 필요할 수 있습니다")
+        err = "\n".join(l for l in (r.stderr or out).strip().splitlines() if not l.startswith("Using keyring backend"))
+        raise RuntimeError("gws 실패: " + err.strip()[:200] + " — `gws auth login` 이 필요할 수 있습니다")
     return json.loads(out[start:])
 
 
