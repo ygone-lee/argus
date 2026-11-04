@@ -1380,19 +1380,55 @@ function permChip(s, d) {
   if (!p || d === "ended" || s.bg && !s.term_handle) return "";
   return `<button class="perm-chip pm-${esc(s.permission_mode)}" data-action="perm-menu" data-sid="${esc(s.session_id)}" title="권한 모드 — 눌러서 바꾸기(터미널의 Shift+Tab)">${p[0]} ${p[1]} ▾</button>`;
 }
-function openPermMenu(btn) {
+// keyboard: ⇧Tab 으로 연 것 — 지금 모드에 포커스를 두고 ⇧Tab·↓ 다음 · ↑ 이전 · Enter 적용 · Esc 닫기(포커스는 입력칸으로 돌아간다)
+function openPermMenu(btn, keyboard) {
   const s = sessionById(btn.dataset.sid);
   if (!s) return;
+  S.permReturn = keyboard ? document.activeElement : null;
   const opts = [["auto", "Claude 가 판단해 진행(위험한 것만 묻기)"], ["default", "도구를 쓸 때마다 묻기"], ["acceptEdits", "파일 고치기는 묻지 않기"], ["plan", "계획만 세우고 고치지 않기"]];
-  openXMenu(btn, `<div class="xm-head">권한 모드 <span class="muted">Shift+Tab</span></div>` + opts.map(([k, hint]) =>
+  const m = openXMenu(btn, `<div class="xm-head">권한 모드 <span class="muted">⇧Tab·↑↓ 고르기 · Enter 바꾸기 · Esc 닫기</span></div>` + opts.map(([k, hint]) =>
     `<button class="cm-item xm-opt ${s.permission_mode === k ? "on" : ""}" data-perm="${k}" data-sid="${esc(s.session_id)}">${PERM[k][0]} ${PERM[k][1]}<span class="muted">${hint}</span></button>`).join(""));
+  m.dataset.kind = "perm";
+  (m.querySelector("[data-perm].on") || m.querySelector("[data-perm]")).focus();
+}
+function permMenuMove(d) {
+  const opts = [...$("#xMenu").querySelectorAll("[data-perm]")];
+  if (!opts.length) return;
+  const i = opts.indexOf(document.activeElement);
+  opts[i < 0 ? (d > 0 ? 0 : opts.length - 1) : (i + d + opts.length) % opts.length].focus();
+}
+function closePermMenu() {
+  closeXMenu();
+  const back = S.permReturn;
+  S.permReturn = null;
+  if (back && back.isConnected) back.focus();
 }
 async function doPerm(b) {
-  closeXMenu();
+  closePermMenu();
   try { await api("POST", `/api/sessions/${b.dataset.sid}/permission`, { mode: b.dataset.perm }); toast(`권한 모드: ${PERM[b.dataset.perm][1]}`); }
   catch (err) { toast(err.message); }
   return refresh(b.dataset.sid);
 }
+// ⇧Tab: 그 칸의 권한 모드 메뉴(터미널의 Shift+Tab 처럼 바로 돌리지 않고 골라서 Enter). 입력칸에서, 또는 칸만 골라 둔 상태에서.
+// 서식 입력칸의 목록 안에서는 내어쓰기로 쓰이므로 두고, 권한 모드를 모르는(칩이 없는) 세션도 브라우저 기본대로
+document.addEventListener("keydown", e => {
+  if (e.key !== "Tab" || !e.shiftKey || e.metaKey || e.ctrlKey || e.altKey || imeBusy(e)) return;
+  const m = $("#xMenu");
+  if (!m.hidden && m.dataset.kind === "perm") { e.preventDefault(); e.stopImmediatePropagation(); return permMenuMove(1); }
+  const t = e.target;
+  let sid = null;
+  if (t.classList && t.classList.contains("cmp-text")) sid = t.closest(".composer").dataset.sid;
+  else if (t.classList && t.classList.contains("cmp-rich")) {
+    const a = document.getSelection().anchorNode;
+    if (a && (a.nodeType === 1 ? a : a.parentElement).closest("li")) return;
+    sid = t.closest(".composer").dataset.sid;
+  } else if (!isTyping()) sid = S.activeCol;
+  const chip = sid && visibleFirst(`.perm-chip[data-sid="${CSS.escape(sid)}"]`);
+  if (!chip) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  openPermMenu(chip, true);
+}, true);
 // 목표(/goal): 칸 머리에 🎯 — 달성하면 ✔(30분 동안 보인다)
 function goalChip(s, d) {
   const g = s.goal;
@@ -1464,6 +1500,12 @@ $("#xMenu").addEventListener("submit", e => {
 });
 $("#xMenu").addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey && !imeBusy(e) && e.target.matches("textarea")) { e.preventDefault(); e.target.form.requestSubmit(); }
+  if ($("#xMenu").dataset.kind === "perm") {   // 권한 모드 메뉴: 보드의 전역 단축키(Enter·화살표)로 새지 않게 여기서 끝낸다
+    const k = e.key;
+    if (k === "ArrowDown" || k === "ArrowUp") { e.preventDefault(); e.stopPropagation(); return permMenuMove(k === "ArrowDown" ? 1 : -1); }
+    if (k === "Enter" && e.target.matches("[data-perm]")) { e.preventDefault(); e.stopPropagation(); return doPerm(e.target); }
+    if (k === "Escape") { e.preventDefault(); e.stopPropagation(); return closePermMenu(); }
+  }
 });
 // 백그라운드 세션(claude agents): 상단 🛰 N — 상태·이름·폴더, 열기(새 탭에 attach)·멈추기
 S.agents = [];

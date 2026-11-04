@@ -415,6 +415,8 @@ const I18N_ROWS = [
   ["열기 · 이어서 대화", "開いて続ける", "Open · keep chatting"], ["이 갈래로 전환", "この分岐に切り替え", "Switch to this branch"],
   ["이 터미널은 지금 「{*}」에 있습니다", "このターミナルは今「{*}」にあります", "This terminal is on “{*}” now"],
   ["저장 중…", "保存中…", "Saving…"],
+  ["⇧Tab·↑↓ 고르기 · Enter 바꾸기 · Esc 닫기", "⇧Tab・↑↓ で選択 · Enter で変更 · Esc で閉じる", "⇧Tab/↑↓ choose · Enter apply · Esc close"],
+  ["권한 모드 메뉴 — 지금 모드에서 ⇧Tab·↑↓ 로 고르고 Enter(Esc 닫기). 입력창에서도, 칸만 골라 둔 상태에서도", "権限モードメニュー — 今のモードから ⇧Tab・↑↓ で選び Enter(Esc で閉じる)。入力欄でも、列を選んだ状態でも", "Permission mode menu — from the current mode, ⇧Tab/↑↓ to pick, Enter to apply (Esc closes). Works in the input and with a column selected"],
   // 브레인이 뜨는 중(첫 실행 확인 창)
   ["브레인이 뜨는 중…", "ブレインを起動中…", "Starting the brain…"], ["터미널로 이동 ↗", "ターミナルへ移動 ↗", "Go to terminal ↗"],
   ["브레인이 뜨고 있는 터미널 탭으로", "ブレインが起動中のターミナルタブへ", "To the terminal tab the brain is starting in"],
