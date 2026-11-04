@@ -29,7 +29,7 @@ SESSION_COLUMNS = (
     "session_id, cwd, project_root, project_name, worktree, branch, title, title_source, recap, recap_at,"
     " state, state_detail, state_at, started_at, last_activity, last_seen_at, ended_at, archived, pinned, source,"
     " remote, rc_requested_at, model, effort, transcript_path, compact_at, compact_trigger, compact_ms, terminal, ask,"
-    " continued_from, branch_kind, branch_at, bg, permission_mode"
+    " continued_from, branch_kind, branch_at, bg, permission_mode, team_agent"
 )
 
 MAX_BODY = 40 * 1024 * 1024
@@ -2203,8 +2203,23 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(404, {"error": "not found"})
 
 
+def _link_teams():
+    """훅이 팀원 표시를 하기 전부터 있던 에이전트 팀 팀원 세션을 팀장 칸에 묶는다(서버 시작 때 한 번)."""
+    conn = store.connect()
+    try:
+        with conn:
+            n = store.link_teams(conn)
+        if n:
+            print("Argus: linked %d agent-team member session(s) to their lead" % n, flush=True)
+    except Exception:  # noqa: BLE001 — 실패해도 서버는 뜬다
+        traceback.print_exc()
+    finally:
+        conn.close()
+
+
 def main():
     store.connect().close()
+    threading.Thread(target=_link_teams, daemon=True).start()
     httpd = ThreadingHTTPServer(("127.0.0.1", store.PORT), Handler)
     daily.start_scheduler()
     delegate.start_watcher()   # 세션에 맡긴 인박스 카드 지켜보기

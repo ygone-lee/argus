@@ -81,6 +81,23 @@ def _is_claude(cmd):
     return os.path.basename(first) == "claude" or "/claude/versions/" in first
 
 
+_TEAM_PARENT = re.compile(r"--parent-session-id\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
+_AGENT_NAME = re.compile(r"--agent-name\s+(\S+)")
+
+
+def team_member(cmds, sid):
+    """에이전트 팀의 팀원 세션이면 (팀장 세션 ID, 팀원 이름). 팀원 claude 는 --team-name·--parent-session-id 로 뜬다(실측)."""
+    for c in cmds or []:
+        if not _is_claude(c):
+            continue
+        m = _TEAM_PARENT.search(c)
+        if m and "--team-name" in c and m.group(1) != sid:
+            n = _AGENT_NAME.search(c)
+            return m.group(1), n.group(1) if n else None
+        return None   # 자기 claude 에서 멈춘다(그 안에서 띄운 다른 claude 의 인자를 줍지 않게)
+    return None
+
+
 _RESUME = re.compile(r"--resume\s+(?:\S*/)?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\.jsonl)?(?:\s|$)")
 
 
@@ -98,6 +115,10 @@ def link_continuation(conn, sid, cmds=None):
         return
     conn.execute("UPDATE sessions SET link_checked=1 WHERE session_id=?", (sid,))
     cmds = claude_ancestry() if cmds is None else cmds
+    team = team_member(cmds, sid)
+    if team:   # 에이전트 팀의 팀원 — 팀장 칸 위 탭으로 묶는다
+        store.link_team(conn, sid, team[0], team[1])
+        return
     claude_cmd = ""
     for c in cmds:   # 가까운 조상부터 — 자기 claude 를 지나면 멈춘다(그 세션 안에서 띄운 `claude -p` 가 바깥 세션의 --resume 을 줍지 않게)
         if "--session-id " + sid in c or "--resume" in c:
