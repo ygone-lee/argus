@@ -12,7 +12,7 @@ const I18N_SKIP = ".md, .bubble, .col-title, .title-text, .rename-input, .col-re
   ".chip.proj, .pm-name, .cmp-text, .note-input, .ctx-note, .nm-prompt, textarea, script, style, code, pre, " +
   // 카드 보기·곁질문·활동·인박스 칸반·카드 기록·카드 대화의 사용자 내용
   ".fam-tab-t, .goal-t, .ag-main b, .ag-last, .ib-run-sum, .ib-file, .pc-head, .pc-opt, .bgt-desc, .task-title, .task-meta, .task-body, .dv-tbl, .dv-fname, .dv-commit, .diff-title, .sc-title, .sc-recap, .sc-last, .sc-meta .chip, .aside-q, .aside-a, .act-main b, .act-text, .ib-todo, .ibl-text, " +
-  ".sp-desc:not(.board), .kb-h > div, .ibc-u, .ibc-err, .cmp-rich, .sref, .chip.wt, .chip.br, .ib-stage .muted, .ib-reply-text, .cn-name, .act-main .muted, .act-ask-t, .sw-title, .sw-where, .resume-name";
+  ".sp-desc:not(.board), .kb-h > div, .ibc-u, .ibc-err, .cmp-rich, .sref, .chip.wt, .chip.br, .ib-stage .muted, .ib-reply-text, .cn-name, .act-main .muted, .act-ask-t, .sw-title, .sw-where, .resume-name, .ibp-t, .ibp-sub";
 
 // [한국어, 日本語, English]
 const I18N_ROWS = [
@@ -414,6 +414,15 @@ const I18N_ROWS = [
   ["🛰 터미널 없이 백그라운드에서 도는 갈래입니다", "🛰 ターミナルなしでバックグラウンドで動く分岐です", "🛰 This branch runs in the background without a terminal"],
   ["열기 · 이어서 대화", "開いて続ける", "Open · keep chatting"], ["이 갈래로 전환", "この分岐に切り替え", "Switch to this branch"],
   ["이 터미널은 지금 「{*}」에 있습니다", "このターミナルは今「{*}」にあります", "This terminal is on “{*}” now"],
+  // 인박스 카드: 맡길 세션 고르기(▾)
+  ["맡길 세션 고르기", "任せるセッションを選ぶ", "Choose a session"],
+  ["맡기기·입력창에·넥스트 액션에 이 세션으로 보냅니다", "任せる・入力欄へ・ネクストアクションへ をこのセッションに送ります", "Delegate, fill input and next action go to this session"],
+  ["다른 세션 고르기 — 맡기기·입력창에·넥스트 액션에 보낼 세션을 바꿉니다", "別のセッションを選ぶ — 任せる・入力欄へ・ネクストアクションへ の送り先を変えます", "Choose another session — changes where delegate, fill input and next action go"],
+  ["맡길 세션 고르기 — 보드에 열린 세션 중에서", "任せるセッションを選ぶ — ボードで開いているセッションから", "Choose a session to hand this to — from the sessions open on the board"],
+  ["세션 고르기", "セッションを選ぶ", "Choose session"], ["지금", "現在", "Current"],
+  ["「{*}」 세션으로 바꿨습니다", "「{*}」セッションに変更しました", "Switched to \"{*}\""],
+  ["보드에 열린 세션이 없습니다", "ボードに開いているセッションがありません", "No open sessions on the board"],
+  ["그 세션이 없거나 종료됐습니다", "そのセッションがないか終了しています", "That session doesn't exist or has ended"],
   // 터미널에 없는 세션 이어 열기(팝업)
   ["터미널에 열려 있지 않은 세션입니다", "ターミナルで開かれていないセッションです", "This session isn't open in a terminal"],
   ["이 세션은 지금 어느 터미널에서도 실행 중이 아닙니다.", "このセッションは今どのターミナルでも実行されていません。", "This session isn't running in any terminal right now."],

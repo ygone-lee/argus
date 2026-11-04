@@ -1138,9 +1138,20 @@ class Handler(BaseHTTPRequestHandler):
             for k, limit in (("reply_draft", 4000), ("todo", 500)):
                 if k in body:
                     fields[k] = store.mask(str(body[k] or "")).strip()[:limit] or None
+            iid = int(m.group(1))
+            picked = None
+            if "rec_session" in body:
+                # 브레인이 고른 세션이 아닐 때: 맡기기·입력창에·넥스트 액션에 보낼 세션을 사용자가 바꾼다
+                picked = session_row(conn, str(body["rec_session"] or ""))
+                if picked is None or picked["state"] == "ended":
+                    return self._send(400, {"error": "그 세션이 없거나 종료됐습니다"})
+                fields["rec_session"] = picked["session_id"]
+                fields["rec_reason"] = None   # 브레인이 적은 추천 이유는 원래 세션 이야기라 지운다
+                card = conn.execute("SELECT rec_type FROM inbox WHERE id=?", (iid,)).fetchone()
+                if card and card["rec_type"] == "new":
+                    fields["rec_type"] = "session"   # 새 세션 추천이었으면 이제 그 세션 작업
             if not fields:
                 return self._send(400, {"error": "바꿀 내용이 없습니다"})
-            iid = int(m.group(1))
             prev = conn.execute("SELECT status FROM inbox WHERE id=?", (iid,)).fetchone()
             conn.execute("UPDATE inbox SET %s, updated_at=? WHERE id=?" % ", ".join(k + "=?" for k in fields),
                          (*fields.values(), store.now(), iid))
@@ -1152,6 +1163,9 @@ class Handler(BaseHTTPRequestHandler):
             for k, label in (("reply_draft", "답장 초안"), ("todo", "할 일")):
                 if k in fields:
                     store.card_log(conn, iid, "edit", "%s을 고침(카드 대화): %s" % (label, (fields[k] or "")[:300]))
+            if picked:
+                store.card_log(conn, iid, "edit", "맡길 세션을 바꿈: %s" % (picked["title"] or picked["session_id"][:8]),
+                               session_id=picked["session_id"])
             return self._send(200, {"ok": True})
         if path == "/api/inbox/status" and method == "POST":
             # 칸반에서 묶음(같은 스레드)을 끌어 옮길 때: 카드 여러 장의 상태를 한 번에

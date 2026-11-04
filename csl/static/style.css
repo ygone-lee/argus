@@ -1052,6 +1052,19 @@ body.bp-resizing, body.bp-resizing * { cursor: col-resize !important; user-selec
 .bp-feed-err { color: var(--alert); font-weight: 600; cursor: help; }
 .ib-fill { max-width: 100%; display: inline-flex; align-items: center; gap: 4px; }
 .ib-fill .ib-target { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* 세션 버튼 + ▾(다른 세션 고르기): 입력칸의 보내기 ▾ 처럼 한 덩어리 */
+.ib-split { display: inline-flex; min-width: 0; max-width: 100%; }
+.ib-split > .ib-fill { border-top-right-radius: 0; border-bottom-right-radius: 0; min-width: 0; }
+.ib-split > .ib-pick { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; padding: 3px 6px; display: inline-flex; align-items: center; }
+.ib-split > .ib-pick.primary { border-left: 1px solid color-mix(in srgb, #fff 35%, transparent); }
+.ib-pick-solo { display: inline-flex; align-items: center; gap: 4px; }
+.x-menu.ib-pick-menu { width: 400px; }
+.ibp-row { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+.ibp-row.on { opacity: 1; background: var(--surface-hover); cursor: default; }
+.ibp-main { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+.ibp-t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ibp-cur { font-size: 11px; color: var(--accent); border: 1px solid currentColor; border-radius: 6px; padding: 0 5px; flex: none; }
+.ibp-sub { font-size: 11.5px; padding-left: 14px; }
 .ib-sep {
   display: flex; flex-direction: column; gap: 2px; margin: 14px 2px 2px; padding-top: 10px; border-top: 1px solid var(--border);
   font-size: 12px; font-weight: 700; color: var(--text-2);
