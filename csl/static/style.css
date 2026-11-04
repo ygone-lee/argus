@@ -1110,6 +1110,14 @@ body.bp-resizing, body.bp-resizing * { cursor: col-resize !important; user-selec
 .conn-type .conn-icon { grid-row: span 2; }
 .conn-type .muted { font-size: 11.5px; line-height: 1.4; }
 .conn-hint { font-size: 11.5px; margin: 8px 0 0; }
+/* 빠른 연결 안내(커넥터가 준 단계·링크) */
+.conn-setup { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 4px 0 10px; background: var(--surface-2); }
+.conn-setup-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.conn-setup-head a.btn { text-decoration: none; display: inline-flex; align-items: center; box-sizing: border-box; }   /* 링크라 버튼처럼 가운데 정렬이 안 됐다 */
+.conn-setup ol { margin: 8px 0 0; padding-left: 20px; font-size: 12.5px; line-height: 1.6; }
+.conn-setup-links { font-size: 11.5px; margin-top: 6px; }
+.conn-form .cfg-ctl:has(> [data-conn="paste"]) { display: flex; gap: 8px; }
+.conn-form .cfg-ctl:has(> [data-conn="paste"]) input { flex: 1; min-width: 0; }
 .conn-empty { padding: 10px 4px; font-size: 12.5px; }
 .conn-form { border: 1px solid var(--accent); border-radius: 10px; padding: 4px 12px 10px; margin-bottom: 6px; background: color-mix(in srgb, var(--accent) 4%, var(--surface)); }
 .conn-form .cfg-ctl input[type=text], .conn-form .cfg-ctl input[type=password] { flex: 1; min-width: 0; }

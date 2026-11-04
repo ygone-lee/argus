@@ -2,6 +2,7 @@
 
 앱 권한(User Token Scopes): channels:history channels:read groups:history groups:read im:history im:read
 mpim:history mpim:read search:read users:read — 설치 후 User OAuth Token(xoxp-…)을 넣는다.
+앱은 매니페스트를 실은 링크(SETUP_URL)로 만든다: 워크스페이스 고르기 → Create → Install → 토큰 복사.
 마지막으로 받은 메시지 시각부터 이어 받는다(잠들었다 깨도 빠짐없이, 최대 7일). 검색은 100개씩 최대 10페이지,
 매번 5분 겹쳐 본다(같은 키는 한 번만). 내 글·봇(users.info 로 판별)은 뺀다.
 """
@@ -21,6 +22,17 @@ OVERLAP = 5 * 60
 SEARCH_PAGES = 10
 HERE = re.compile(r"<!(here|channel|everyone)>")
 MENTION = re.compile(r"<@([UW][A-Z0-9]+)(?:\|[^>]*)?>")
+
+
+USER_SCOPES = ["channels:history", "channels:read", "groups:history", "groups:read", "im:history", "im:read",
+               "mpim:history", "mpim:read", "search:read", "users:read"]
+# 읽기 전용 사용자 권한만 가진 앱. 토큰 회전을 끄면 xoxp- 토큰이 만료되지 않는다(봇 사용자는 없다)
+MANIFEST = {
+    "display_information": {"name": "Argus", "description": "Collects Slack messages addressed to me for the Argus board (read-only)"},
+    "oauth_config": {"scopes": {"user": USER_SCOPES}},
+    "settings": {"org_deploy_enabled": False, "socket_mode_enabled": False, "token_rotation_enabled": False},
+}
+SETUP_URL = "https://api.slack.com/apps?new_app=1&manifest_json=" + urllib.parse.quote(json.dumps(MANIFEST, separators=(",", ":")))
 
 
 class RateLimited(Exception):
@@ -49,11 +61,22 @@ class Slack(Connector):
     icon = "💬"
     description = "워크스페이스마다 하나. 나를 부른 멘션·DM·그룹 DM, 고른 채널의 @here·@channel"
     fields = [
-        Field("token", "User OAuth Token", "secret",
-              help="워크스페이스에 만든 Slack 앱(사용자 권한만)의 xoxp- 토큰. 이미 키체인에 넣어 두었으면 keychain:항목이름"),
+        Field("token", "User OAuth Token", "secret", prefix="xoxp-",
+              help="Slack 앱의 OAuth & Permissions 에 있는 xoxp- 토큰. 이미 키체인에 넣어 두었으면 keychain:항목이름"),
         Field("channels", "@here 볼 채널", "text", required=False,
               help="쉼표로 구분한 채널 이름(# 없이). 이 채널의 @here·@channel 도 모읍니다"),
     ]
+
+    setup = {
+        "button": "Slack 앱 만들기 ↗",
+        "url": SETUP_URL,
+        "steps": [
+            "「Slack 앱 만들기」 → 워크스페이스 고르기 → Next → Create (필요한 권한은 미리 채워져 있습니다. 「created by a 3rd party」 경고는 링크로 채운 매니페스트라 늘 나오는 것이니 그대로 진행)",
+            "만든 앱 화면의 「Install to Workspace」 → Allow (회사 워크스페이스는 관리자 승인 요청이 될 수 있습니다)",
+            "「User OAuth Token」(xoxp-…) 옆 Copy → 아래 칸에 붙여 넣으면 바로 저장하고 연결을 확인합니다",
+        ],
+        "links": [["이미 만든 앱에서 토큰 다시 보기 ↗", "https://api.slack.com/apps"]],
+    }
 
     def _tok(self, ctx):
         tok = ctx.secret("token")
