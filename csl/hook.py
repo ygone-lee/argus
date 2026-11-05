@@ -223,6 +223,21 @@ def set_state(conn, sid, state, detail=None):
     )
 
 
+def insert_bash_turns(conn, sid, items, settled):
+    """터미널에서 「!」로 실행한 셸 명령을 턴으로 넣는다(이미 넣은 것은 prompt_id 로 건너뜀). 마지막 것은 Claude 가
+    이어 응답하는 중이면 기다리는 턴(running)으로, 아니면(settled — 다음 사람 요청이 왔다) 응답 없는 턴으로."""
+    for i, x in enumerate(items):
+        if conn.execute("SELECT 1 FROM turns WHERE session_id=? AND prompt_id=?", (sid, x["prompt_id"])).fetchone():
+            continue
+        last = i == len(items) - 1 and not settled
+        conn.execute(
+            "INSERT INTO turns (session_id, prompt_id, prompt, prompt_at, response_at, status) VALUES (?,?,?,?,?,?)",
+            (sid, x["prompt_id"], store.mask(store.bash_prompt(x)), x["at"], None if last else x["at"], "running" if last else "done"),
+        )
+        if last:   # 요청 훅이 없어 상태가 직전 응답의 「완료」에 머문다 — 작업 중이어야 칸이 진행 과정을 받아 온다
+            set_state(conn, sid, "working")
+
+
 def finish_turn(conn, sid, response, status, transcript_path=None, extras=_UNSET, until=None):
     """응답을 기다리는 턴(running) 중 가장 최근 것에 응답을 붙인다. until: 이 응답 훅이 시작된 시각 — Stop 은 async 라
     무거운 사전 읽기 동안 다음 요청이 먼저 기록될 수 있다. 그 뒤에 들어온 요청은 이 응답의 것이 아니다.
@@ -278,12 +293,22 @@ def prefetch(conn, event, sid, data, started=None):
         pre["tty"] = ancestor_tty()
     if event in ("Stop", "UserPromptSubmit"):
         pre["model"] = store.last_model(path, tail_bytes=512 * 1024)
+    if event in ("UserPromptSubmit", "PostToolUse", "Stop", "StopFailure"):
+        # 「!」로 실행한 셸 명령(훅 없이 기록 파일에만 남는다) — 마지막 턴 뒤에 있으면 턴으로 만든다(insert_bash_turns)
+        last = conn.execute("SELECT MAX(COALESCE(prompt_at, response_at, 0)) FROM turns WHERE session_id=?", (sid,)).fetchone()[0]
+        running = conn.execute("SELECT 1 FROM turns WHERE session_id=? AND response_at IS NULL AND status='running'",
+                               (sid,)).fetchone()
+        if last and not (running and event == "PostToolUse"):
+            pre["bash"] = store.bash_inputs(path, last)
     if event in ("Stop", "StopFailure"):
         p = conn.execute("SELECT prompt_at FROM turns WHERE session_id=? AND response_at IS NULL AND status='running'"
                          " AND COALESCE(prompt_at, 0) <= ? ORDER BY prompt_at DESC, id DESC LIMIT 1",
                          (sid, started if started is not None else store.now())).fetchone()
+        # 이번 응답의 턴 시작: 기다리는 턴의 요청 시각과 그 뒤 「!」 명령 중 늦은 것
+        cands = ([p["prompt_at"]] if p and p["prompt_at"] else []) + [x["at"] for x in pre.get("bash") or []]
+        since = max(cands) if cands else None
         response = data.get("last_assistant_message") or (data.get("error") if event == "StopFailure" else None)
-        pre["extras"] = _extras(path, p["prompt_at"], response, store.now()) if p else None
+        pre["extras"] = _extras(path, since, response, store.now()) if since else None
     if event != "SessionStart" and (row is None or not row["link_checked"]):
         pre["cmds"] = claude_ancestry()   # 처음 보는 세션: 이어받은 세션인지 볼 명령줄
     # 갈래인지는 아직 대화 턴이 없을 때(첫 요청 전·첫 요청 때)만 본다. /fork 는 미리 띄워 둔 예비 프로세스를 꺼내
@@ -426,6 +451,8 @@ def handle(data):
                 store.apply_transcript_meta(conn, sid, data.get("transcript_path"), pre.get("meta"))
             elif event == "UserPromptSubmit":
                 ensure_session(conn, data, refresh_git=True)
+                if pre.get("bash"):
+                    insert_bash_turns(conn, sid, pre["bash"], settled=True)
                 if conn.execute("SELECT terminal FROM sessions WHERE session_id=?", (sid,)).fetchone()[0] is None:
                     if is_background(pre.get("cmds")):
                         conn.execute("UPDATE sessions SET bg=1 WHERE session_id=?", (sid,))
@@ -448,6 +475,8 @@ def handle(data):
                     conn.execute("UPDATE sessions SET last_seen_at=? WHERE session_id=?", (t, sid))
             elif event == "Stop":
                 ensure_session(conn, data)
+                if pre.get("bash"):
+                    insert_bash_turns(conn, sid, pre["bash"], settled=False)
                 tid = finish_turn(conn, sid, data.get("last_assistant_message"), "done", data.get("transcript_path"),
                                   pre.get("extras", _UNSET), until=started)
                 settle(conn, sid, "done", None, started)
@@ -456,6 +485,8 @@ def handle(data):
                 store.apply_transcript_meta(conn, sid, data.get("transcript_path"), pre.get("meta"))
             elif event == "StopFailure":
                 ensure_session(conn, data)
+                if pre.get("bash"):
+                    insert_bash_turns(conn, sid, pre["bash"], settled=False)
                 tid = finish_turn(conn, sid, data.get("last_assistant_message") or data.get("error"), "failed",
                                   data.get("transcript_path"), pre.get("extras", _UNSET), until=started)
                 settle(conn, sid, "error", store.mask(data.get("error") or ""), started)
@@ -484,11 +515,15 @@ def handle(data):
                     else:
                         store.add_event(conn, sid, "waiting", label, dedupe=10)
             elif event == "PostToolUse":
-                # 승인·답변이 끝나 도구가 실행됐으면 다시 작업 중
+                if pre.get("bash"):   # 「!」 명령을 보고 Claude 가 도구를 쓰기 시작했다 — 진행 상황이 붙을 턴
+                    insert_bash_turns(conn, sid, pre["bash"], settled=False)
+                # 승인·답변이 끝나 도구가 실행됐으면 다시 작업 중. 응답을 기다리는 턴이 있는데 「완료·대기」로 남아 있어도
+                # (「!」 명령처럼 요청 훅 없이 시작된 작업) 작업 중으로 — 응답이 끝난 뒤의 도구(백그라운드 작업)는 턴이 없어 그대로
                 conn.execute(
                     "UPDATE sessions SET state='working', state_detail=NULL, state_at=?"
-                    " WHERE session_id=? AND state='waiting'",
-                    (store.now(), sid),
+                    " WHERE session_id=? AND (state='waiting' OR (state IN ('done', 'idle') AND EXISTS ("
+                    "SELECT 1 FROM turns WHERE session_id=? AND response_at IS NULL AND status='running')))",
+                    (store.now(), sid, sid),
                 )
                 if data.get("tool_name") == "AskUserQuestion":
                     conn.execute("UPDATE sessions SET ask=NULL WHERE session_id=?", (sid,))

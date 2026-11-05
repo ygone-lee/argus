@@ -719,6 +719,58 @@ def _tail_since(path, since, limit=64 * 1024 * 1024):
             n *= 2
 
 
+_BASH_TAG = re.compile(r"<bash-(input|stdout|stderr)>(.*?)</bash-\1>", re.S)
+
+
+def bash_inputs(path, since):
+    """since 뒤에 터미널에서 「!」로 실행한 셸 명령들 [{prompt_id, at, cmd, out}] 시각순.
+
+    「!」 명령은 UserPromptSubmit 훅 없이 기록 파일에만 사용자 메시지로 남는다 —
+    「<bash-input>명령</bash-input>」, 이어서 같은 promptId 로 「<bash-stdout>…</bash-stdout><bash-stderr>…」.
+    Claude 가 그 결과를 보고 이어 응답하므로, 보드가 이걸 턴으로 만들어야 그 응답이 대화에 붙는다."""
+    if not path or not since:
+        return []
+    try:   # 도구를 쓸 때마다 불릴 수 있다 — 마지막 턴 뒤만, 많아야 16MB
+        data = _tail_since(path, since, limit=16 * 1024 * 1024)
+    except OSError:
+        return []
+    if b"<bash-input>" not in data:
+        return []
+    out = {}
+    for raw in data.splitlines():
+        if b"<bash-" not in raw or b'"type":"user"' not in raw.replace(b" ", b""):
+            continue
+        try:
+            d = json.loads(raw)
+        except ValueError:
+            continue
+        if d.get("type") != "user" or d.get("isSidechain") or d.get("isMeta"):
+            continue
+        content = (d.get("message") or {}).get("content")
+        if not isinstance(content, str):
+            continue
+        ts = parse_ts(d.get("timestamp"))
+        if not ts or ts <= since:
+            continue
+        pid = d.get("promptId") or d.get("uuid")
+        for kind, body in _BASH_TAG.findall(content):
+            x = out.setdefault(pid, {"prompt_id": pid, "at": ts, "cmd": "", "out": ""})
+            if kind == "input":
+                x["cmd"] = body.strip()
+            elif body.strip():
+                x["out"] += ("\n" if x["out"] else "") + body.strip()
+    return sorted((x for x in out.values() if x["cmd"]), key=lambda x: x["at"])
+
+
+def bash_prompt(x):
+    """「!」 명령 턴의 요청 글: 명령과 그 출력(길면 앞부분)."""
+    text = "! " + x["cmd"]
+    if x["out"]:
+        o = x["out"] if len(x["out"]) <= 4000 else x["out"][:4000] + "\n…"
+        text += "\n\n```\n" + o.replace("```", "ˋˋˋ") + "\n```"
+    return text
+
+
 def turn_extras(path, since, final_text, until=None):
     """한 턴에서 마지막 메시지 앞에 나온 것들: 중간 메시지(text), 사용자에게 보낸 파일(files), 끼어든 알림(notice).
 
