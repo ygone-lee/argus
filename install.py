@@ -1,8 +1,8 @@
 """~/.claude/settings.json 에 Argus 훅·상태줄 탭을 넣거나(기본) 뺀다(--uninstall). --check 는 설치 상태만 본다.
 
-    /usr/bin/python3 install.py            # 설치(여러 번 실행해도 한 벌만 유지)
-    /usr/bin/python3 install.py --check    # 설치 상태 점검(아무것도 바꾸지 않음)
-    /usr/bin/python3 install.py --uninstall
+    ./ctl.sh install      # 설치(여러 번 실행해도 한 벌만 유지) — /usr/bin/python3 install.py 와 같다
+    ./ctl.sh check        # 설치 상태 점검(아무것도 바꾸지 않음)
+    ./ctl.sh uninstall
 
 다른 훅(Orca 등)과 설정은 그대로 두고 이 도구의 훅 항목만 고친다. settings.json 이 없으면 새로 만들고, JSON 이 깨져
 있으면 어디가 틀렸는지 알려 주고 아무것도 바꾸지 않는다.
@@ -67,6 +67,11 @@ def home(path):
     """화면에 보일 경로: 홈 폴더는 ~ 로."""
     h = os.path.expanduser("~")
     return "~" + path[len(h):] if path == h or path.startswith(h + os.sep) else path
+
+
+def ctl():
+    """안내에 적는 ctl.sh 경로 — 어느 폴더에서든 그대로 붙여 넣어 쓰게 전체 경로(~/…)로."""
+    return home(os.path.join(HERE, "ctl.sh"))
 
 
 def say(text=""):
@@ -266,7 +271,7 @@ def ensure_tmux(want=None):
 def autostart_state():
     """로그인 자동 시작: (켜졌는지, 설명)."""
     if not os.path.exists(AGENT_PLIST):
-        return False, "off — start the board yourself after a restart: ./ctl.sh open"
+        return False, "off — start the board yourself after a restart: %s open" % ctl()
     loaded = subprocess.run(["launchctl", "print", "gui/%d/%s" % (os.getuid(), AGENT_LABEL)],
                             capture_output=True, text=True).returncode == 0
     return True, "on — starts at login (%s%s)" % (home(AGENT_PLIST), "" if loaded else ", not loaded yet")
@@ -307,7 +312,7 @@ def autostart_off():
         time.sleep(0.5)
         if not server_up():
             subprocess.run([os.path.join(HERE, "ctl.sh"), "start"], capture_output=True)
-    return "off — start the board yourself after a restart: ./ctl.sh open"
+    return "off — start the board yourself after a restart: %s open" % ctl()
 
 
 def server_up():
@@ -346,7 +351,7 @@ def check():
         ("Status line tap", TAP_MARK in cmd or _script_has_tap(cmd), "" if TAP_MARK in cmd or _script_has_tap(cmd)
          else "not connected — context % and usage bars will be estimated or hidden"),
         ("tmux", bool(tmux_bin()), home(tmux_bin() or "") or "not installed — brew install tmux (needed for the board terminal)"),
-        ("Board server", server_up(), "http://127.0.0.1:%d" % PORT if server_up() else "not running — ./ctl.sh open"),
+        ("Board server", server_up(), "http://127.0.0.1:%d" % PORT if server_up() else "not running — %s open" % ctl()),
         ("Start at login", autostart_state()[0], autostart_state()[1]),
         ("Recorded sessions", bool(sessions), str(sessions) if sessions is not None else "none yet — send a prompt in Claude Code"),
     ]
@@ -355,7 +360,7 @@ def check():
         say("  %s %-18s %s" % ("✓" if ok else "·", name, note))
     say()
     if n != len(HOOKS):
-        say("Run /usr/bin/python3 install.py to (re)install the hooks.")
+        say("Run %s install to (re)install the hooks." % ctl())
     elif not sessions:
         say("All set — send any prompt in Claude Code and it shows up on the board.")
 
@@ -424,7 +429,7 @@ def main():
             say("  Backup       %s" % home(backup))
         say("\nYour recorded data is still in %s — delete that folder to remove it too." % home(DATA_DIR))
         if server_up():
-            say("The board is still running; stop it with: ./ctl.sh stop")
+            say("The board is still running; stop it with: %s stop" % ctl())
         return
 
     say("Argus installed ✓\n")
@@ -440,27 +445,25 @@ def main():
     elif autostart_state()[0]:
         login = autostart_on()   # 이미 켜 두었으면 경로가 바뀌었을 수 있으니 다시 쓴다
     else:
-        want = ask("\nStart the board automatically when you log in? (otherwise run ./ctl.sh open after a restart)")
-        login = autostart_on() if want else "off — start the board yourself after a restart: %sctl.sh open" % (
-            "" if os.path.realpath(os.getcwd()) == os.path.realpath(HERE) else home(HERE).rstrip("/") + "/")
+        want = ask("\nStart the board automatically when you log in? (otherwise run %s open after a restart)" % ctl())
+        login = autostart_on() if want else "off — start the board yourself after a restart: %s open" % ctl()
     say("\n  tmux            %s" % tmux)
     say("  Start at login  %s" % login)
     for w in warnings:
         say("\n! " + w)
-    # 저장소 밖(한 줄 설치 등)에서 실행했으면 명령을 저장소 경로로 적는다 — 그대로 붙여 넣어 쓸 수 있게
-    here = "" if os.path.realpath(os.getcwd()) == os.path.realpath(HERE) else home(HERE).rstrip("/") + "/"
+    # 명령은 ctl.sh 의 전체 경로로 적는다 — 어느 폴더에서든 그대로 붙여 넣어 쓸 수 있게
     say("""
 Next
   1. Open the board:   %(ctl)s open   (http://127.0.0.1:%(port)d)
   2. Send any prompt in Claude Code — its session shows up on the board.
      Sessions that are already open appear from their next prompt; no restart needed.
-  3. Optional: import the last week of conversations:
-       /usr/bin/python3 %(h)scsl/backfill.py --days 7
+  3. Optional: import the last week of conversations:   %(ctl)s backfill 7
   4. After a restart the board is started at login if you turned that on; otherwise run %(ctl)s open
      (turn it on or off any time: %(ctl)s autostart on|off).
 
-Check the install any time:  /usr/bin/python3 %(h)sinstall.py --check
-Remove it:                   /usr/bin/python3 %(h)sinstall.py --uninstall""" % {"h": here, "ctl": (here or "./") + "ctl.sh", "port": PORT})
+Check the install any time:  %(ctl)s check
+Remove it:                   %(ctl)s uninstall
+Every command:               %(ctl)s help""" % {"ctl": ctl(), "port": PORT})
 
     want = args.open
     if not want and not args.no_open and sys.stdin.isatty() and sys.stdout.isatty():

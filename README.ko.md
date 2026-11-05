@@ -55,7 +55,7 @@ Claude Code 세션을 여러 개 동시에 돌리면(저장소마다, 워크트�
 
 - **macOS**
 - **Claude Code** — Claude 계정으로 로그인한 상태(구독 요금제면 충분, API 키 불필요)
-- **Python 3** — Mac 에 들어 있는 `/usr/bin/python3`(3.9 이상). `pip install` 할 것은 없습니다
+- **Python 3** — Mac 에 들어 있는 `/usr/bin/python3`(3.9 이상). `pip install` 할 것은 없고, 직접 부를 일도 없습니다(`ctl.sh` 가 안에서 씁니다)
 - **tmux** — `brew install tmux`. 없으면 설치 프로그램이 설치할지 묻습니다
 - **최신 브라우저** — Chrome 에서 확인했습니다
 
@@ -82,14 +82,14 @@ Argus 를 **`~/.argus`** 폴더에 내려받고 설치 프로그램을 실행합
 | 지금 보드를 열까요? | 브라우저에서 http://127.0.0.1:7799 를 엽니다 |
 
 이제 Claude Code 를 평소처럼 쓰면 됩니다. 열려 있던 세션은 다음 요청부터, 새 세션은 시작하자마자 보드에 나타납니다.
-설치하기 전의 대화도 보드로 가져오려면 `/usr/bin/python3 ~/.argus/csl/backfill.py --days 7`(최근 7일)을 실행하세요.
+설치하기 전의 대화도 보드로 가져오려면 `~/.argus/ctl.sh backfill 7`(최근 7일)을 실행하세요.
 
 무엇이 실행되는지 먼저 보고 싶다면 [`install.sh`](install.sh)(약 40줄)를 읽거나, 직접 clone 해서 설치해도 됩니다.
 
 ```sh
 git clone https://github.com/ygone-lee/argus.git
 cd argus
-/usr/bin/python3 install.py
+./ctl.sh install
 ```
 
 > 이 문서의 명령에 나오는 `~/.argus` 는 curl 로 설치했을 때의 Argus 폴더입니다. clone 했다면 그 폴더 경로로 바꿔 쓰세요.
@@ -120,9 +120,12 @@ cd argus
 | 보드가 돌고 있는지 보기 | `~/.argus/ctl.sh status` |
 | 보드 끄기 · 다시 띄우기 | `~/.argus/ctl.sh stop` · `~/.argus/ctl.sh restart` |
 | 로그인할 때 자동 시작 켜기 · 끄기 · 보기 | `~/.argus/ctl.sh autostart on` · `off` · `status` |
-| 설치 상태 점검(아무것도 바꾸지 않음) | `/usr/bin/python3 ~/.argus/install.py --check` |
+| 설치 상태 점검(아무것도 바꾸지 않음) | `~/.argus/ctl.sh check` |
+| 설치 전 대화 가져오기(기본 최근 7일) | `~/.argus/ctl.sh backfill 7` |
+| 데모 보드 열기(지어낸 세션, 내 설정은 안 건드림) | `~/.argus/ctl.sh demo` |
 | 업데이트 | 보드의 ⋮ → ⟳ 업데이트 확인, 또는 위 설치 명령(curl 한 줄)을 다시 실행 |
-| 지우기 | `/usr/bin/python3 ~/.argus/install.py --uninstall` 을 실행한 뒤 `~/.argus` 폴더 삭제 |
+| 지우기 | `~/.argus/ctl.sh uninstall` 을 실행한 뒤 `~/.argus` 폴더 삭제 |
+| 명령 전체 보기 | `~/.argus/ctl.sh help` |
 
 보드가 뜨지 않으면 `~/.claude/session-log/server.log` 의 끝부분에 이유가 남습니다. 끄고 켜는 명령(stop·restart)은 보드 서버만 다시 띄웁니다.
 보드 터미널에서 돌던 세션은 tmux 서버에 그대로 남습니다.
@@ -148,7 +151,7 @@ cd argus
 
 이미 다른 터미널에서 쓰던 세션은 그대로 보드에 나타납니다. 보드에서 답장까지 하려면 칸 ⋮ → **⇄ 보드 터미널로 가져오기** 를 누르세요.
 
-**먼저 구경만 하고 싶다면:** `/usr/bin/python3 ~/.argus/demo/run.py` 를 실행하면, 지어낸 프로젝트와 세션이 움직이는 진짜 보드가
+**먼저 구경만 하고 싶다면:** `~/.argus/ctl.sh demo` 를 실행하면, 지어낸 프로젝트와 세션이 움직이는 진짜 보드가
 http://127.0.0.1:7798 에 열립니다. 따로 쓰는 임시 폴더와 포트를 써서 내 Claude Code 설정은 건드리지 않고, Ctrl+C 로 끄면 정리됩니다.
 
 ## 새 보드: Claude Code · 터미널 · 마크다운
@@ -180,7 +183,7 @@ http://127.0.0.1:7798 에 열립니다. 따로 쓰는 임시 폴더와 포트를
 - **Argus 브레인** — Argus 로고 옆 브레인 아이콘을 누르거나 `B` 를 눌러 시작합니다.
 - **커넥터** — ⋮ → 🔌 커넥터에서 슬랙 멘션·DM 과 지메일을 브레인 인박스로 모읍니다. 비밀값은 macOS 키체인에 저장됩니다. 슬랙은 「Slack 앱 만들기」를 누르면 읽기 전용 앱 매니페스트가 채워진 Slack 화면이 열립니다: 워크스페이스 고르기 → Create → Install → User OAuth Token(xoxp-…) 복사해 붙여 넣기 — 저장·연결 확인까지 하고 이름도 워크스페이스 이름으로 붙입니다.
 
-**지우려면:** `/usr/bin/python3 ~/.argus/install.py --uninstall`(clone 했다면 그 폴더에서 `install.py --uninstall`)로 훅을 빼고
+**지우려면:** `~/.argus/ctl.sh uninstall`(clone 했다면 그 폴더에서 `./ctl.sh uninstall`)로 훅을 빼고
 원래 상태줄로 되돌립니다. 로그인 자동 시작도 함께 꺼집니다. 그다음 Argus 폴더를 지우세요. 기록한 데이터는 `~/.claude/session-log` 에 남습니다.
 
 ## 개인정보와 안전

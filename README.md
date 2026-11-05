@@ -86,7 +86,7 @@ The board UI is available in 한국어, 日本語 and English — it follows you
 
 - **macOS**
 - **Claude Code**, signed in with your Claude account (a subscription plan is enough — no API key)
-- **Python 3** — the system `/usr/bin/python3` (3.9 or later). Nothing to `pip install`
+- **Python 3** — the system `/usr/bin/python3` (3.9 or later). Nothing to `pip install`, and you never call it yourself (`ctl.sh` does)
 - **tmux** — `brew install tmux`. If it's missing, the installer offers to install it
 - **A modern browser** — tested in Chrome
 
@@ -113,19 +113,19 @@ It downloads Argus into **`~/.argus`** and runs the installer. The installer bac
 | Open the board now? | Opens http://127.0.0.1:7799 in your browser |
 
 That's it. Keep working in Claude Code as usual — every open session shows up on the board from its next prompt, and new sessions appear as soon as they start.
-To bring in conversations from before the install, run `/usr/bin/python3 ~/.argus/csl/backfill.py --days 7` (the last 7 days).
+To bring in conversations from before the install, run `~/.argus/ctl.sh backfill 7` (the last 7 days).
 
 Prefer to see what runs first? [`install.sh`](install.sh) is about 40 lines. Or install from a clone of your own:
 
 ```sh
 git clone https://github.com/ygone-lee/argus.git
 cd argus
-/usr/bin/python3 install.py
+./ctl.sh install
 ```
 
 > `~/.argus` in the commands below is the Argus folder of a curl install. If you cloned it, use your clone's path instead.
 
-The installer can also be answered up front: `--tmux install|skip`, `--autostart on|off`, `--open` / `--no-open`. It stops without
+The installer (`ctl.sh install`) can also be answered up front: `--tmux install|skip`, `--autostart on|off`, `--open` / `--no-open`. It stops without
 changing anything if `~/.claude/settings.json` isn't valid JSON, and creates the file if you don't have one yet.
 
 ### 3. After you restart your Mac
@@ -154,9 +154,12 @@ and doesn't restart a server you stopped yourself.
 | Check whether it's running | `~/.argus/ctl.sh status` |
 | Stop · restart it | `~/.argus/ctl.sh stop` · `~/.argus/ctl.sh restart` |
 | Turn autostart at login on · off · show it | `~/.argus/ctl.sh autostart on` · `off` · `status` |
-| Check the installation (changes nothing) | `/usr/bin/python3 ~/.argus/install.py --check` |
+| Check the installation (changes nothing) | `~/.argus/ctl.sh check` |
+| Bring in conversations from before the install (last 7 days by default) | `~/.argus/ctl.sh backfill 7` |
+| Open a demo board (made-up sessions, leaves your setup alone) | `~/.argus/ctl.sh demo` |
 | Update | ⋮ → ⟳ 업데이트 확인 (Check for updates) on the board, or run the curl install line again |
-| Uninstall | `/usr/bin/python3 ~/.argus/install.py --uninstall`, then delete `~/.argus` |
+| Uninstall | `~/.argus/ctl.sh uninstall`, then delete `~/.argus` |
+| List every command | `~/.argus/ctl.sh help` |
 
 If the board doesn't start, the reason is at the end of `~/.claude/session-log/server.log`. Stopping or restarting only restarts the board
 server — sessions in the board terminal keep running in their tmux server.
@@ -182,7 +185,7 @@ The board also checks quietly once a day and puts a dot on the ⋮ button when s
 
 Sessions you already run in another terminal show up as they are. To reply to them from the board too, use the column's ⋮ → **⇄ 보드 터미널로 가져오기** (Move to the board terminal).
 
-**Just want to look first?** `/usr/bin/python3 ~/.argus/demo/run.py` opens the real board at http://127.0.0.1:7798 with made-up projects and sessions that change while you watch (you can send them messages too). It uses its own temporary data folder and port, never touches your Claude Code setup, and cleans up when you stop it with Ctrl+C.
+**Just want to look first?** `~/.argus/ctl.sh demo` opens the real board at http://127.0.0.1:7798 with made-up projects and sessions that change while you watch (you can send them messages too). It uses its own temporary data folder and port, never touches your Claude Code setup, and cleans up when you stop it with Ctrl+C.
 
 ## New board: Claude Code · terminal · markdown
 
@@ -207,13 +210,13 @@ Sessions you already run in another terminal show up as they are. To reply to th
 - **Argus Brain** — click the 브레인 (Brain) icon next to the Argus logo, or press `B`, and start it. See [Argus Brain](#feature-reference) in the feature reference.
 - **Connectors** — ⋮ → 🔌 커넥터 (Connectors) to collect Slack mentions/DMs and Gmail into the Brain's inbox. Secrets go into the macOS Keychain. For Slack, "Create the Slack app" opens Slack with a read-only app manifest prefilled: pick the workspace → Create → Install → copy the User OAuth Token (xoxp-…) and paste it — Argus saves it, checks the connection and names the connector after the workspace.
 
-**To remove Argus:** `/usr/bin/python3 ~/.argus/install.py --uninstall` (or `install.py --uninstall` in your clone) removes the hooks, restores your original status line and turns autostart off; then delete the Argus folder. Your data stays in `~/.claude/session-log` until you delete that folder.
+**To remove Argus:** `~/.argus/ctl.sh uninstall` (or `./ctl.sh uninstall` in your clone) removes the hooks, restores your original status line and turns autostart off; then delete the Argus folder. Your data stays in `~/.claude/session-log` until you delete that folder.
 
 ## A tour of the board
 
 ![Argus board: five Claude Code sessions side by side — live tool calls, a question waiting for an answer, new replies, and a message sent from the board](docs/demo.gif)
 
-<sub>The real board, recorded with the built-in demo (`/usr/bin/python3 demo/run.py`) — every project, session and conversation in it is made up.</sub>
+<sub>The real board, recorded with the built-in demo (`./ctl.sh demo`) — every project, session and conversation in it is made up.</sub>
 
 ```
 ┌ Argus  [Brain]   확인 필요 1 · 새 응답 2 · 작업 중 3 · 오류 0      5h ▓▓▓░░ 42%   🔍 search   ⋮ ┐
@@ -434,14 +437,14 @@ Every hook also records the effort level (`effort.level`) and Remote Control sta
 ## Install and uninstall
 
 ```sh
-/usr/bin/python3 install.py               # add hooks, the status line tap and the skill (keeps other hooks, saves a backup)
-/usr/bin/python3 install.py --check       # what is installed and running (changes nothing)
-/usr/bin/python3 csl/backfill.py --days 7 # import conversations from before the hooks were installed (optional)
-./ctl.sh open                             # start the server and open the browser
-/usr/bin/python3 install.py --uninstall   # remove the hooks and the login autostart, restore the status line (your data is kept)
+./ctl.sh install      # add hooks, the status line tap and the skill (keeps other hooks, saves a backup)
+./ctl.sh check        # what is installed and running (changes nothing)
+./ctl.sh backfill 7   # import conversations from before the hooks were installed (optional)
+./ctl.sh open         # start the server and open the browser
+./ctl.sh uninstall    # remove the hooks and the login autostart, restore the status line (your data is kept)
 ```
 
-`install.py` also takes `--open` / `--no-open` (open the board when done without asking / don't offer) and `--force`
+Every `ctl.sh` command runs the system `/usr/bin/python3` underneath, so a pyenv, conda or virtualenv `python3` never ends up in Claude Code's hooks. `ctl.sh install` passes its options to `install.py`, which also takes `--open` / `--no-open` (open the board when done without asking / don't offer) and `--force`
 (install the hooks on a system other than macOS — recording works, driving terminals doesn't). Running it again is safe:
 it keeps exactly one set of Argus hooks, and updates paths if you moved the folder.
 

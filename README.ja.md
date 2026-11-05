@@ -56,7 +56,7 @@ SQLite データベースに記録し、**http://127.0.0.1:7799** でページ�
 
 - **macOS**
 - **Claude Code** — Claude アカウントでログインした状態(サブスクリプションプランで十分、API キー不要)
-- **Python 3** — Mac に入っている `/usr/bin/python3`(3.9 以上)。`pip install` するものはありません
+- **Python 3** — Mac に入っている `/usr/bin/python3`(3.9 以上)。`pip install` するものはなく、直接呼ぶ必要もありません(`ctl.sh` が中で使います)
 - **tmux** — `brew install tmux`。なければインストーラーが入れるか尋ねます
 - **最近のブラウザ** — Chrome で確認済み
 
@@ -83,14 +83,14 @@ Argus を **`~/.argus`** フォルダにダウンロードしてインストー�
 | 今ボードを開きますか? | ブラウザで http://127.0.0.1:7799 を開きます |
 
 あとは今までどおり Claude Code を使うだけです。開いているセッションは次の質問から、新しいセッションは始まった時点でボードに現れます。
-インストール前の会話もボードに取り込むには `/usr/bin/python3 ~/.argus/csl/backfill.py --days 7`(直近 7 日)を実行してください。
+インストール前の会話もボードに取り込むには `~/.argus/ctl.sh backfill 7`(直近 7 日)を実行してください。
 
 先に中身を見たい場合は [`install.sh`](install.sh)(約 40 行)を読むか、自分で clone してインストールできます。
 
 ```sh
 git clone https://github.com/ygone-lee/argus.git
 cd argus
-/usr/bin/python3 install.py
+./ctl.sh install
 ```
 
 > この文書のコマンドにある `~/.argus` は、curl でインストールしたときの Argus フォルダです。clone した場合はそのフォルダのパスに置き換えてください。
@@ -121,9 +121,12 @@ cd argus
 | ボードが動いているか確認 | `~/.argus/ctl.sh status` |
 | ボードを止める · 再起動 | `~/.argus/ctl.sh stop` · `~/.argus/ctl.sh restart` |
 | ログイン時の自動起動をオン · オフ · 確認 | `~/.argus/ctl.sh autostart on` · `off` · `status` |
-| インストール状態の確認(何も変更しない) | `/usr/bin/python3 ~/.argus/install.py --check` |
+| インストール状態の確認(何も変更しない) | `~/.argus/ctl.sh check` |
+| インストール前の会話を取り込む(既定は直近 7 日) | `~/.argus/ctl.sh backfill 7` |
+| デモボードを開く(架空のセッション、自分の設定には触れない) | `~/.argus/ctl.sh demo` |
 | アップデート | ボードの ⋮ → ⟳ アップデートを確認、または上のインストールコマンド(curl の 1 行)をもう一度実行 |
-| アンインストール | `/usr/bin/python3 ~/.argus/install.py --uninstall` を実行してから `~/.argus` フォルダを削除 |
+| アンインストール | `~/.argus/ctl.sh uninstall` を実行してから `~/.argus` フォルダを削除 |
+| コマンドの一覧 | `~/.argus/ctl.sh help` |
 
 ボードが起動しないときは、`~/.claude/session-log/server.log` の末尾に理由が残ります。止める・再起動するコマンド(stop・restart)はボードのサーバーだけを
 起動し直します。ボードターミナルで動いていたセッションは tmux サーバーにそのまま残ります。
@@ -149,7 +152,7 @@ cd argus
 
 すでにほかのターミナルで使っているセッションも、そのままボードに現れます。ボードから返信までするには、列の ⋮ → **⇄ ボードターミナルに移す** を押してください。
 
-**まず見てみたいだけなら:** `/usr/bin/python3 ~/.argus/demo/run.py` で、架空のプロジェクトとセッションが動く本物のボードが
+**まず見てみたいだけなら:** `~/.argus/ctl.sh demo` で、架空のプロジェクトとセッションが動く本物のボードが
 http://127.0.0.1:7798 で開きます。専用の一時フォルダとポートを使い、あなたの Claude Code の設定には触れません。Ctrl+C で終了すると片付けます。
 
 ## 新しいボード: Claude Code · ターミナル · マークダウン
@@ -177,7 +180,7 @@ http://127.0.0.1:7798 で開きます。専用の一時フォルダとポート�
 - **Argus ブレイン** — Argus ロゴ横のブレインアイコンを押すか `B` キーで起動します。
 - **コネクタ** — ⋮ → 🔌 コネクタで、Slack のメンション・DM と Gmail をブレインの受信箱に集めます。秘密情報は macOS のキーチェーンに保存されます。
 
-**削除するには:** `/usr/bin/python3 ~/.argus/install.py --uninstall`(clone した場合はそのフォルダで `install.py --uninstall`)で
+**削除するには:** `~/.argus/ctl.sh uninstall`(clone した場合はそのフォルダで `./ctl.sh uninstall`)で
 フックを外し、元のステータスラインに戻します。ログイン時の自動起動もオフになります。そのあと Argus のフォルダを削除してください。記録したデータは `~/.claude/session-log` に残ります。
 
 ## プライバシーと安全性
