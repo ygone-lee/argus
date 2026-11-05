@@ -1171,6 +1171,17 @@ function renderBoard() {
   }
   if (S.expandedCard) updateExpandedCard();   // 카드 보기에서 펼친 카드의 칸도 같은 내용으로
 }
+// 칸 머리 첫 줄이 칸보다 넓으면(칩이 많을 때) 글자를 줄인다: 먼저 원격·고정·터미널 버튼을 아이콘만(tight),
+// 그래도 넘치면 「몇 분 전」도 숨긴다(tighter). 메뉴(⋮)와 터미널 버튼은 늘 보인다. 칸 너비가 바뀌어도 다시 잰다
+function fitTop(top) {
+  if (!top || !top.offsetParent) return;
+  const over = () => top.scrollWidth > top.clientWidth + 7;   // ⋮ 버튼은 원래 6px 바깥으로 나가 있다(margin-right: -6px)
+  top.classList.remove("tight", "tighter");
+  if (!over()) return;
+  top.classList.add("tight");
+  if (over()) top.classList.add("tighter");
+}
+const TOP_RO = new ResizeObserver(es => { for (const e of es) fitTop(e.target.querySelector(".col-top")); });
 function colSkeleton(sid) {
   return `<div class="col" data-col="${esc(sid)}" data-drop-sid="${esc(sid)}">
     <div class="col-head"></div>
@@ -1250,9 +1261,9 @@ function updateCol(col, s, rank, lastPin) {
         ${bgtChip(s)}
         <span class="spacer"></span>
         ${remoteBadge(s, d)}
-        ${pinned ? `<button class="col-pin on" data-action="pin" data-sid="${esc(sid)}" title="고정 해제 ( P )">📌 고정됨</button>` : ""}
+        ${pinned ? `<button class="col-pin on" data-action="pin" data-sid="${esc(sid)}" title="고정 해제 ( P )" data-icon="📌">📌 고정됨</button>` : ""}
         ${forkChip(s, d)}
-        ${s.term_attach && d !== "ended" ? `<button class="col-term-btn ${TERM.open.has(sid) ? "on" : ""}" data-action="term-toggle" data-sid="${esc(sid)}"
+        ${s.term_attach && d !== "ended" ? `<button class="col-term-btn ${TERM.open.has(sid) ? "on" : ""}" data-action="term-toggle" data-sid="${esc(sid)}" data-icon="${TERM.open.has(sid) ? "💬" : "⌨"}"
           title="${TERM.open.has(sid) ? "대화 보기로" : s.term_web ? "이 세션의 터미널을 칸 안에서 열기(보드 터미널)" : "이 세션의 tmux 창을 칸 안에서 열기 — 닫아도 tmux 세션은 그대로"}">${TERM.open.has(sid) ? "💬 대화" : "⌨ 터미널"}</button>` : ""}
         <button class="col-menu-btn" data-action="col-menu" data-sid="${esc(sid)}" title="보관 · 원격 · 고정" aria-label="칸 메뉴">⋮</button>
       </div>
@@ -1311,6 +1322,8 @@ function updateCol(col, s, rank, lastPin) {
   updateComposer(col.querySelector(".composer"), s);
   updateAsk(col.querySelector(".ask-card"), s);
   updatePrompt(col.querySelector(".prompt-card"), s);
+  fitTop(col.querySelector(".col-top"));
+  if (!col._topRo) { col._topRo = true; TOP_RO.observe(col); }
 }
 function famSig(s) {
   return s._fam ? s._fam.members.map(m => m.session_id + ":" + displayState(m) + ":" + (m.title || "") + ":" + (m.term_handle || "")).join(",") : "";
@@ -2018,10 +2031,10 @@ function remoteBadge(s, d) {
   if (d === "ended") return "";
   if (s.remote && /^session_[A-Za-z0-9]+$/.test(s.remote)) {
     return `<a class="rc-badge on" href="https://claude.ai/code/${s.remote}" target="_blank" rel="noopener noreferrer"
-      title="리모트 컨트롤 연결됨 — claude.ai/code 에서 열기">📡 원격</a>`;
+      title="리모트 컨트롤 연결됨 — claude.ai/code 에서 열기" data-icon="📡">📡 원격</a>`;
   }
   if (s.rc_requested_at && Date.now() / 1000 - s.rc_requested_at < 180) {
-    return '<span class="rc-badge pending" title="리모트 컨트롤을 켜는 중(다음 응답 때 연결이 확인됩니다)">📡 연결 중</span>';
+    return '<span class="rc-badge pending" title="리모트 컨트롤을 켜는 중(다음 응답 때 연결이 확인됩니다)" data-icon="📡">📡 연결 중</span>';
   }
   return "";
 }
