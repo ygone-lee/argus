@@ -3,6 +3,7 @@
 // ------------------------------------------------------------------ 상태
 const S = {
   sessions: [],
+  boards: [],              // 세션이 아닌 보드 칸(터미널·마크다운) — csl/boards.py
   sugg: new Map(),         // session_id → { key: state_at, text } 터미널 입력칸에 보이는 제안
   midOpen: new Set(),      // 앞선 중간 메시지를 펼친 턴 id
   settings: {},            // 서버에 저장되는 설정(auto_remote)
@@ -303,7 +304,9 @@ function fenceBlock(L, i) {
   return [`<div class="code-wrap"><button class="code-copy" data-action="copy-code" title="코드 복사">복사</button>` +
     `<pre${lang ? ` data-lang="${esc(lang)}"` : ""}><code>` + esc(buf.join("\n")) + "</code></pre></div>", i];
 }
-function md(src) {
+// opts.tasks: 체크리스트(- [ ] / - [x])를 누를 수 있는 체크박스로(마크다운 칸의 보기). 아니면 눌리지 않는 체크박스로 보인다
+function md(src, opts) {
+  const tasks = !!(opts && opts.tasks);
   const L = String(src || "").replace(/[\r\u0000]/g, "").split("\n");   // NUL 은 inline 의 자리표시와 겹친다
   const out = [];
   let i = 0;
@@ -345,7 +348,10 @@ function md(src) {
         }
         if (!(listRe.test(L[i]) || (/^\s{2,}\S/.test(L[i]) && !isBlockStart(L[i].trim())))) break;
         const m = L[i].match(listRe);
-        if (m) items.push({ indent: m[1].replace(/\t/g, "    ").length, ordered: /\d/.test(m[2]), num: parseInt(m[2], 10), html: inline(m[3]) });
+        const task = m && m[3].match(/^\[([ xX])\]\s+(.*)$/);   // 체크리스트 항목 — data-line 은 원문의 줄 번호(눌러서 바꿀 때)
+        if (task) items.push({ indent: m[1].replace(/\t/g, "    ").length, ordered: /\d/.test(m[2]), num: parseInt(m[2], 10),
+          html: `<input type="checkbox" class="md-task" data-line="${i}"${task[1] !== " " ? " checked" : ""}${tasks ? "" : " disabled"}> ` + inline(task[2]) });
+        else if (m) items.push({ indent: m[1].replace(/\t/g, "    ").length, ordered: /\d/.test(m[2]), num: parseInt(m[2], 10), html: inline(m[3]) });
         else items[items.length - 1].html += "<br>" + inline(L[i].trim());   // 항목 아래 들여 쓴 이어지는 줄
         i++;
       }
@@ -434,6 +440,7 @@ async function poll() {
   if (seq < S.pollShown) return;
   S.pollShown = seq;
   S.sessions = data.sessions;
+  S.boards = data.boards || [];   // 세션이 아닌 보드 칸(터미널·마크다운) — 칸 순서에는 세션과 섞인다
   S.settings = data.settings || {};
   if (!S.colsInit && S.settings.board_cols) { S.boardLimit = S.settings.board_cols; S.colsInit = true; }
   S.inboxNew = data.inbox_new || 0;
@@ -1157,7 +1164,7 @@ function famRootOf(s, byId) {
 function boardFamilies() {
   const byId = new Map(S.sessions.map(s => [s.session_id, s]));
   const fams = new Map();
-  for (const s of S.sessions) {
+  for (const s of S.sessions.concat(S.boards || [])) {
     if (liveBrain(s) || s.archived && !S.showEnded && !S.reveal.has(s.session_id)) continue;
     const r = famRootOf(s, byId);
     if (!fams.has(r)) fams.set(r, []);
@@ -1201,7 +1208,7 @@ function boardSessions() {
   const all = allBoardSessions();
   return S.projFilter ? all.filter(s => projectKey(s) === S.projFilter) : all;
 }
-function sessionById(sid) { return sid ? S.sessions.find(s => s.session_id === sid) || null : null; }
+function sessionById(sid) { return sid ? S.sessions.find(s => s.session_id === sid) || (S.boards || []).find(s => s.session_id === sid) || null : null; }
 // 칸 대화(세션 상세)를 받아 보드 캐시에. 칸 보기·브레인 패널·펼친 카드가 같이 쓴다. 여러 칸이면 요청 한 번으로
 // (/api/details — 칸마다 따로 받지 않게). 실패하면 예외를 그대로
 async function loadDetails(list) {
@@ -1223,13 +1230,14 @@ async function refreshBoard(force) {
   const all = boardSessions();
   const cols = all.slice(0, S.boardLimit);
   // 화면에 보이는 칸만 대화를 불러온다. 나머지는 스크롤해서 보일 때(IntersectionObserver)
-  const stale = cols.filter(s => S.visibleCols.has(s.session_id) && (force || !S.boardCache.has(s.session_id) ||
+  const stale = cols.filter(s => !s.board && S.visibleCols.has(s.session_id) && (force || !S.boardCache.has(s.session_id) ||
     S.boardCache.get(s.session_id).sig !== sigOf(s)));
   // 브레인 패널이 열려 있으면 브레인 대화도 같은 요청에 싣는다(따로 한 번 더 받지 않게)
   const b = S.brainOpen && brainSession();
   if (b && (force || !S.boardCache.has(b.session_id) || S.boardCache.get(b.session_id).sig !== sigOf(b))) stale.push(b);
   try { await loadDetails(stale); } catch (e) { /* 다음 폴링에서 다시 */ }
-  const order = cols.map(s => s.session_id).join(",") + "|" + all.length;
+  // 보드 칸(터미널·문서)은 대화를 불러오지 않으니, 바뀐 것(문서 저장·AI 끝남·셸 닫힘 …)을 순서 키에 실어 다시 그리게 한다
+  const order = cols.map(s => s.session_id + (s.board ? ":" + [s.title, s.mtime, s.msg_sig, s.ai_running, s.alive, s.shell, s.pinned, s.archived].join("/") : "")).join(",") + "|" + all.length;
   if (stale.length || order !== S.boardOrder) {
     S.boardOrder = order;
     renderBoard();
@@ -1286,11 +1294,13 @@ function renderBoard() {
   cols.forEach((s, i) => {
     let col = board.querySelector(`.col[data-col="${CSS.escape(s.session_id)}"]`);
     if (!col) {
-      board.insertAdjacentHTML("beforeend", colSkeleton(s.session_id));
+      board.insertAdjacentHTML("beforeend", s.board ? boardColSkeleton(s) : colSkeleton(s.session_id));
       col = board.lastElementChild;
       colObserver().observe(col);
-      setupThread(col.querySelector(".col-thread"));
-      restoreComposerDraft(col.querySelector(".composer"));
+      if (!s.board) {
+        setupThread(col.querySelector(".col-thread"));
+        restoreComposerDraft(col.querySelector(".composer"));
+      }
       // 관찰 신호는 한 박자 늦게 온다. 새 칸이 이미 화면 안이면 바로 보이는 칸으로 치고 불러온다
       col.style.order = i + 1;
       const r = col.getBoundingClientRect();
@@ -1301,7 +1311,7 @@ function renderBoard() {
     }
     // 고정 칸 묶음의 마지막 칸 뒤에 간격을 둬서 고정/나머지를 구분
     const lastPin = !!pinOf(s) && !(cols[i + 1] && pinOf(cols[i + 1]));
-    updateCol(col, s, i + 1, lastPin);
+    if (s.board) updateBoardCol(col, s, i + 1, lastPin); else updateCol(col, s, i + 1, lastPin);
   });
   if (needFetch) setTimeout(() => refreshBoard().then(renderBoard), 0);
   if (atStart && board.scrollLeft !== 0) board.scrollLeft = 0;
@@ -2237,6 +2247,8 @@ $("#resumeModal").addEventListener("click", e => {
 async function focusTerminal(sid) {
   const s = sid && sessionById(sid);
   if (!s) return toast("먼저 칸을 고르세요(⌘1~9 또는 ← →)");
+  if (s.board === "term") { await focusCol(sid); return focusTermSoon(sid); }
+  if (s.board) return;
   if (s.term_web && s.state !== "ended") return openTermIn(sid);   // 보드 터미널 — 바깥 앱이 아니라 칸 안에서
   if (focusing) return;
   focusing = true;
@@ -2268,6 +2280,12 @@ function openColMenu(btn) {
     : rcPending ? `<button class="cm-item" disabled>📡 원격 연결 중…</button>`
     : `<button class="cm-item" data-cm="remote">📡 원격 켜기 <span class="muted">/remote-control</span></button>`;
   menu.dataset.sid = sid;
+  if (s.board) {
+    menu.innerHTML = boardMenuHtml(s);
+    menu.hidden = false;
+    placeMenu(menu, btn, "right", 4);
+    return;
+  }
   menu.innerHTML = `
     ${s.brain ? "" : `<button class="cm-item" data-cm="archive">🗄 ${s.archived ? "보관 해제" : "보관"} <span class="muted">${s.archived ? "" : "보드에서 숨기기"}</span></button>`}
     ${s.term_web && s.state !== "ended" && s.running !== false ? `<button class="cm-item" data-cm="restart">↻ 다시 열기 <span class="muted">끝내고 같은 대화로 새로</span></button>` : ""}
@@ -2288,6 +2306,7 @@ $("#colMenu").addEventListener("click", async e => {
   if (!item) return;
   const sid = menu.dataset.sid;
   const s = sessionById(sid);
+  if (s && s.board && await boardMenuAction(item, menu, s)) return;
   if (s && item.dataset.cm === "archive" && !s.archived) {
     // 보관은 칸이 보드에서 사라지므로 한 번 더 묻는다(메뉴 안에서, 브라우저 확인 창 없이)
     item.outerHTML = `<div class="cm-confirm">
@@ -3176,23 +3195,29 @@ async function openNewMenu() {
   menu.dataset.inbox = "";   // 카드에서 연 것이 아니면 띄워도 카드를 옮기지 않는다
   let last = {};
   try { last = JSON.parse(localStorage.getItem(NEW_KEY) || "{}"); } catch (e) { /* 저장소 없음 */ }
+  const kind = ["claude", "term", "md"].includes(last.kind) ? last.kind : "claude";
+  menu.className = menu.className.replace(/\bnm-kind-\w+/g, "").trim() + " nm-kind-" + kind;
   menu.innerHTML = `
-    <div class="ctx-head"><b>새 Claude Code 세션</b></div>
+    <div class="ctx-head"><b>새 보드</b></div>
+    <div class="nm-kinds" role="tablist">${[["claude", "✳ Claude Code"], ["term", "⌨ 터미널"], ["md", "📝 마크다운"]]
+      .map(([k, l]) => `<button type="button" class="nm-kind ${k === kind ? "on" : ""}" data-nm-kind="${k}">${l}</button>`).join("")}</div>
     <label class="nm-label">폴더</label>
     <div class="nm-folders"><div class="muted nm-loading">Orca 프로젝트 불러오는 중…</div></div>
     <input class="ctx-note nm-cwd" placeholder="또는 경로 직접 입력 — /Users/…" value="${esc(last.cwd || "")}" spellcheck="false">
-    <label class="nm-label">첫 메시지 <span class="muted">(선택 · Shift+Enter 줄바꿈)</span></label>
-    <textarea class="ctx-note nm-prompt" rows="3" placeholder="비워 두면 빈 세션으로 시작합니다"></textarea>
-    <div class="nm-pair">
+    <div class="nm-board-only"><label class="nm-label">이름 <span class="muted">(선택)</span></label>
+      <input class="ctx-note nm-title" placeholder="비워 두면 폴더 이름·날짜로" spellcheck="false"></div>
+    <div class="nm-prompt-wrap"><label class="nm-label"><span class="nm-claude-only">첫 메시지</span><span class="nm-md-only">AI 에게 첫 요청</span> <span class="muted">(선택 · Shift+Enter 줄바꿈)</span></label>
+    <textarea class="ctx-note nm-prompt" rows="3" placeholder="비워 두면 빈 칸으로 시작합니다"></textarea></div>
+    <div class="nm-pair nm-claude-only">
       <div><label class="nm-label">모델</label>
         <select class="nm-model">${[["", "기본(설정대로)"], ["opus", "Opus"], ["sonnet", "Sonnet"], ["haiku", "Haiku"], ["fable", "Fable"]]
           .map(([v, l]) => `<option value="${v}" ${v === (last.model ?? (S.settings || {}).new_default_model ?? "") ? "selected" : ""}>${l}</option>`).join("")}</select></div>
       <div><label class="nm-label">effort</label>
         <select class="nm-model nm-effort">${NEW_EFFORTS.map(v => `<option value="${v}" ${v === ((S.settings || {}).new_default_effort || "high") ? "selected" : ""}>${v}</option>`).join("")}</select></div>
     </div>
-    <label class="nm-check" title="claude --worktree — 그 저장소의 .claude/worktrees/ 에 새 워크트리(새 브랜치)를 만들어 거기서 시작합니다. 끄면 고른 폴더에서 그대로"><input type="checkbox" class="nm-wt" checked> 새 워크트리로 시작 <span class="muted">claude -w</span></label>
-    <div class="ctx-foot"><span class="muted nm-term-hint">보드 터미널에 띄웁니다 — 칸 머리 「⌨ 터미널」로 터미널을 엽니다</span>
-      <button class="btn primary" data-new-run>시작</button></div>`;
+    <label class="nm-check nm-claude-only" title="claude --worktree — 그 저장소의 .claude/worktrees/ 에 새 워크트리(새 브랜치)를 만들어 거기서 시작합니다. 끄면 고른 폴더에서 그대로"><input type="checkbox" class="nm-wt" checked> 새 워크트리로 시작 <span class="muted">claude -w</span></label>
+    <div class="ctx-foot"><span class="muted nm-term-hint"><span class="nm-claude-only">보드 터미널에 띄웁니다 — 칸 머리 「⌨ 터미널」로 터미널을 엽니다</span><span class="nm-term-only">그 폴더에서 셸을 엽니다 — 칸 안이 터미널입니다</span><span class="nm-md-only">그 폴더의 .argus/boards/ 에 .md 로 저장합니다(git 에는 안 올라감)</span></span>
+      <button class="btn primary" data-new-run>만들기</button></div>`;
   menu.hidden = false;
   placeMenu(menu, $("#newBtn"), "right");
   const cwd = menu.querySelector(".nm-cwd");
@@ -3219,6 +3244,8 @@ async function runNewSession() {
   const menu = $("#newMenu"), btn = menu.querySelector("[data-new-run]");
   const cwd = menu.querySelector(".nm-cwd").value.trim();
   const prompt = menu.querySelector(".nm-prompt").value.trim();
+  const kind = (menu.querySelector(".nm-kind.on") || {}).dataset?.nmKind || "claude";
+  if (kind !== "claude") return runNewBoard(kind, cwd, menu.querySelector(".nm-title").value.trim(), prompt);
   const model = menu.querySelector(".nm-model").value, effort = menu.querySelector(".nm-effort").value;
   const worktree = menu.querySelector(".nm-wt").checked;
   if (!cwd) { menu.querySelector(".nm-cwd").focus(); return; }
@@ -3228,7 +3255,7 @@ async function runNewSession() {
   try {
     // 새 세션은 늘 보드 터미널에 뜬다(서버가 정한다)
     const r = await api("POST", "/api/sessions/new", { cwd, model, effort, worktree });
-    try { localStorage.setItem(NEW_KEY, JSON.stringify({ cwd, model, effort })); } catch (e) { /* 저장소 없음 */ }
+    try { localStorage.setItem(NEW_KEY, JSON.stringify({ cwd, model, effort, kind: "claude" })); } catch (e) { /* 저장소 없음 */ }
     menu.hidden = true;
     S.pendingNew = { handle: r.handle, prompt, at: Date.now(), sid: null, label: r.label || "보드 터미널" };
     if (menu.dataset.inbox) api("PATCH", "/api/inbox/" + menu.dataset.inbox, { status: "sent" }).catch(() => {});
@@ -3270,9 +3297,44 @@ async function watchNewSession() {
     toast("첫 메시지를 보내지 못해 입력창에 넣어 두었습니다: " + e.message);
   }
 }
+// 터미널·마크다운 칸 만들기. 마크다운은 첫 요청이 있으면 만들자마자 AI 에게 보낸다
+async function runNewBoard(kind, cwd, title, prompt) {
+  const menu = $("#newMenu"), btn = menu.querySelector("[data-new-run]");
+  if (!cwd) { menu.querySelector(".nm-cwd").focus(); return; }
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.textContent = "만드는 중…";
+  try {
+    const body = { kind, cwd, title };
+    const r = kind === "term" ? await termApi("POST", "/api/boards", body) : await api("POST", "/api/boards", body);
+    let last = {};
+    try { last = JSON.parse(localStorage.getItem(NEW_KEY) || "{}"); } catch (e) { /* 저장소 없음 */ }
+    try { localStorage.setItem(NEW_KEY, JSON.stringify(Object.assign(last, { cwd, kind }))); } catch (e) { /* 저장소 없음 */ }
+    menu.hidden = true;
+    if (kind === "md" && prompt) {
+      try { await api("POST", `/api/boards/${r.board.board_id}/ai`, { text: prompt }); } catch (e) { toast("첫 요청을 보내지 못했습니다: " + e.message); }
+    }
+    await poll();
+    await focusCol(r.board.session_id);
+    if (kind === "term") focusTermSoon(r.board.session_id);
+    else if (!prompt) { const c = colEl(r.board.session_id), ta = c && c.querySelector(".md-edit"); if (ta && !ta.hidden) ta.focus(); }
+  } catch (e) {
+    toast("만들지 못했습니다: " + e.message);
+    btn.disabled = false;
+    btn.textContent = "만들기";
+  }
+}
 $("#newBtn").addEventListener("click", openNewMenu);
 $("#newMenu").addEventListener("click", e => {
   if (e.target.closest("[data-new-run]")) return runNewSession();
+  const k = e.target.closest("[data-nm-kind]");
+  if (k) {
+    const menu = $("#newMenu");
+    menu.querySelectorAll(".nm-kind").forEach(b => b.classList.toggle("on", b === k));
+    menu.className = menu.className.replace(/\bnm-kind-\w+/g, "").trim() + " nm-kind-" + k.dataset.nmKind;
+    (menu.querySelector(k.dataset.nmKind === "claude" ? ".nm-prompt" : ".nm-title") || {}).focus?.();
+    return;
+  }
   const f = e.target.closest(".nm-folder");
   if (f) {
     const menu = $("#newMenu");
@@ -3284,7 +3346,7 @@ $("#newMenu").addEventListener("click", e => {
 $("#newMenu").addEventListener("input", e => { if (e.target.matches(".nm-cwd")) markFolder($("#newMenu")); });
 $("#newMenu").addEventListener("keydown", e => {
   if (e.key !== "Enter" || e.shiftKey || imeBusy(e)) return;
-  if (e.target.matches(".nm-cwd, .nm-prompt")) { e.preventDefault(); runNewSession(); }
+  if (e.target.matches(".nm-cwd, .nm-prompt, .nm-title")) { e.preventDefault(); runNewSession(); }
 });
 $("#ctxMenu").addEventListener("click", e => { if (e.target.closest("[data-ctx-run]")) runCompact(); });
 $("#ctxMenu").addEventListener("keydown", e => {
@@ -5165,6 +5227,13 @@ function focusIn(selector) {
   const sid = S.activeCol || colByRank(1);
   if (!sid) return;
   const col = setActive(sid, { scroll: true });
+  // 보드 칸: 문서 칸은 AI 요청칸, 터미널 칸은 터미널로
+  if (isBoard(sid) && selector === ".cmp-text") {
+    if (col && col.classList.contains("term-col")) return focusTermSoon(sid);
+    const ask = col && col.querySelector(".md-ask-text");
+    if (ask) ask.focus({ preventScroll: true });
+    return;
+  }
   const el = col && col.querySelector(selector);
   if (el && !el.disabled) el.focus({ preventScroll: true });
   else if (el && el.disabled) toast("지금은 입력할 수 없는 상태입니다");
@@ -5190,7 +5259,7 @@ document.addEventListener("keydown", e => {
     if (document.activeElement === $("#search") || !$("#searchPanel").hidden) { closeSearch(); e.stopImmediatePropagation(); return; }
     // 입력창에서 빠져나오기(쓰던 글은 그대로). 메모 고치기·이름 바꾸기는 각자 Esc 를 처리한다
     const a = document.activeElement;
-    if (a && (a.classList.contains("cmp-text") || a.classList.contains("cmp-rich") || (a.form && a.form.dataset.form === "col-note"))) {
+    if (a && (a.classList.contains("cmp-text") || a.classList.contains("cmp-rich") || a.classList.contains("md-edit") || a.classList.contains("md-ask-text") || (a.form && a.form.dataset.form === "col-note"))) {
       const col = a.closest(".col");
       if (col && col.dataset.col) { toColumnState(col.dataset.col); if (S.expandedCard === col.dataset.col) setCardSel(col.dataset.col); }
       else a.blur();
@@ -5358,7 +5427,7 @@ function syncTerm(col, s) {
   if (on && !TERM.live.has(box)) mountTerm(box, { sid: s.session_id });
 }
 async function mountTerm(box, q) {   // q: { sid } · 막 띄운 세션의 { handle, kind } · 터미널 패널 셸 탭의 { shell }
-  const rec = { sid: q.sid || null, handle: q.handle || null, kind: q.kind || "web", shell: q.shell || null, term: null, fit: null, ws: null, closed: false, tries: 0 };
+  const rec = { sid: q.sid || null, handle: q.handle || null, kind: q.kind || "web", shell: q.shell || null, board: !!q.board, term: null, fit: null, ws: null, closed: false, tries: 0 };
   TERM.live.set(box, rec);
   setHtml(box, `<div class="term-status muted">터미널에 연결하는 중…</div>`);
   try { await loadXterm(); await termToken(); }
@@ -5398,7 +5467,8 @@ function connectTerm(box, rec) {
   ws.onclose = async () => {
     if (rec.closed || TERM.live.get(box) !== rec) return;
     // 셸 탭에서 exit 하면 tmux 세션이 끝나 연결이 닫힌다 — 목록을 다시 읽어 그 탭을 닫는다(다시 붙지 않는다)
-    if (rec.shell) {
+    if (rec.board) refresh();   // 보드의 터미널 칸: exit 했으면 다음 폴링에서 「셸이 닫혔습니다」로 바뀐다
+    if (rec.shell && !rec.board) {
       const list = await refreshShells().catch(() => null);
       if (rec.closed || TERM.live.get(box) !== rec || (list && !list.some(x => x.name === rec.shell))) return;
     }
@@ -6858,7 +6928,7 @@ function renderCards(force) {
   if (S.expandedCard && !all.some(s => s.session_id === S.expandedCard)) S.expandedCard = null;
   const keep = S.expandedCard && box.querySelector(".sc-colwrap > .col");   // 펼친 칸은 다시 만들지 않고 옮겨 붙인다(쓰던 글·스크롤 유지)
   if (keep) keep.remove();
-  box.innerHTML = `<div class="sc-grid">${list.map((s, i) => S.expandedCard === s.session_id ? expandedCardHtml(s, i + 1) : sessionCardHtml(s, i + 1)).join("")}</div>` +
+  box.innerHTML = `<div class="sc-grid">${list.map((s, i) => s.board ? boardCardHtml(s, i + 1) : S.expandedCard === s.session_id ? expandedCardHtml(s, i + 1) : sessionCardHtml(s, i + 1)).join("")}</div>` +
     (more > 0 ? `<div class="sc-more"><button class="btn" data-cards-more>세션 더 보기 (+${Math.min(more, 24)} / 남은 ${more}개)</button></div>` : "") +
     (!all.length ? '<div class="bp-empty"><p>보여 줄 세션이 없습니다.</p></div>' : "");
   if (S.expandedCard) mountExpanded(keep);
@@ -6942,6 +7012,7 @@ async function updateExpandedCard() {
   updateCol(col, s, boardSessions().findIndex(x => x.session_id === s.session_id) + 1, false);
 }
 function openCard(sid) {
+  if (isBoard(sid)) { S.expandedCard = null; setBoardMode("cols"); return focusCol(sid); }   // 보드 칸은 칸 보기에서
   S.expandedCard = sid;
   S.cardSel = sid;
   renderCards(true);
@@ -7113,3 +7184,356 @@ document.addEventListener("keyup", e => {
 
 setView(load("csl.view", "board"));   // 맨 끝에서 — 칸반·활동 코드가 모두 정의된 뒤
 setBoardMode(S.boardMode);
+
+// ------------------------------------------------------------------ 보드 칸(세션이 아닌 칸): ⌨ 터미널 · 📝 마크다운 문서
+// 서버 csl/boards.py. 칸 id 는 bd-<번호>이고 순서·고정·보관·크게 보기는 세션 칸과 같이 다룬다(boardFamilies 에 섞인다).
+// 마크다운 칸: 위는 문서(편집 ↔ 보기, 고치면 0.7초 뒤 저장), 아래는 AI 대화(보낼 때마다 claude -p 가 그 파일만 고친다)
+const BD = { docs: new Map() };   // 칸 id → { text, mtime, msgs, msgSig, loaded, loading, dirty, saving, timer, err, conflict, mode }
+const BOARD_KIND = { md: ["📝", "문서"], term: ["⌨", "터미널"] };
+function isBoard(sid) { return /^bd-\d+$/.test(sid || ""); }
+function boardColSkeleton(s) {
+  const sid = esc(s.session_id);
+  const body = s.board === "term"
+    ? `<div class="col-term bd-term"></div><div class="bd-closed" hidden></div>`
+    : `<div class="md-doc">
+        <div class="md-bar"><div class="md-mode"><button type="button" data-md-mode="edit">✎ 편집</button><button type="button" data-md-mode="view">👁 보기</button></div>
+          <span class="md-status muted"></span></div>
+        <textarea class="md-edit" spellcheck="false" placeholder="마크다운으로 적으세요 — 고치면 바로 저장됩니다"></textarea>
+        <div class="md-view md" hidden></div>
+      </div>
+      <div class="md-chat"></div>
+      <form class="md-ask" data-sid="${sid}"><textarea class="md-ask-text" rows="1" placeholder="AI 에게 문서 고치기 요청  Enter 보내기 · Shift+Enter 줄바꿈"></textarea>
+        <button class="btn primary md-ask-send" type="submit">보내기</button></form>`;
+  return `<div class="col board-col ${s.board}-col" data-col="${sid}" data-drop-sid="${sid}">
+    <div class="col-head"></div>${body}
+    <div class="col-resize" data-resize-sid="${sid}" title="끌어서 너비 조절 · 더블클릭: 기본 너비"></div>
+  </div>`;
+}
+function boardRelPath(s) {
+  if (!s.path) return "";
+  return s.path.startsWith(s.cwd + "/") ? s.path.slice(s.cwd.length + 1) : s.path;
+}
+function updateBoardCol(col, s, rank, lastPin) {
+  const sid = s.session_id;
+  col.style.order = rank;
+  col.style.setProperty("--proj", projColor(s.project_root || s.cwd));
+  applyColWidth(col, sid);
+  const key = [s.title, pinOf(s), s.archived, rank, lastPin, S.activeCol === sid, s.mtime, s.msg_sig, s.ai_running, s.alive, s.shell, S.uiVer].join("|");
+  if (col._key === key) return;
+  col._key = key;
+  const pinned = !!pinOf(s), [icon, label] = BOARD_KIND[s.board] || ["", ""];
+  col.className = `col board-col ${s.board}-col ${s.ai_running ? "working" : "idle"}` + (S.activeCol === sid ? " active" : "") +
+    (pinned ? " pinned" : "") + (lastPin ? " pin-last" : "");
+  const state = s.board === "md" && s.ai_running ? `<span class="pill working"><span class="dot working"></span>AI 고치는 중</span>`
+    : s.board === "term" && !s.alive ? `<span class="pill ended"><span class="dot ended"></span>닫힘</span>` : "";
+  setHtml(col.querySelector(".col-head"), `
+    <div class="col-top">
+      <span class="rank">${rank}</span>
+      <span class="chip board-kind" data-icon="${icon}">${icon} ${label}</span>
+      ${state}
+      <span class="ago" data-ts="${s.last_activity}">${rel(s.last_activity)}</span>
+      <span class="spacer"></span>
+      ${pinned ? `<button class="col-pin on" data-action="pin" data-sid="${esc(sid)}" title="고정 해제 ( P )" data-icon="📌">📌 고정됨</button>` : ""}
+      <button class="col-zoom-btn" data-action="col-zoom" data-sid="${esc(sid)}" title="이 칸 크게 보기 — 누를 때마다 반 → 가득 → 평소 ( Z )" aria-label="이 칸 크게 보기"><span class="cz-in">⤢</span><span class="cz-out">⤡</span></button>
+      <button class="col-menu-btn" data-action="col-menu" data-sid="${esc(sid)}" title="이름 · 고정 · 보관 · 지우기" aria-label="칸 메뉴">⋮</button>
+    </div>
+    <div class="title-line col-title-line"><span class="col-title title-text" title="${esc(s.title)}">${esc(s.title)}</span></div>
+    <div class="col-meta"><span class="chip proj" title="${esc(s.project_root || "")}">${esc(s.project_name || base(s.project_root))}</span>${
+      s.board === "md" ? `<span class="chip bd-path" title="${esc(s.path || "")}">${esc(boardRelPath(s))}</span>`
+      : `<span class="chip bd-path" title="${esc(s.cwd)}">${esc(s.cwd.replace(/^\/Users\/[^/]+/, "~"))}</span>`}</div>`);
+  if (s.board === "md") syncMd(col, s); else syncBoardTerm(col, s);
+}
+
+// ---- 터미널 칸
+function syncBoardTerm(col, s) {
+  for (const box of [...TERM.live.keys()]) if (!box.isConnected) disposeTerm(box);
+  const box = col.querySelector(".bd-term"), closed = col.querySelector(".bd-closed");
+  if (!s.alive) {
+    disposeTerm(box);
+    box.hidden = true;
+    closed.hidden = false;
+    setHtml(closed, `<p>셸이 닫혔습니다 <span class="muted">(exit 했거나 tmux 서버가 꺼졌습니다)</span></p>
+      <button class="btn" data-bd-reopen="${esc(s.session_id)}">↻ 같은 폴더에서 다시 열기</button>`);
+    return;
+  }
+  closed.hidden = true;
+  box.hidden = false;
+  const cur = TERM.live.get(box);
+  if (cur && cur.shell !== s.shell) disposeTerm(box);
+  if (!TERM.live.has(box)) mountTerm(box, { shell: s.shell, board: true });
+}
+
+// ---- 마크다운 칸
+function mdState(s) {
+  let st = BD.docs.get(s.session_id);
+  if (!st) {
+    st = { text: "", mtime: 0, msgs: [], msgSig: null, loaded: false, loading: false, dirty: false, saving: false, timer: 0,
+      err: "", conflict: false, mode: load("csl.mdMode." + s.board_id, "edit") === "view" ? "view" : "edit" };
+    BD.docs.set(s.session_id, st);
+  }
+  return st;
+}
+function syncMd(col, s) {
+  const st = mdState(s);
+  const ta = col.querySelector(".md-edit");
+  ta.readOnly = !!s.ai_running;
+  col.querySelector(".md-ask-send").disabled = !!s.ai_running;
+  applyMdMode(col, st);
+  const stale = s.mtime && s.mtime > st.mtime + 0.001 && !st.dirty && !st.saving;   // 서버 쪽이 더 새것일 때만(AI·다른 곳에서 고침)
+  if ((!st.loaded || stale || s.msg_sig !== st.msgSig) && !st.loading) loadMd(s);
+  renderMdChat(col, st, s);
+  mdStatus(col, st, s);
+}
+function applyMdMode(col, st) {
+  const ta = col.querySelector(".md-edit"), view = col.querySelector(".md-view");
+  ta.hidden = st.mode !== "edit";
+  view.hidden = st.mode !== "view";
+  col.querySelectorAll("[data-md-mode]").forEach(b => b.classList.toggle("on", b.dataset.mdMode === st.mode));
+  if (st.mode === "view") setHtml(view, st.text.trim() ? md(st.text, { tasks: true }) : '<p class="muted">빈 문서입니다 — 「✎ 편집」에서 적거나 아래 AI 에게 맡기세요</p>');
+}
+async function loadMd(s, force) {
+  const st = mdState(s), sid = s.session_id;
+  st.loading = true;
+  try {
+    const d = await api("GET", `/api/boards/${s.board_id}`);
+    st.msgs = d.msgs;
+    st.msgSig = s.msg_sig;
+    st.loaded = true;
+    if (force || (!st.dirty && !st.saving)) {
+      st.text = d.text;
+      st.mtime = d.mtime;
+      st.dirty = false;
+      st.err = "";
+      st.conflict = false;
+      const col = colEl(sid), ta = col && col.querySelector(".md-edit");
+      if (ta && ta.value !== d.text) {
+        const focused = document.activeElement === ta, a = ta.selectionStart, b = ta.selectionEnd;
+        ta.value = d.text;
+        if (focused) ta.setSelectionRange(Math.min(a, d.text.length), Math.min(b, d.text.length));
+      }
+    }
+  } catch (e) {
+    st.err = e.message;
+  } finally {
+    st.loading = false;
+  }
+  const col = colEl(sid), cur = sessionById(sid);
+  if (col && cur) {
+    syncMd(col, cur);   // 불러오는 사이 AI 가 끝났으면(기록·문서가 또 바뀜) 여기서 한 번 더 불러온다
+  }
+}
+function mdStatus(col, st, s) {
+  const el = col.querySelector(".md-status");
+  const html = st.conflict ? `<span class="md-err">그사이 문서가 바뀌었습니다</span> <button class="linkish" data-md-reload="${esc(s.session_id)}">내 글 버리고 새로 불러오기</button>`
+    : st.err ? `<span class="md-err">${esc(st.err)}</span>`
+    : s.ai_running ? "AI 가 고치는 중 — 끝날 때까지 읽기만"
+    : st.saving ? "저장하는 중…" : st.dirty ? "고치는 중…" : st.loaded ? "저장됨" : "불러오는 중…";
+  setHtml(el, html);
+}
+function renderMdChat(col, st, s) {
+  const box = col.querySelector(".md-chat");
+  const msgs = st.msgs || [];
+  const html = msgs.length ? msgs.map(m => m.role === "user" ? `<div class="mdc-u">${esc(m.text)}</div>`
+      : m.role === "note" ? `<div class="mdc-note muted">↩ ${esc(m.text)}</div>`
+      : m.status === "running" ? `<div class="mdc-ai running"><span class="spin"></span> AI 가 문서를 고치는 중…</div>`
+      : `<div class="mdc-ai ${m.status}"><div class="md">${md(m.text || "")}</div><div class="mdc-meta muted">${
+          m.status === "error" ? "실패" : m.changed ? "문서를 고쳤습니다" : "문서는 그대로"}${m.model ? " · " + esc(m.model) : ""}${
+          m.undoable ? ` · <button class="linkish" data-md-undo="${m.id}" data-sid="${esc(s.session_id)}">되돌리기</button>` : ""}</div></div>`).join("")
+    : `<div class="mdc-empty muted">아래에 요청을 적으면 AI 가 이 문서를 고칩니다 — 예: 「회의록 형식으로 정리해줘」 「할 일만 체크리스트로 뽑아줘」</div>`;
+  if (box._html === html) return;
+  setHtml(box, html);
+  box.scrollTop = box.scrollHeight;
+}
+async function saveMd(sid) {
+  const st = BD.docs.get(sid), s = sessionById(sid), col = colEl(sid);
+  if (!st || !s || !col) return;
+  clearTimeout(st.timer);
+  if (st.saving) { st.timer = setTimeout(() => saveMd(sid), 400); return; }
+  if (!st.dirty || st.conflict) return;
+  const text = col.querySelector(".md-edit").value;
+  st.saving = true;
+  st.dirty = false;
+  mdStatus(col, st, s);
+  try {
+    const r = await api("POST", `/api/boards/${s.board_id}/doc`, { text, mtime: st.mtime });
+    st.mtime = r.mtime;
+    s.mtime = r.mtime;
+    st.text = text;
+    st.err = "";
+  } catch (e) {
+    st.dirty = true;
+    if (e.data && e.data.mtime) st.conflict = true; else st.err = e.message;
+  } finally {
+    st.saving = false;
+  }
+  const c = colEl(sid);
+  if (c) mdStatus(c, st, sessionById(sid) || s);
+}
+// 보기 화면의 체크박스: 원문의 그 줄 [ ] ↔ [x] 를 바꿔 편집칸에 넣고 저장한다(편집에서 친 것과 같은 길)
+function toggleMdTask(box) {
+  const col = box.closest(".col"), s = col && sessionById(col.dataset.col);
+  if (!s) return;
+  const st = mdState(s), ta = col.querySelector(".md-edit");
+  if (s.ai_running || st.conflict) { box.checked = !box.checked; return toast(s.ai_running ? "AI 가 고치는 중입니다" : "문서가 바뀐 것부터 정리해 주세요"); }
+  const lines = ta.value.replace(/\r/g, "").split("\n"), n = +box.dataset.line;
+  const m = lines[n] && lines[n].match(/^(\s*(?:[-*+]|\d+[.)])\s+\[)([ xX])(\].*)$/);
+  if (!m) { box.checked = !box.checked; return toast("그 항목을 원문에서 찾지 못했습니다 — 새로 불러온 뒤 다시"); }
+  lines[n] = m[1] + (box.checked ? "x" : " ") + m[3];
+  ta.value = st.text = lines.join("\n");
+  st.dirty = true;
+  clearTimeout(st.timer);
+  st.timer = setTimeout(() => saveMd(s.session_id), 300);
+  mdStatus(col, st, s);
+}
+async function sendMdAsk(sid) {
+  const s = sessionById(sid), col = colEl(sid);
+  if (!s || !col) return;
+  const ta = col.querySelector(".md-ask-text"), text = ta.value.trim();
+  if (!text || s.ai_running) return;
+  const st = mdState(s);
+  if (st.conflict) return toast("문서가 바뀐 것부터 정리해 주세요(새로 불러오기)");
+  if (st.dirty || st.saving) { st.dirty = true; await saveMd(sid); }   // 고치던 글을 먼저 저장해야 AI 가 그 글을 읽는다
+  try {
+    await api("POST", `/api/boards/${s.board_id}/ai`, { text });
+    ta.value = "";
+    s.ai_running = true;
+    col._key = "";
+    updateBoardCol(col, s, +col.style.order || 1, col.classList.contains("pin-last"));
+    refresh();
+  } catch (e) { toast(e.message); }
+}
+document.addEventListener("input", e => {
+  if (!e.target.matches || !e.target.matches(".md-edit")) return;
+  const col = e.target.closest(".col"), sid = col && col.dataset.col, st = sid && BD.docs.get(sid);
+  if (!st) return;
+  st.dirty = true;
+  clearTimeout(st.timer);
+  st.timer = setTimeout(() => saveMd(sid), 700);
+  const s = sessionById(sid);
+  if (s) mdStatus(col, st, s);
+});
+document.addEventListener("submit", e => {
+  const f = e.target.closest && e.target.closest(".md-ask");
+  if (!f) return;
+  e.preventDefault();
+  sendMdAsk(f.dataset.sid);
+});
+document.addEventListener("keydown", e => {
+  if (!e.target.matches || !e.target.matches(".md-ask-text")) return;
+  if (e.key === "Enter" && !e.shiftKey && !imeBusy(e)) { e.preventDefault(); sendMdAsk(e.target.closest(".md-ask").dataset.sid); }
+});
+document.addEventListener("click", async e => {
+  const mode = e.target.closest("[data-md-mode]");
+  if (mode) {
+    const col = mode.closest(".col"), s = sessionById(col.dataset.col);
+    if (!s) return;
+    const st = mdState(s);
+    if (st.mode === "edit") st.text = col.querySelector(".md-edit").value;
+    st.mode = mode.dataset.mdMode;
+    save("csl.mdMode." + s.board_id, st.mode);
+    applyMdMode(col, st);
+    if (st.mode === "edit") col.querySelector(".md-edit").focus();
+    return;
+  }
+  const task = e.target.closest(".md-view .md-task");
+  if (task) return toggleMdTask(task);
+  const rl = e.target.closest("[data-md-reload]");
+  if (rl) { const s = sessionById(rl.dataset.mdReload); if (s) loadMd(s, true); return; }
+  const un = e.target.closest("[data-md-undo]");
+  if (un) {
+    // 되돌리기는 AI 가 고치기 전 내용으로 통째로 — 그 뒤 직접 고친 것도 사라진다. 한 번 더 눌러야 한다
+    if (!un.dataset.armed) { un.dataset.armed = "1"; un.textContent = "한 번 더 누르면 되돌립니다(그 뒤에 고친 것도 사라짐)"; return; }
+    const s = sessionById(un.dataset.sid);
+    if (!s) return;
+    try { await api("POST", `/api/boards/${s.board_id}/undo`, { mid: +un.dataset.mdUndo }); toast("AI 가 고치기 전으로 되돌렸습니다"); }
+    catch (err) { toast(err.message); }
+    return refresh();
+  }
+  const ro = e.target.closest("[data-bd-reopen]");
+  if (ro) {
+    const s = sessionById(ro.dataset.bdReopen);
+    if (!s) return;
+    try { await termApi("POST", `/api/boards/${s.board_id}/reopen`, {}); } catch (err) { toast(err.message); }
+    return refresh();
+  }
+});
+document.addEventListener("dblclick", e => {   // 보기에서 두 번 누르면 편집으로
+  const v = e.target.closest && e.target.closest(".md-col .md-view");
+  if (v) v.closest(".col").querySelector('[data-md-mode="edit"]').click();
+});
+
+// ---- 칸 메뉴(보드 칸)
+function boardMenuHtml(s) {
+  return `
+    <button class="cm-item" data-cm="pin">📌 ${pinOf(s) ? "고정 풀기" : "맨 앞에 고정"} <span class="muted">P</span></button>
+    <button class="cm-item" data-cm="bd-rename">✎ 이름 바꾸기</button>
+    ${s.board === "md" ? `<button class="cm-item" data-cm="bd-copy">📋 파일 경로 복사 <span class="muted">${esc(boardRelPath(s))}</span></button>` : ""}
+    ${s.board === "term" && !s.alive ? `<button class="cm-item" data-cm="bd-reopen">↻ 셸 다시 열기</button>` : ""}
+    <button class="cm-item" data-cm="archive">🗄 ${s.archived ? "보관 해제" : "보관"} <span class="muted">${s.archived ? "" : "보드에서 숨기기"}</span></button>
+    <button class="cm-item danger" data-cm="bd-delete">🗑 칸 지우기 <span class="muted">${s.board === "md" ? "문서 파일은 남김" : "셸도 닫음"}</span></button>
+    ${colWidthOf(s.session_id) ? `<button class="cm-item" data-cm="width-reset">↔ 기본 너비로 <span class="muted">${colWidthOf(s.session_id)}px</span></button>` : ""}`;
+}
+// 처리했으면 true(메뉴 클릭 처리기의 앞부분에서 부른다)
+async function boardMenuAction(item, menu, s) {
+  const act = item.dataset.cm, sid = s.session_id;
+  if (act === "bd-rename") {
+    item.outerHTML = `<div class="cm-confirm"><input class="ctx-note bd-name" value="${esc(s.title)}" spellcheck="false">
+      <div class="cm-confirm-btns"><button class="btn" data-cm="cancel">취소</button><button class="btn primary" data-cm="bd-rename-yes">바꾸기</button></div></div>`;
+    const inp = menu.querySelector(".bd-name");
+    inp.focus();
+    inp.select();
+    inp.addEventListener("keydown", ev => { if (ev.key === "Enter" && !imeBusy(ev)) { ev.preventDefault(); menu.querySelector('[data-cm="bd-rename-yes"]').click(); } });
+    return true;
+  }
+  if (act === "bd-delete") {
+    item.outerHTML = `<div class="cm-confirm"><div>이 칸을 지울까요?<br><span class="muted">${s.board === "md"
+      ? `AI 대화 기록은 지워지고, 문서 파일(${esc(boardRelPath(s))})은 폴더에 그대로 남습니다`
+      : "그 터미널의 셸도 닫습니다 — 돌던 명령이 있으면 끊깁니다"}</span></div>
+      <div class="cm-confirm-btns"><button class="btn" data-cm="cancel">취소</button><button class="btn danger" data-cm="bd-delete-yes">지우기</button></div></div>`;
+    menu.querySelector('[data-cm="bd-delete-yes"]').focus();
+    return true;
+  }
+  menu.hidden = true;
+  if (act === "cancel") return true;
+  if (act === "bd-rename-yes") {
+    const v = (menu.querySelector(".bd-name") || {}).value || "";
+    try { await api("POST", `/api/boards/${s.board_id}/rename`, { title: v }); } catch (err) { toast(err.message); }
+    refresh();
+    return true;
+  }
+  if (act === "bd-delete-yes") {
+    try { await api("DELETE", `/api/boards/${s.board_id}`); toast("칸을 지웠습니다"); } catch (err) { toast(err.message); }
+    BD.docs.delete(sid);
+    refresh();
+    return true;
+  }
+  if (act === "bd-copy") {
+    try { await navigator.clipboard.writeText(s.path); toast("경로를 복사했습니다"); } catch (err) { toast(s.path); }
+    return true;
+  }
+  if (act === "bd-reopen") {
+    try { await termApi("POST", `/api/boards/${s.board_id}/reopen`, {}); } catch (err) { toast(err.message); }
+    refresh();
+    return true;
+  }
+  if (act === "archive") {
+    try { await api("POST", `/api/sessions/${sid}/archive`, { archived: !s.archived }); toast(s.archived ? "보관을 풀었습니다" : "보관했습니다"); }
+    catch (err) { toast(err.message); }
+    refresh();
+    return true;
+  }
+  return false;   // pin · width-reset 은 세션 칸과 같은 처리로
+}
+// 카드 보기의 보드 칸 카드(누르면 칸 보기에서 그 칸으로)
+function boardCardHtml(s, rank) {
+  const [icon, label] = BOARD_KIND[s.board] || ["", ""];
+  const key = rank <= 9 ? `<span class="sc-key">⌘${rank}</span>` : "";
+  return `<article class="scard idle ${pinOf(s) ? "pinned" : ""}" data-scard="${esc(s.session_id)}" style="--proj:${projColor(s.project_root || s.cwd)}">
+    <div class="sc-top"><span class="rank">${rank}</span><span class="chip board-kind">${icon} ${label}</span>
+      <span class="ago" data-ts="${s.last_activity}">${rel(s.last_activity)}</span><span class="spacer"></span>
+      ${pinOf(s) ? '<span class="sc-pin" title="고정됨">📌</span>' : ""}${key}</div>
+    <div class="sc-title">${esc(s.title)}</div>
+    <div class="sc-meta"><span class="chip proj">${esc(s.project_name || base(s.project_root))}</span></div>
+    <div class="sc-recap-none muted">${s.board === "md" ? esc(boardRelPath(s)) : esc(s.cwd.replace(/^\/Users\/[^/]+/, "~"))}</div>
+  </article>`;
+}

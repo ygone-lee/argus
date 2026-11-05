@@ -20,7 +20,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from csl import brain, cardchat, commands, config, connectors, daily, delegate, focus, gitreport, hook, inboxrun, locate, notesreport, sendqueue, store, terminals, update, webterm  # noqa: E402
+from csl import boards, brain, cardchat, commands, config, connectors, daily, delegate, focus, gitreport, hook, inboxrun, locate, notesreport, sendqueue, store, terminals, update, webterm  # noqa: E402
 from csl.terminals import tmux as tmux_term  # noqa: E402
 from csl.terminals import web as web_term  # noqa: E402
 
@@ -960,7 +960,7 @@ def list_state(conn, days, show_archived):
     # 할 일 카드가 생긴 시각들 — 보드가 「마지막으로 인박스를 본 뒤 새로 온 카드」를 센다(본 시각은 브라우저에 기억)
     inbox_new_at = [r[0] for r in conn.execute("SELECT created_at FROM inbox WHERE status='new'")]
     return {"sessions": sessions, "notes": notes, "settings": settings, "usage": store.read_usage(), "now": store.now(),
-            "inbox_new": len(inbox_new_at), "inbox_new_at": inbox_new_at}
+            "inbox_new": len(inbox_new_at), "inbox_new_at": inbox_new_at, "boards": boards.listing(conn, show_archived)}
 
 
 AGENTS = {"at": 0, "items": []}
@@ -1174,7 +1174,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(400, {"error": "웹소켓 요청이 아닙니다"})
         if sid == "shell":
             web, name = terminals.registry().get("web"), (query.get("name") or [""])[0]
-            if not web or not web.has_shell(name):
+            if not web or not (web.has_shell(name) or web.has_board_shell(name)):   # 드로어 셸 탭 · 보드의 터미널 칸
                 return self._send(404, {"error": "그 셸 탭이 없습니다"})
             return self._ws_attach(key, name, query)
         if sid == "launch":   # 막 띄운 세션(훅이 기록하기 전 — 폴더 신뢰 확인 창 등): 보드가 띄운 창만
@@ -1226,6 +1226,48 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         self._dispatch("DELETE")
+
+    def _boards(self, conn, method, path, body):
+        """세션이 아닌 보드 칸(csl/boards.py): 만들기 · 문서 읽기·저장 · AI 편집·되돌리기 · 이름 · 지우기.
+        터미널 칸을 만들거나 다시 여는 것은 셸을 띄우는 길이라 셸 탭과 같이 같은 출처·토큰(X-Argus-Term)을 요구한다."""
+        term_ok = lambda: self._term_ok(self.headers.get("X-Argus-Term") or "")
+        if path == "/api/boards" and method == "POST":
+            kind = body.get("kind")
+            if kind == "term" and not term_ok():
+                return self._send(403, {"error": "forbidden"})
+            b, err = boards.create(conn, kind, body.get("cwd") or "", body.get("title") or "")
+            return self._send(200, {"ok": True, "board": b}) if b else self._send(400, {"error": err})
+        m = re.fullmatch(r"/api/boards/(\d+)(?:/(doc|ai|undo|rename|reopen))?", path)
+        if not m:
+            return self._send(404, {"error": "not found"})
+        bid, action = int(m.group(1)), m.group(2)
+        if not conn.execute("SELECT 1 FROM boards WHERE id=?", (bid,)).fetchone():
+            return self._send(404, {"error": "그 칸이 없습니다"})
+        if action is None and method == "GET":
+            d = boards.read_doc(conn, bid)
+            return self._send(200, d) if d is not None else self._send(400, {"error": "문서 칸이 아닙니다"})
+        if action is None and method == "DELETE":
+            boards.remove(conn, bid)
+            return self._send(200, {"ok": True})
+        if method != "POST":
+            return self._send(405, {"error": "method"})
+        if action == "doc":
+            ok, err, mtime = boards.write_doc(conn, bid, body.get("text"), body.get("mtime"))
+            return self._send(200, {"ok": True, "mtime": mtime}) if ok else self._send(409, {"error": err, "mtime": mtime})
+        if action == "ai":
+            ok, err = boards.ask(conn, bid, body.get("text"))
+            return self._send(200, {"ok": True}) if ok else self._send(409, {"error": err})
+        if action == "undo":
+            ok, err = boards.undo(conn, bid, int(body.get("mid") or 0))
+            return self._send(200, {"ok": True}) if ok else self._send(409, {"error": err})
+        if action == "rename":
+            return self._send(200, {"ok": True}) if boards.rename(conn, bid, body.get("title")) else self._send(400, {"error": "이름을 적어 주세요"})
+        if action == "reopen":
+            if not term_ok():
+                return self._send(403, {"error": "forbidden"})
+            name = boards.reopen_shell(conn, bid)
+            return self._send(200, {"ok": True, "shell": name}) if name else self._send(502, {"error": "터미널을 열지 못했습니다"})
+        return self._send(404, {"error": "not found"})
 
     def _import(self, conn, sid, sess, tg, cwd, body):
         """보드 터미널로 가져오기의 본체 — 지금 터미널에서 끝내고(Orca·tmux) 보드 터미널에서 같은 세션으로 이어 연다."""
@@ -1786,6 +1828,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(502, {"error": err})
             LAUNCHED[tg.handle] = store.now()
             return self._send(200, {"ok": True, "handle": tg.handle, "terminal": tg.terminal.name, "label": tg.terminal.label})
+        if path == "/api/boards" or path.startswith("/api/boards/"):
+            return self._boards(conn, method, path, body)
         if path == "/api/shells" or path.startswith("/api/shells/"):
             # 오른쪽 터미널 드로어의 셸 탭: 브라우저에서 내 계정으로 아무 명령이나 실행하는 길이라
             # 같은 출처(Origin)·토큰(X-Argus-Term)을 늘 요구한다 — 다른 사이트가 몰래 셸을 띄우거나 닫지 못하게
@@ -2562,11 +2606,20 @@ class Handler(BaseHTTPRequestHandler):
             ids = [x for x in order + unpin if isinstance(x, str) and re.fullmatch(r"[\w\-]+", x)]
             if len(ids) != len(order) + len(unpin) or len(ids) > 200:
                 return self._send(400, {"error": "잘못된 세션 목록입니다"})
-            conn.executemany("UPDATE sessions SET pinned=? WHERE session_id=?", [(i + 1, sid) for i, sid in enumerate(order)])
-            conn.executemany("UPDATE sessions SET pinned=0 WHERE session_id=?", [(sid,) for sid in unpin])
+            for i, sid in enumerate(order):   # 보드 칸(bd-…)은 boards 표에
+                boards.set_pin(conn, sid, i + 1) or conn.execute("UPDATE sessions SET pinned=? WHERE session_id=?", (i + 1, sid))
+            for sid in unpin:
+                boards.set_pin(conn, sid, 0) or conn.execute("UPDATE sessions SET pinned=0 WHERE session_id=?", (sid,))
             return self._send(200, {"ok": True})
 
         m = re.fullmatch(r"/api/sessions/([\w\-]+)/(seen|archive|pin)", path)
+        if m and method == "POST" and boards.bid_of(m.group(1)) is not None:
+            bid, action = boards.bid_of(m.group(1)), m.group(2)
+            if action == "archive":
+                boards.set_archived(conn, bid, body.get("archived", True))
+            elif action == "pin":
+                boards.set_pin(conn, m.group(1), store.now() if body.get("pinned", True) else 0)
+            return self._send(200, {"ok": True})
         if m and method == "POST":
             sid, action = m.groups()
             if action == "seen":
@@ -2658,7 +2711,10 @@ def main():
     # 보드를 띄운 세션의 Claude Code·터미널 변수를 버린다 — 여기서 띄우는 터미널(보드 터미널 tmux 서버 등)과 세션이 물려받지 않게
     for k in [k for k in os.environ if terminals.session_env(k)]:
         del os.environ[k]
-    store.connect().close()
+    c = store.connect()
+    with c:
+        boards.ensure(c)   # 세션이 아닌 보드 칸(터미널·마크다운)
+    c.close()
     threading.Thread(target=_link_teams, daemon=True).start()
     try:
         httpd = ThreadingHTTPServer(("127.0.0.1", store.PORT), Handler)

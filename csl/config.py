@@ -26,6 +26,8 @@ SCHEMA = [
      "「＋ 새 세션」 창에서 처음 골라져 있는 모델. 비우면 Claude Code 설정대로."),
     ("new_default_effort", "보드", "새 세션 기본 effort", "choice", "high", EFFORTS,
      "「＋ 새 세션」 창에서 처음 골라져 있는 effort(claude --effort). 브레인이 effort 없이 새 세션을 열 때도 이 값."),
+    ("board_ai_model", "보드", "마크다운 보드 AI 모델", "choice", "sonnet", MODELS,
+     "마크다운 칸의 AI 대화창에서 문서를 고칠 때 쓰는 모델. 보낼 때마다 claude -p 를 한 번 돌리고, 그때마다 사용량이 듭니다."),
     ("auto_remote", "보드", "보낸 세션에 리모트 컨트롤 자동으로 켜기", "bool", False, None,
      "보드에서 대화를 보낸 세션의 리모트 컨트롤(claude.ai/code·모바일 앱)이 꺼져 있으면 켭니다."),
     ("auto_daily", "하루 정리", "하루 정리 자동으로 만들기", "bool", True, None,

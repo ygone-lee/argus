@@ -15,6 +15,7 @@ from csl.terminals.tmux import Tmux, _bin, _pane, _tmux
 
 SERVER = ["-L", "argus-web"]
 SHELL_NAME = re.compile(r"shell-\d+")
+BOARD_SHELL = re.compile(r"bterm-\d+")   # 보드의 터미널 칸(csl/boards.py) — 드로어 셸 탭과 따로
 # 브라우저 화면에 맞춘 tmux 설정: 상태 줄 없음, 마우스(휠 스크롤), 넉넉한 기록, 마지막으로 쓴 화면 크기에 맞춤
 OPTIONS = [("status", "off"), ("mouse", "on"), ("history-limit", "50000"), ("window-size", "latest"),
            ("escape-time", "10"), ("default-terminal", "xterm-256color"), ("focus-events", "on")]
@@ -109,6 +110,25 @@ class Web(Tmux):
             return None
         self._setup()
         return name
+
+    # ---------------------------------------------------------- 보드의 터미널 칸(csl/boards.py)
+    def board_shells(self):
+        r = self._t("list-sessions", "-F", "#{session_name}")
+        return [n for n in (r.stdout.split() if r else []) if BOARD_SHELL.fullmatch(n)]
+
+    def has_board_shell(self, name):
+        return bool(BOARD_SHELL.fullmatch(name or "")) and name in self.board_shells()
+
+    def new_board_shell(self, cwd=None):
+        cwd = cwd if cwd and os.path.isdir(cwd) else os.path.expanduser("~")
+        name = "bterm-%d" % (int(time.time() * 1000) % 10**9)
+        if not self._t("new-session", "-d", "-c", cwd, "-s", name, "-x", "120", "-y", "36", "-e", "ARGUS_WEB=1", timeout=15):
+            return None
+        self._setup()
+        return name
+
+    def kill_board_shell(self, name):
+        return self.has_board_shell(name) and bool(self._t("kill-session", "-t", "=" + name))
 
     def kill_shell(self, name):
         return self.has_shell(name) and bool(self._t("kill-session", "-t", "=" + name))
