@@ -1005,7 +1005,7 @@ body.bp-resizing, body.bp-resizing *, body.tp-resizing, body.tp-resizing * { cur
 .bp-body[hidden] { display: none; }
 /* 브레인 칸은 패널을 꽉 채우고, 보드 칸 전용 장치(고정·순번·너비 손잡이·메뉴)는 숨긴다 */
 .bp-body .col { flex: 1; width: auto !important; min-width: 0; max-width: none; margin: 0; border: 0; border-radius: 0; box-shadow: none; height: auto; min-height: 0; }
-.bp-body .col .rank, .bp-body .col .col-pin, .bp-body .col .col-resize, .bp-body .col .col-menu-btn { display: none; }
+.bp-body .col .rank, .bp-body .col .col-pin, .bp-body .col .col-resize { display: none; }
 .bp-quick { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0 8px; }
 .bp-quick .chip {
   height: 26px; padding: 0 11px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface);

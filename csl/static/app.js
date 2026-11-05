@@ -2259,15 +2259,15 @@ function openColMenu(btn) {
     : `<button class="cm-item" data-cm="remote">📡 원격 켜기 <span class="muted">/remote-control</span></button>`;
   menu.dataset.sid = sid;
   menu.innerHTML = `
-    <button class="cm-item" data-cm="archive">🗄 ${s.archived ? "보관 해제" : "보관"} <span class="muted">${s.archived ? "" : "보드에서 숨기기"}</span></button>
+    ${s.brain ? "" : `<button class="cm-item" data-cm="archive">🗄 ${s.archived ? "보관 해제" : "보관"} <span class="muted">${s.archived ? "" : "보드에서 숨기기"}</span></button>`}
     ${s.term_web && s.state !== "ended" && s.running !== false ? `<button class="cm-item" data-cm="restart">↻ 다시 열기 <span class="muted">끝내고 같은 대화로 새로</span></button>` : ""}
     ${!s.term_web && !s.brain ? `<button class="cm-item" data-cm="import">⇄ 보드 터미널로 가져오기 <span class="muted">${s.state === "ended" ? "이어 열기" : "다른 터미널에서 옮기기"}</span></button>` : ""}
     ${s.state !== "ended" ? `<button class="cm-item danger" data-cm="quit">⏻ 세션 종료 <span class="muted">Claude Code 를 닫고(/exit) 터미널 탭도 닫기</span></button>` : ""}
     ${remote}
-    <button class="cm-item" data-cm="pin">📌 ${pinOf(s) ? "고정 풀기" : "맨 앞에 고정"} <span class="muted">P</span></button>
+    ${s.brain ? "" /* 브레인은 패널에 따로 떠서 고정·목표·변경·너비가 의미 없다 — 다시 열기·종료·원격만 */ : `<button class="cm-item" data-cm="pin">📌 ${pinOf(s) ? "고정 풀기" : "맨 앞에 고정"} <span class="muted">P</span></button>
     ${d !== "ended" ? `<button class="cm-item" data-cm="goal">🎯 ${s.goal && !s.goal.met ? "목표 바꾸기·풀기" : "목표 걸기"} <span class="muted">/goal</span></button>` : ""}
     <button class="cm-item" data-cm="diff">🧾 변경 보기 <span class="muted">커밋 안 한 변경</span></button>
-    ${colWidthOf(sid) ? `<button class="cm-item" data-cm="width-reset">↔ 기본 너비로 <span class="muted">${colWidthOf(sid)}px</span></button>` : ""}`;
+    ${colWidthOf(sid) ? `<button class="cm-item" data-cm="width-reset">↔ 기본 너비로 <span class="muted">${colWidthOf(sid)}px</span></button>` : ""}`}`;
   menu.hidden = false;
   placeMenu(menu, btn, "right", 4);
 }
