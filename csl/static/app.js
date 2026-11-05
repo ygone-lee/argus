@@ -4209,7 +4209,7 @@ async function fillComposer(sid, text, imagePaths = []) {
 }
 document.addEventListener("input", e => {
   if (!e.target.classList.contains("cmp-text")) return;
-  markSeen(e.target.closest(".col.unread"));   // 입력창에 있던 채로 새 응답이 왔으면 타이핑할 때 확인
+  markSeen(e.target.closest(".col"));   // 입력창에 있던 채로 새 응답이 왔으면 타이핑할 때 확인
   S.drafts.set(e.target.closest(".composer").dataset.sid, e.target.value);
   autoGrow(e.target);
   updateSlash(e.target);
@@ -4645,15 +4645,19 @@ async function toggleTrail(tid, sid) {
 
 // 새 응답 확인 처리 — 칸(넥스트 액션 영역 제외)을 마우스로 누르거나, 그 칸의 채팅 입력창에 들어가거나,
 // 이미 입력창에 있으면 타이핑할 때만. ← → 나 ⌘숫자로 칸을 지나가며 선택만 된 것은 읽은 것으로 치지 않는다
+// 칸을 누르거나 입력창에 들어오면 그 세션을 본 것으로 — 「새 응답」 표시가 있거나, 알림(🔔)이 안 본 것으로 세는
+// 활동(확인 필요·질문·오류 포함)이 있을 때만 서버에 알린다
+S.unseenSids = new Set();
 function markSeen(col) {
-  if (!col || !col.classList.contains("unread")) return;
+  if (!col || !(col.classList.contains("unread") || S.unseenSids.has(col.dataset.col))) return;
+  S.unseenSids.delete(col.dataset.col);
   col.classList.remove("unread");
   const badge = col.querySelector(".unread-badge");
   if (badge) badge.remove();
-  api("POST", "/api/sessions/" + col.dataset.col + "/seen", {}).then(poll).catch(() => {});
+  api("POST", "/api/sessions/" + col.dataset.col + "/seen", {}).then(() => { viewsAt = 0; return poll(); }).catch(() => {});
 }
 document.addEventListener("click", async e => {
-  if (!e.target.closest(".note-add, .cf-notes, .cf-label")) markSeen(e.target.closest(".col.unread"));
+  if (!e.target.closest(".note-add, .cf-notes, .cf-label")) markSeen(e.target.closest(".col"));
   const el = e.target.closest("[data-action]");
   if (!el) return;
   const a = el.dataset.action;
@@ -5898,7 +5902,10 @@ function refreshViews() {
 
   api("GET", "/api/events?unseen=1&limit=99" + (S.projFilter ? "&project=" + encodeURIComponent(S.projFilter) : ""))
     .then(r => {
-      const n = r.items.filter(x => !x.brain).length;
+      // 보관(숨긴) 세션은 칸이 없어 눌러 볼 수 없다 — 세지 않는다
+      const items = r.items.filter(x => !x.brain && !x.archived);
+      S.unseenSids = new Set(items.map(x => x.session_id));
+      const n = items.length;
       $("#vtActivity").textContent = n ? (n >= 99 ? "99+" : String(n)) : "";
       $("#notifBtn").classList.toggle("has", !!n);
     }).catch(() => {});
@@ -5915,7 +5922,7 @@ async function loadNotif() {
   let unseen = [], recent = [];
   try {
     [unseen, recent] = await Promise.all([api("GET", "/api/events?unseen=1&limit=99" + kinds), api("GET", "/api/events?limit=30" + kinds)])
-      .then(rs => rs.map(r => r.items.filter(x => !x.brain)));
+      .then(rs => rs.map(r => r.items.filter(x => !x.brain && !x.archived)));
   } catch (e) { /* 다음에 */ }
   const ids = new Set(unseen.map(x => x.id));
   NOTIF.items = unseen.concat(recent.filter(x => !ids.has(x.id)).slice(0, Math.max(0, 30 - unseen.length)));

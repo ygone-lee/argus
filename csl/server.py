@@ -1349,6 +1349,11 @@ class Handler(BaseHTTPRequestHandler):
     def _api(self, conn, method, path, query, body):
         # 브레인(./argus)이 세션을 움직이거나 바꾸는 요청 — 자동 정리·자동 알림 차례면 한곳에서 막는다
         # (그때 읽는 슬랙·메일 본문의 지시로 다른 세션·설정이 움직이지 않게. 사용자가 브레인 대화에서 시킨 것만)
+        # 보드에서 그 세션에 보내거나 답하면(사람 — 브레인·CLI 가 아님) 그 세션을 본 것이다. 알림(🔔)의 「안 봄」은
+        # 보낸 시각까지로 센다 — 확인 필요·질문에 보드 카드로 답해도 알림이 남던 것
+        m = re.fullmatch(r"/api/sessions/([\w\-]+)/(?:send|answer|prompt)", path)
+        if m and method == "POST" and isinstance(body, dict) and not body.get("from"):
+            conn.execute("UPDATE sessions SET last_seen_at=? WHERE session_id=?", (store.now(), m.group(1)))
         if method in ("POST", "PATCH", "DELETE") and isinstance(body, dict) and body.get("from"):
             g = BRAIN_ACTIONS.fullmatch(path)
             if g:
