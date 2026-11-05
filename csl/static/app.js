@@ -4958,7 +4958,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") {
     // 위에 뜬 것부터 하나만 닫는다. 같은 Esc 로 펼친 카드까지 접히지 않게 뒤 처리기로 넘기지 않는다
     if (DRAG.on) { endDrag(true); e.stopImmediatePropagation(); return; }
-    const open = ["#resumeModal", "#xMenu", "#taskModal", "#diffModal", "#colMenu", "#ctxMenu", "#newMenu", "#projMenu", "#topMenu", "#help", "#settings", "#connectors"].find(id => !$(id).hidden);
+    const open = ["#resumeModal", "#xMenu", "#taskModal", "#diffModal", "#colMenu", "#ctxMenu", "#newMenu", "#projMenu", "#topMenu", "#notifMenu", "#help", "#settings", "#connectors"].find(id => !$(id).hidden);
     if (open) { $(open).hidden = true; e.stopImmediatePropagation(); return; }
     if (document.activeElement === $("#search") || !$("#searchPanel").hidden) { closeSearch(); e.stopImmediatePropagation(); return; }
     // 입력창에서 빠져나오기(쓰던 글은 그대로). 메모 고치기·이름 바꾸기는 각자 Esc 를 처리한다
@@ -4974,7 +4974,8 @@ document.addEventListener("keydown", e => {
   }
   if (isTyping() || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
   // 보기 전환: S 세션 · I 인박스 · A 활동
-  const view = { KeyS: "board", KeyI: "inbox", KeyA: "activity" }[e.code];
+  if (e.code === "KeyA" && !e.shiftKey) { e.preventDefault(); return toggleNotif(); }   // 알림 드롭다운(전체 활동은 그 맨 아래)
+  const view = { KeyS: "board", KeyI: "inbox" }[e.code];
   if (view === "board" && !e.shiftKey && S.view === "board") { e.preventDefault(); return setBoardMode(S.boardMode === "cards" ? "cols" : "cards"); }
   if (view && !e.shiftKey) { e.preventDefault(); return setView(view); }
   // ⇧T: 라이트 ↔ 다크(지금 보이는 것의 반대로 고정). 시스템 설정 따르기로 돌리려면 ⋮ 메뉴에서
@@ -5882,11 +5883,107 @@ function refreshViews() {
     .then(r => {
       const n = r.items.filter(x => !x.brain).length;
       $("#vtActivity").textContent = n ? (n >= 99 ? "99+" : String(n)) : "";
+      $("#notifBtn").classList.toggle("has", !!n);
     }).catch(() => {});
   if (S.view === "activity") loadActivity();
   if (S.view === "inbox") loadKanban().then(markInboxSeen);
   else if (inboxVisible()) markInboxSeen();
 }
+
+// ------------------------------------------------------------------ 알림(상단 🔔): 활동을 드롭다운으로
+// 안 본 활동은 모두(최대 99, 새것 순), 안 본 것이 적으면 이미 본 최근 활동으로 채워 30개. 고르면 그 세션 칸의 그 대화로 가서 강조
+const NOTIF = { items: [], sel: 0, open: false };
+async function loadNotif() {
+  const kinds = "&kind=" + EV_MAIN.join(",") + (S.projFilter ? "&project=" + encodeURIComponent(S.projFilter) : "");
+  let unseen = [], recent = [];
+  try {
+    [unseen, recent] = await Promise.all([api("GET", "/api/events?unseen=1&limit=99" + kinds), api("GET", "/api/events?limit=30" + kinds)])
+      .then(rs => rs.map(r => r.items.filter(x => !x.brain)));
+  } catch (e) { /* 다음에 */ }
+  const ids = new Set(unseen.map(x => x.id));
+  NOTIF.items = unseen.concat(recent.filter(x => !ids.has(x.id)).slice(0, Math.max(0, 30 - unseen.length)));
+  NOTIF.items.sort((a, b) => b.at - a.at || b.id - a.id);
+}
+function drawNotif() {
+  const m = $("#notifMenu");
+  const any = NOTIF.items.some(x => x.unseen);
+  const rows = NOTIF.items.map((x, i) => {
+    const [icon, label] = EV[x.kind] || ["•", x.kind];
+    return `<button class="nt-row k-${x.kind} ${x.unseen ? "unseen" : ""} ${i === NOTIF.sel ? "sel" : ""}" data-nt="${i}" title="${esc(label)}">
+      <span class="nt-icon">${icon}</span>
+      <span class="nt-main"><span class="nt-top"><b class="nt-title">${esc(x.title || "(제목 없음)")}</b><span class="nt-time">${rel(x.at)}</span></span>
+        <span class="nt-text">${esc(clamp(plainLine(x.text || label), 120))}</span></span>
+      ${x.unseen ? '<span class="nt-dot" aria-label="안 봄"></span>' : ""}</button>`;
+  }).join("");
+  setHtml(m, `<div class="nt-head"><b>알림</b><span class="spacer"></span>
+      ${any ? `<button class="btn ghost" data-nt-seen-all title="안 본 활동의 세션을 모두 본 것으로(보드의 「새 응답」도 풀림)">✓ 모두 읽음</button>` : ""}</div>
+    <div class="nt-list">${rows || '<div class="nt-empty">알림이 없습니다</div>'}</div>
+    <button class="nt-foot" data-nt-all>전체 활동 보기 →</button>`);
+  const sel = m.querySelector(".nt-row.sel");
+  if (sel) sel.scrollIntoView({ block: "nearest" });
+}
+async function toggleNotif(force) {
+  const m = $("#notifMenu");
+  const open = force !== undefined ? force : m.hidden;
+  if (!open) { m.hidden = true; $("#notifBtn").classList.remove("on"); return; }
+  NOTIF.sel = 0;
+  m.hidden = false;
+  $("#notifBtn").classList.add("on");
+  if (!NOTIF.items.length) setHtml(m, '<div class="nt-empty">불러오는 중…</div>');
+  await loadNotif();
+  if (!m.hidden) drawNotif();
+}
+// 알림 하나로: 본 것으로 표시하고, 그 턴이 있으면 칸에서 그 턴으로(노란 강조), 없으면(확인 필요·질문) 칸으로 가서 카드를 강조
+async function gotoNotif(x) {
+  toggleNotif(false);
+  if (x.unseen) api("POST", `/api/sessions/${x.session_id}/seen`, {}).then(() => { viewsAt = 0; poll(); }).catch(() => {});
+  if (x.turn_id) return jumpToTurn({ session_id: x.session_id, turn_id: x.turn_id, from_end: x.from_end || 1, in: "response" });
+  if (S.view !== "board") setView("board");
+  if (!boardSessions().some(s => s.session_id === x.session_id) && !S.showEnded) {
+    S.reveal = new Set([x.session_id]);
+    await poll();
+  }
+  const col = await focusCol(x.session_id);
+  if (!col) return;
+  const card = [...col.querySelectorAll(".ask-card, .prompt-card")].find(c => !c.hidden);
+  const el = card || col.querySelector(".col-head");
+  el.classList.remove("nt-hit"); void el.offsetWidth; el.classList.add("nt-hit");
+  if (card) card.scrollIntoView({ block: "nearest" });
+}
+$("#notifBtn").addEventListener("click", () => toggleNotif());
+$("#notifMenu").addEventListener("click", async e => {
+  if (e.target.closest("[data-nt-all]")) { toggleNotif(false); return setView("activity"); }
+  if (e.target.closest("[data-nt-seen-all]")) {
+    try {
+      const r = await api("POST", "/api/events/seen-all", S.projFilter ? { project: S.projFilter } : {});
+      toast(`모두 읽음으로 표시했습니다 · 세션 ${r.sessions}개`);
+    } catch (err) { toast(err.message); }
+    viewsAt = 0;
+    await poll();
+    await loadNotif();
+    return drawNotif();
+  }
+  const row = e.target.closest("[data-nt]");
+  if (row) gotoNotif(NOTIF.items[+row.dataset.nt]);
+});
+// 펼친 동안: ↑↓ 고르기 · Enter 그 대화로 (Esc 는 위에 뜬 것 닫기에서)
+document.addEventListener("keydown", e => {
+  if ($("#notifMenu").hidden || isTyping() || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    NOTIF.sel = Math.max(0, Math.min(NOTIF.items.length - 1, NOTIF.sel + (e.key === "ArrowDown" ? 1 : -1)));
+    return drawNotif();
+  }
+  if (e.key === "Enter" && NOTIF.items[NOTIF.sel]) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    gotoNotif(NOTIF.items[NOTIF.sel]);
+  }
+}, true);
+document.addEventListener("pointerdown", e => {   // 바깥을 누르면 닫는다
+  if (!$("#notifMenu").hidden && !e.target.closest(".notif-wrap")) toggleNotif(false);
+});
 
 // ------------------------------------------------------------------ 활동: 모든 세션의 새 응답·확인 필요·질문·오류
 const EV = {

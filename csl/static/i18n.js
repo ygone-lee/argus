@@ -156,6 +156,12 @@ const I18N_ROWS = [
   ["끄면 종료할 때 묻는 창에서 취소합니다", "オフなら終了時の確認で取り消します", "If off, the move is cancelled when exiting asks about it"],
   ["보드 터미널로 가져오는 중…", "ボードターミナルに移しています…", "Moving to the board terminal…"],
   ["지금 터미널에서 끝내고 같은 대화로 다시 엽니다", "今のターミナルで終了し、同じ会話で開き直します", "Ending it in its current terminal and reopening the same conversation"], ["보드 터미널로 가져왔습니다", "ボードターミナルに移しました", "Moved to the board terminal"],
+  // 알림(상단 🔔)
+  ["알림", "通知", "Notifications"], ["알림 — 새 응답·확인 필요·질문·오류 ( A )", "通知 — 新しい応答・要確認・質問・エラー ( A )", "Notifications — new replies, needs-you, questions, errors ( A )"],
+  ["안 본 활동의 세션을 모두 본 것으로(보드의 「새 응답」도 풀림)", "未確認の活動のセッションをすべて確認済みに(ボードの「新しい応答」も解除)", "Mark every session with unseen activity as seen (also clears \"new reply\" on the board)"],
+  ["알림이 없습니다", "通知はありません", "No notifications"], ["전체 활동 보기 →", "すべての活動を見る →", "See all activity →"], ["안 봄", "未確認", "unseen"],
+  ["보기 전환 — 세션 칸 · 인박스 칸반(칸을 다루는 키는 세션 보기에서만)", "表示の切り替え — セッション列・受信箱カンバン(列を操作するキーはセッション表示のみ)", "Switch views — session columns · inbox kanban (column keys work in the sessions view only)"],
+  ["알림 펴기·접기 —", "通知の開閉 —", "Open or close notifications —"], ["고르기 ·", "選ぶ ·", "select ·"], ["그 대화로 · 맨 아래 「전체 활동 보기」", "その会話へ · 一番下の「すべての活動を見る」", "go to that conversation · \"See all activity\" at the bottom"],
   // 보드 터미널 밖에서 도는 세션 띠
   ["백그라운드", "バックグラウンド", "Background"], ["터미널 없이 돌고 있습니다", "ターミナルなしで動いています", "running without a terminal"],
   ["다른 터미널", "別のターミナル", "Another terminal"], ["보드 터미널 밖에서 도는 세션", "ボードターミナルの外で動くセッション", "Running outside the board terminal"],
