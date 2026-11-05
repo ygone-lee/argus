@@ -6778,6 +6778,16 @@ function swGo(i) {
 }
 $("#swInput").addEventListener("input", () => { SW.sel = 0; swFilter(); });
 $("#swInput").addEventListener("keydown", e => {
+  // ⌘/⌃/⌥+숫자: 목록에 보이는 그 키의 세션으로(창을 닫고 간다). 창을 둔 채 뒤의 보드에서 칸이 바뀌고 입력창이 잡히던 것 —
+  // 보드의 같은 단축키는 preventDefault 된 키를 다시 받지 않는다
+  const digit = /^Digit([1-9])$/.exec(e.code);
+  if (digit && (e.metaKey || e.ctrlKey || e.altKey) && !e.shiftKey) {
+    e.preventDefault();
+    const i = SW.items.findIndex(x => x.rank === +digit[1]);
+    if (i >= 0) return swGo(i);
+    closeSwitcher();
+    return gotoRank(+digit[1]);
+  }
   if (imeBusy(e)) return;
   const n = SW.items.length;
   if (e.key === "ArrowDown" || (e.key === "Tab" && !e.shiftKey)) { e.preventDefault(); SW.sel = n ? (SW.sel + 1) % n : 0; swRender(); }
