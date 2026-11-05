@@ -56,6 +56,15 @@ function load(key, fallback) {
 function save(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* 저장 불가 환경 */ }
 }
+// 글자 크기(설정 → 화면): 화면 전체 배율과 대화 배율. 이 브라우저에만 기억하고 바로 적용한다
+const FONT_STEPS = [0.85, 0.9, 1, 1.1, 1.2, 1.3, 1.4];
+function applyFontScale() {
+  const r = document.documentElement.style;
+  const ui = load("csl.uiFont", 1), chat = load("csl.chatFont", 1);
+  r.setProperty("--ui-fs", FONT_STEPS.includes(ui) ? ui : 1);
+  r.setProperty("--chat-fs", FONT_STEPS.includes(chat) ? chat : 1);
+}
+applyFontScale();
 // 브라우저에 기억하는 Map(입력창 초안). 칠 때마다 쓰지 않고 입력이 0.5초 멈추면 한 번, 페이지를 떠날 때 한 번 저장한다
 // — 타이핑이 느려지지 않게. 빈 글은 버리고, 최근 30개 세션·한 개 2만 자까지만(이미지 첨부는 남기지 않는다)
 function persistMap(key) {
@@ -1403,7 +1412,7 @@ function updateCol(col, s, rank, lastPin) {
         ${forkChip(s, d)}
         ${s.term_attach && d !== "ended" ? `<button class="col-term-btn ${TERM.open.has(sid) ? "on" : ""}" data-action="term-toggle" data-sid="${esc(sid)}" data-icon="${TERM.open.has(sid) ? "💬" : "⌨"}"
           title="${TERM.open.has(sid) ? "대화 보기로" : s.term_web ? "이 세션의 터미널을 칸 안에서 열기(보드 터미널)" : "이 세션의 tmux 창을 칸 안에서 열기 — 닫아도 tmux 세션은 그대로"}">${TERM.open.has(sid) ? "💬 대화" : "⌨ 터미널"}</button>` : ""}
-        <button class="col-zoom-btn" data-action="col-zoom" data-sid="${esc(sid)}" title="이 칸만 크게 보기·되돌리기 ( Z )" aria-label="이 칸만 크게 보기"><span class="cz-in">⤢</span><span class="cz-out">⤡</span></button>
+        <button class="col-zoom-btn" data-action="col-zoom" data-sid="${esc(sid)}" title="이 칸 크게 보기 — 누를 때마다 반 → 가득 → 평소 ( Z )" aria-label="이 칸 크게 보기"><span class="cz-in">⤢</span><span class="cz-out">⤡</span></button>
         <button class="col-menu-btn" data-action="col-menu" data-sid="${esc(sid)}" title="보관 · 원격 · 고정" aria-label="칸 메뉴">⋮</button>
       </div>
       <div class="title-line col-title-line">
@@ -4917,7 +4926,7 @@ document.addEventListener("click", async e => {
   if (a === "cmp-stop") return stopSession(el.dataset.sid, el);
   if (a === "ask-term") return focusTerminal(el.dataset.sid);
   if (a === "col-menu") return openColMenu(el);
-  if (a === "col-zoom") { setActive(el.dataset.sid); return setColZoom(!S.colZoom); }
+  if (a === "col-zoom") { setActive(el.dataset.sid); return setColZoom((S.colZoom + 1) % 3); }
   if (a === "toggle-resp" || a === "toggle-prompt" || a === "toggle-mid") {
     const set = a === "toggle-resp" ? S.expanded : a === "toggle-mid" ? S.midOpen : S.promptOpen;
     const id = +el.dataset.tid;
@@ -5120,16 +5129,21 @@ function setActive(sid, opts = {}) {
   }
   return col;
 }
-// 이 칸만 크게 보기: 지금 칸 하나가 보드를 가득 채운다(다른 칸은 숨김). ⌘1~9·← → 로 칸을 바꾸면 크게 보는 칸도 따라 바뀐다.
-// 지금 칸이 없으면 평소 보드 그대로 보인다(CSS :has). 새로 고쳐도 이어지게 브라우저에 기억
+// 지금 칸 크게 보기 — 단계: 0 평소 → 1 보드 너비의 반 → 2 보드 가득(다른 칸은 숨김) → 0. ⌘1~9·← → 로 칸을 바꾸면
+// 크게 보는 칸도 따라 바뀐다. 지금 칸이 없으면 평소 보드 그대로 보인다(CSS :has). 새로 고쳐도 이어지게 브라우저에 기억
 const ZOOM_KEY = "csl.colZoom";
-try { S.colZoom = localStorage.getItem(ZOOM_KEY) === "1"; } catch (e) { S.colZoom = false; }
-document.body.classList.toggle("col-zoom", S.colZoom);
-function setColZoom(on) {
-  S.colZoom = on;
-  try { localStorage.setItem(ZOOM_KEY, on ? "1" : "0"); } catch (e) { /* 저장소 없음 */ }
-  document.body.classList.toggle("col-zoom", on);
-  if (on && S.view === "board" && S.boardMode === "cards") setBoardMode("cols");
+try { S.colZoom = Math.min(2, Math.max(0, +localStorage.getItem(ZOOM_KEY) || 0)); } catch (e) { S.colZoom = 0; }
+function zoomClasses() {
+  document.body.classList.toggle("col-zoom", S.colZoom > 0);
+  document.body.classList.toggle("col-zoom-half", S.colZoom === 1);
+  document.body.classList.toggle("col-zoom-full", S.colZoom === 2);
+}
+zoomClasses();
+function setColZoom(level) {
+  S.colZoom = level;
+  try { localStorage.setItem(ZOOM_KEY, String(level)); } catch (e) { /* 저장소 없음 */ }
+  zoomClasses();
+  if (level && S.view === "board" && S.boardMode === "cards") setBoardMode("cols");
   const sid = S.activeCol && colEl(S.activeCol) ? S.activeCol : colByRank(1);
   if (sid) setActive(sid, { scroll: true });
 }
@@ -5184,7 +5198,7 @@ document.addEventListener("keydown", e => {
       return;
     }
     // 이 칸만 크게 보던 중이면 평소 보드로(입력창에서는 위에서 먼저 빠져나오고, 한 번 더 누르면)
-    if (S.colZoom && S.view === "board" && !isTyping()) { setColZoom(false); e.stopImmediatePropagation(); return; }
+    if (S.colZoom && S.view === "board" && !isTyping()) { setColZoom(0); e.stopImmediatePropagation(); return; }
     return;
   }
   if (isTyping() || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
@@ -5240,7 +5254,7 @@ document.addEventListener("keydown", e => {
     case "KeyZ":
       e.preventDefault();
       if (e.shiftKey) return;
-      return setColZoom(!S.colZoom);
+      return setColZoom((S.colZoom + 1) % 3);
     case "KeyD":
       e.preventDefault();
       return openDaily();
@@ -5798,7 +5812,12 @@ async function openSettings() {
       <div class="cfg-ctl">${ctl(c)}${String(c.value) !== String(c.default) ? `<button class="linkish" data-cfg-reset="${c.key}" title="기본값: ${esc(String(c.default === "" ? "기본(설정대로)" : c.default))}">기본값</button>` : ""}</div>
     </div>`).join("")}</section>`).join("") +
     `<section class="cfg-group"><h3>화면</h3><div class="cfg-row"><label for="cfg-lang"><b>언어</b><span class="muted">이 브라우저에만 적용됩니다</span></label>
-      <div class="cfg-ctl"><select id="cfg-lang">${Object.entries(I18N_LANGS).map(([k, v]) => `<option value="${k}" ${k === LANG ? "selected" : ""}>${v}</option>`).join("")}</select></div></div></section>`;
+      <div class="cfg-ctl"><select id="cfg-lang">${Object.entries(I18N_LANGS).map(([k, v]) => `<option value="${k}" ${k === LANG ? "selected" : ""}>${v}</option>`).join("")}</select></div></div>
+      ${[["uiFont", "화면 글자 크기", "메뉴·칸 머리·카드 같은 화면 전체 — 바로 적용, 이 브라우저에만"], ["chatFont", "대화 글자 크기", "칸의 대화와 입력창 — 화면 글자 크기와 따로. 바로 적용, 이 브라우저에만"]].map(([k, l, h]) => {
+        const cur = load("csl." + k, 1);
+        return `<div class="cfg-row"><label for="cfg-${k}"><b>${l}</b><span class="muted">${h}</span></label>
+          <div class="cfg-ctl"><select id="cfg-${k}" data-font-scale="${k}">${FONT_STEPS.map(v => `<option value="${v}" ${v === cur ? "selected" : ""}>${Math.round(v * 100)}%${v === 1 ? " (기본)" : ""}</option>`).join("")}</select></div></div>`;
+      }).join("")}</section>`;
   $("#settingsMsg").textContent = "";
   $("#settings").hidden = false;
 }
@@ -5892,6 +5911,12 @@ $("#updateModal").addEventListener("click", e => {
   if (!last || Date.now() - last.at > 24 * 3600 * 1000) setTimeout(() => checkUpdate(true).catch(() => {}), 8000);
 })();
 $("#settingsSave").addEventListener("click", saveSettings);
+$("#settings").addEventListener("change", e => {
+  const k = e.target.dataset && e.target.dataset.fontScale;
+  if (!k) return;
+  save("csl." + k, Number(e.target.value));
+  applyFontScale();
+});
 $("#settings").addEventListener("click", e => {
   if (e.target.closest("[data-settings-close]") || e.target === $("#settings")) $("#settings").hidden = true;
   const r = e.target.closest("[data-cfg-reset]");
