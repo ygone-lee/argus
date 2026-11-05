@@ -1034,10 +1034,18 @@ function threadHtml(s, turns, hiddenCount, asides) {
   const head = parent ? `<div class="br-split" title="갈라지기 전 대화는 원본 쪽 탭에서 볼 수 있습니다">⑂ <a class="sref" data-action="fam-tab" data-root="${esc(s._fam.root)}" data-sid="${esc(parent.session_id)}">「${esc(clamp(sessionTitle(parent), 30))}」</a> ${s.branch_turns ? s.branch_turns + "턴째에서" : "에서"} 갈라짐${s.bg ? " · 백그라운드" : ""}</div>` : "";
   return head + older + (html || '<div class="muted" style="padding:16px 0">아직 요청이 없습니다.</div>') + compactHtml(s);
 }
+document.addEventListener("click", async e => {
+  const b = e.target.closest && e.target.closest("[data-aside-reread]");
+  if (!b) return;
+  const col = b.closest(".col");
+  try { toast((await api("POST", `/api/asides/${b.dataset.asideReread}/reread`, {})).message); } catch (err) { toast(err.message); }
+  refresh(col && col.dataset.col);
+});
 function asideHtml(a) {
   const body = a.status === "pending"
     ? '<div class="aside-wait muted"><span class="ibc-spin"></span> 답을 기다리는 중…</div>'
-    : a.status === "error" ? `<div class="aside-err">⚠ ${esc(a.answer || "답을 읽지 못했습니다")}</div>`
+    : a.status === "error" ? `<div class="aside-err">⚠ ${esc(a.answer || "답을 읽지 못했습니다")} <button class="linkish" data-aside-reread="${a.id}"
+        title="곁질문 창이 터미널에 아직 떠 있으면 다시 읽어 옵니다">↻ 다시 읽기</button></div>`
     : `<div class="aside-a md">${mdCached(a.answer || "")}</div>`;
   return `<div class="aside-card ${a.status}" data-aside="${a.id}">
     <div class="aside-head"><span class="aside-tag">💭 곁질문</span><span class="muted">/btw · 대화에 들어가지 않음 · ${hm(a.at)}</span></div>
@@ -1467,7 +1475,9 @@ function updateCol(col, s, rank, lastPin) {
   if (visible || !thread._html) {
     const html = detail ? threadHtml(s, turns, hidden, detail.asides)
       : `<div class="col-lazy">${visible ? "불러오는 중…" : "스크롤해서 보이면 대화를 불러옵니다"}</div>`;
+    const restoreInner = keepInnerScroll(thread);
     if (setHtml(thread, html)) {
+      restoreInner();
       const a = S.anchor.get(sid);
       if (a && detail) {
         // 위에 이전 대화가 붙은 만큼 내려서, 읽던 곳이 그대로 보이게
@@ -2148,6 +2158,18 @@ function placeMenu(menu, anchor, align = "left", gap = 6) {
   menu.style.left = Math.max(8, Math.min(x, innerWidth - menu.offsetWidth - 8)) + "px";
 }
 // 내용이 바뀐 경우에만 갈아 끼운다(깜빡임·선택 영역 유지). 바꿨으면 true
+// 대화를 통째로 다시 그려도(작업 중 글이 늘 때마다) 안에서 따로 스크롤하던 상자(곁질문 답)는 읽던 자리에 머물게 —
+// 다시 그리기 전에 위치를 적어 두고, 그린 뒤 같은 곁질문의 상자에 되돌린다
+function keepInnerScroll(root) {
+  const saved = [...root.querySelectorAll("[data-aside] .aside-a")]
+    .filter(el => el.scrollTop > 0).map(el => [el.closest("[data-aside]").dataset.aside, el.scrollTop]);
+  return () => {
+    for (const [id, top] of saved) {
+      const el = root.querySelector(`[data-aside="${CSS.escape(id)}"] .aside-a`);
+      if (el) el.scrollTop = top;
+    }
+  };
+}
 function setHtml(el, html) {
   if (el._html === html) return false;
   el._html = html;
@@ -7259,6 +7281,7 @@ function boardColSkeleton(s) {
         <textarea class="md-edit" spellcheck="false" placeholder="마크다운으로 적으세요 — 고치면 바로 저장됩니다"></textarea>
         <div class="md-view md" hidden></div>
       </div>
+      <div class="md-split" title="끌어서 문서·대화 크기 조절 · 더블클릭: 원래대로"></div>
       <div class="md-chat"></div>
       <form class="md-ask" data-sid="${sid}"><textarea class="md-ask-text" rows="1" placeholder="AI 에게 문서 고치기 요청  Enter 보내기 · Shift+Enter 줄바꿈"></textarea>
         <button class="btn primary md-ask-send" type="submit">보내기</button></form>`;
@@ -7332,6 +7355,7 @@ function mdState(s) {
   return st;
 }
 function syncMd(col, s) {
+  applyMdSplit(col, s);
   const st = mdState(s);
   const ta = col.querySelector(".md-edit");
   ta.readOnly = !!s.ai_running;
@@ -7518,6 +7542,59 @@ document.addEventListener("click", async e => {
 document.addEventListener("dblclick", e => {   // 보기에서 두 번 누르면 편집으로
   const v = e.target.closest && e.target.closest(".md-col .md-view");
   if (v) v.closest(".col").querySelector('[data-md-mode="edit"]').click();
+});
+
+// ---- 문서·대화 나누는 선: 끌어서 크기 조절, 더블클릭이면 원래대로. 보드 가득 크게 보기(Z 두 번)일 때는 대화가 오른쪽에 서고
+// 선도 세로가 된다. 크기는 칸마다 브라우저에 기억 — 위아래는 대화 몫(비율), 좌우는 대화 너비(px)
+function mdSideMode(col) { return document.body.classList.contains("col-zoom-full") && col.classList.contains("active"); }
+function applyMdSplit(col, s) {
+  const r = +load("csl.mdSplit." + s.board_id, 0), w = +load("csl.mdSide." + s.board_id, 0);
+  const doc = col.querySelector(".md-doc"), chat = col.querySelector(".md-chat");
+  if (!doc || !chat) return;
+  doc.style.flex = r ? `${1 - r} 1 0` : "";
+  chat.style.flex = r ? `${r} 1 0` : "";
+  chat.style.maxHeight = r ? "none" : "";
+  if (w) col.style.setProperty("--md-side", w + "px"); else col.style.removeProperty("--md-side");
+}
+document.addEventListener("pointerdown", e => {
+  const bar = e.target.closest && e.target.closest(".md-split");
+  if (!bar || e.button !== 0) return;
+  const col = bar.closest(".col"), s = col && sessionById(col.dataset.col);
+  if (!s) return;
+  e.preventDefault();
+  try { bar.setPointerCapture(e.pointerId); } catch (err) { /* 잡을 수 없는 포인터 — 선 위에서만 따라온다 */ }
+  bar.classList.add("dragging");
+  const side = mdSideMode(col);
+  const doc = col.querySelector(".md-doc"), chat = col.querySelector(".md-chat");
+  const move = ev => {
+    if (side) {
+      const cr = col.getBoundingClientRect();
+      const w = Math.round(Math.max(260, Math.min(cr.width - 320, cr.right - ev.clientX)));
+      save("csl.mdSide." + s.board_id, w);
+    } else {
+      const top = doc.getBoundingClientRect().top, bottom = chat.getBoundingClientRect().bottom;
+      const r = Math.max(0.12, Math.min(0.85, (bottom - ev.clientY) / Math.max(1, bottom - top)));
+      save("csl.mdSplit." + s.board_id, Math.round(r * 1000) / 1000);
+    }
+    applyMdSplit(col, s);
+  };
+  const up = () => {
+    bar.classList.remove("dragging");
+    bar.removeEventListener("pointermove", move);
+    bar.removeEventListener("pointerup", up);
+    bar.removeEventListener("pointercancel", up);
+  };
+  bar.addEventListener("pointermove", move);
+  bar.addEventListener("pointerup", up);
+  bar.addEventListener("pointercancel", up);
+});
+document.addEventListener("dblclick", e => {
+  const bar = e.target.closest && e.target.closest(".md-split");
+  if (!bar) return;
+  const col = bar.closest(".col"), s = col && sessionById(col.dataset.col);
+  if (!s) return;
+  try { localStorage.removeItem((mdSideMode(col) ? "csl.mdSide." : "csl.mdSplit.") + s.board_id); } catch (err) { /* 저장소 없음 */ }
+  applyMdSplit(col, s);
 });
 
 // ---- 칸 메뉴(보드 칸)

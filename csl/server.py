@@ -465,9 +465,9 @@ def strip_slack_links(text):
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
-def capture_btw(t, aside_id, question):
+def capture_btw(t, aside_id, question, **kw):
     """곁질문(/btw) 답을 터미널 화면에서 읽어 저장하고 창을 닫는다(백그라운드)."""
-    answer, err = focus.read_btw(t, question)
+    answer, err = focus.read_btw(t, question, **kw)
     conn = store.connect()
     try:
         with conn:
@@ -2218,6 +2218,18 @@ class Handler(BaseHTTPRequestHandler):
                 msg += " · 리모트 컨트롤을 켰습니다"
             return self._send(200, {"ok": True, "message": msg, "stages": stages, "images": len(paths)})
 
+        m = re.fullmatch(r"/api/asides/(\d+)/reread", path)
+        if m and method == "POST":
+            # 답을 못 읽은 곁질문: 창이 아직 터미널에 떠 있으면 다시 읽는다(창이 늦게 떴거나 읽는 사이 놓친 것)
+            a = conn.execute("SELECT * FROM asides WHERE id=?", (int(m.group(1)),)).fetchone()
+            sess = a and conn.execute("SELECT * FROM sessions WHERE session_id=?", (a["session_id"],)).fetchone()
+            t = sess and focus.target_of(dict(sess))
+            if not t:
+                return self._send(404, {"error": "그 세션의 터미널을 찾지 못했습니다"})
+            conn.execute("UPDATE asides SET status='pending', answer=NULL WHERE id=?", (a["id"],))
+            conn.commit()
+            threading.Thread(target=capture_btw, args=(t, a["id"], a["question"]), kwargs={"timeout": 30, "find_wait": 6}, daemon=True).start()
+            return self._send(200, {"ok": True, "message": "곁질문 창을 다시 읽는 중입니다"})
         if path == "/api/open" and method == "POST":
             target = body.get("path") or ""
             if not isinstance(target, str) or not target.startswith(("/", "~/")):

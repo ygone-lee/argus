@@ -575,13 +575,14 @@ def _btw_view(lines, question):
     return "c to copy" in lines[foot], text
 
 
-def read_btw(t, question, timeout=150):
-    """곁질문 창에서 답을 읽고 창을 닫는다(Esc — 곁질문은 닫아도 목록에 남는다). (답 또는 None, 오류 문구)"""
+def read_btw(t, question, timeout=150, find_wait=45):
+    """곁질문 창에서 답을 읽고 창을 닫는다(Esc — 곁질문은 닫아도 목록에 남는다). (답 또는 None, 오류 문구)
+    find_wait: 창이 이 안에 안 보이면 포기한다. 세션이 한창 작업 중이면 창이 늦게 뜬다(실측 8초로는 모자랐다)."""
     end, last, same = time.time() + timeout, None, 0
     while time.time() < end:
         time.sleep(1)
         done, text = _btw_view(_screen(t), question)
-        if text is None and last is None and time.time() > end - timeout + 8:
+        if text is None and last is None and time.time() > end - timeout + find_wait:
             return None, "곁질문 창을 찾지 못했습니다(터미널에서 닫혔거나 모양이 바뀜)"
         if done and text:
             same = same + 1 if text == last else 0
