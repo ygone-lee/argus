@@ -58,6 +58,7 @@
         <option value="system">시스템 설정 따르기</option><option value="light">라이트</option><option value="dark">다크</option></select></label>
       <button class="tm-item" id="connectorsBtn" data-tm-close title="슬랙·Gmail 등 바깥 서비스에서 나에게 온 것을 모아 브레인 인박스로">🔌 커넥터</button>
       <button class="tm-item" id="settingsBtn" data-tm-close title="하루 정리 시각·브레인 폴더·보관 기간 등">⚙ 설정</button>
+      <button class="tm-item" id="updateBtn" data-tm-close title="GitHub 에 새 변경·새 릴리스가 있는지 확인하고 받기">⟳ 업데이트 확인 <span class="upd-dot" id="updDot" hidden></span></button>
       <button class="tm-item" id="helpBtn" data-tm-close title="단축키 ( ? )">⌨ 단축키 <kbd>?</kbd></button>
     </div>
   </div>
@@ -106,6 +107,15 @@
     <div class="help-head"><h2>커넥터</h2><button class="btn ghost" data-conn-close>닫기 (Esc)</button></div>
     <p class="muted conn-intro">바깥 서비스에서 나에게 온 것을 모아 브레인 인박스로 넘깁니다. 키·토큰은 macOS 키체인에만 저장됩니다.</p>
     <div class="settings-body" id="connBody"></div>
+  </div>
+</div>
+
+<div class="help settings" id="updateModal" hidden>
+  <div class="help-box settings-box upd-box">
+    <div class="help-head"><h2>업데이트</h2><button class="btn ghost" data-upd-close>닫기 (Esc)</button></div>
+    <div class="settings-body" id="updBody"></div>
+    <div class="settings-foot"><span class="muted" id="updMsg"></span>
+      <button class="btn" data-upd-check>다시 확인</button><button class="btn primary" id="updApply" hidden>업데이트</button></div>
   </div>
 </div>
 

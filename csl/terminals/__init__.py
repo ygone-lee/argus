@@ -108,6 +108,18 @@ ORDER = ["orca", "web", "tmux"]   # 기본 터미널 우선순위(앞이 기본)
 _registry = None
 
 
+# 세션 하나에 딸린 환경 변수: 보드 서버를 Claude 세션(훅·그 세션의 셸)이 띄우면 이것들을 물려받는다. 그대로 두면 보드가
+# 띄우는 터미널·세션이 남의 세션 ID·원격(Remote Control) 세션·메시지 토큰·터미널 식별자를 갖고 시작한다
+# (보드 터미널의 세션들이 모두 띄운 쪽 세션의 원격에 연결된 것으로 기록되던 것). 사용자 설정 값(CLAUDE_CONFIG_DIR 등)은 둔다
+SESSION_ENV = {"CLAUDECODE", "CLAUDE_PID", "CLAUDE_EFFORT", "TMUX", "TMUX_PANE", "ITERM_SESSION_ID", "TERM_SESSION_ID",
+               "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "__CFBundleIdentifier", "ARGUS_WEB"}
+SESSION_ENV_PREFIXES = ("CLAUDE_CODE_", "ORCA_")
+
+
+def session_env(name):
+    return name in SESSION_ENV or name.startswith(SESSION_ENV_PREFIXES)
+
+
 def registry():
     """설치된 구현체 {이름: 인스턴스} — csl/terminals/*.py 의 TERMINAL."""
     global _registry

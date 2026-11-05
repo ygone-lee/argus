@@ -20,7 +20,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from csl import brain, cardchat, commands, config, connectors, daily, delegate, focus, gitreport, hook, inboxrun, locate, notesreport, sendqueue, store, terminals, webterm  # noqa: E402
+from csl import brain, cardchat, commands, config, connectors, daily, delegate, focus, gitreport, hook, inboxrun, locate, notesreport, sendqueue, store, terminals, update, webterm  # noqa: E402
 from csl.terminals import tmux as tmux_term  # noqa: E402
 from csl.terminals import web as web_term  # noqa: E402
 
@@ -545,6 +545,25 @@ def clear_stale_ask(conn, sid, min_age=4):
     return True
 
 
+def restart_server():
+    """보드 서버를 같은 프로세스 자리에서 새 코드로 다시 띄운다(업데이트 뒤). launchd 가 띄운 것이면 그대로 launchd 소속으로 남는다.
+    열린 연결(터미널 웹소켓 등)은 끊기고 화면이 다시 붙는다."""
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except OSError:
+        pass
+    os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)])
+
+
+def live_remote(sid):
+    """지금 연결된 원격(Remote Control) 세션 ID, 연결 안 됐으면 "", 실행 목록을 못 읽으면 None(모름)."""
+    run = focus.running_sessions()
+    if run is None or sid not in run:
+        return None
+    return run[sid].get("bridge") or ""
+
+
 def brain_guard(conn, body, target_sid):
     """브레인(./argus send·remote·quit·archive·new)가 보낸 요청이면 막을 이유(문자열), 아니면 None.
 
@@ -910,6 +929,9 @@ def list_state(conn, days, show_archived):
         s["term_label"] = term_label(s.get("terminal"), tg)   # 어디서 도는지(보드 터미널이 아니면 칸에 띠로 보인다)
         # 프로세스가 살아 있는지(Claude Code 실행 목록) — 모르면 True. 꺼졌는데 「대기」로 남은 세션을 칸에 표시한다
         s["running"] = running is None or s["session_id"] in running
+        # 원격(Remote Control): 실행 목록이 알려 주는 지금 연결된 원격 세션 — 훅 기록(환경 변수)보다 정확하다(자동 연결도 보인다)
+        if running is not None:
+            s["remote"] = (running.get(s["session_id"]) or {}).get("bridge") or None
         s.pop("terminal", None)
         s["ctx"] = store.context_info(s["session_id"], s.get("transcript_path"))
         s["goal"] = store.goal_info(s.get("transcript_path"))   # /goal (기록 파일이 그대로면 기억한 값)
@@ -1211,7 +1233,7 @@ class Handler(BaseHTTPRequestHandler):
         if running:
             if sess["state"] in ("working", "waiting"):
                 return self._send(409, {"error": "작업 중이거나 확인을 기다리는 세션입니다 — 끝난 뒤 가져와 주세요"})
-            if not tg or tg.terminal.name not in ("orca", "tmux"):
+            if not tg or tg.terminal.name not in ("orca", "tmux", "web"):
                 return self._send(409, {"error": "보드가 이 터미널을 조작할 수 없습니다 — 그 터미널에서 /exit 로 끝낸 뒤 다시 눌러 주세요"})
             # stop_tasks: 그 세션에서 도는 백그라운드 작업(개발 서버 등)도 끄고 옮긴다 — 아니면 종료가 물을 때 취소한다
             code, res = self._quit(conn, sid, {"worktree": "keep", "abort_prompt": True, "stop_tasks": bool(body.get("stop_tasks"))})
@@ -1786,6 +1808,17 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(404, {"error": "그 셸 탭이 없습니다"})
                 return self._send(200, {"ok": True})
             return self._send(404, {"error": "not found"})
+        if method == "GET" and path == "/api/update":
+            # 업데이트 확인: 원격(origin)에 받을 커밋·새 릴리스 태그가 있는지. fetch=0 이면 원격을 가져오지 않고 지금 아는 것만
+            return self._send(200, update.check(fetch=(query.get("fetch") or ["1"])[0] != "0"))
+        if method == "POST" and path == "/api/update":
+            # 업데이트 받기(fast-forward 만). 받았으면 응답을 보낸 뒤 보드 서버를 새 코드로 다시 띄운다
+            if body.get("from"):
+                return self._send(403, {"error": "업데이트는 보드 화면에서만 받을 수 있습니다"})
+            ok, msg, n = update.apply()
+            if ok:
+                threading.Timer(1.0, restart_server).start()
+            return self._send(200 if ok else 409, {"ok": True, "message": msg, "commits": n} if ok else {"error": msg})
         if method == "GET" and path == "/api/term/token":
             # 보드 터미널 웹소켓 토큰(서버를 띄울 때마다 새로). Host 검사를 지난 같은 출처 화면만 읽을 수 있다(CORS 없음)
             return self._send(200, {"token": webterm.TOKEN, "available": bool(tmux_term._bin())})
@@ -2093,8 +2126,9 @@ class Handler(BaseHTTPRequestHandler):
             # 이미 켜진 세션에 /remote-control 을 다시 보내면 상태 창이 떠서 이어 보내는 글을 가로챈다
             rc_sent = False
             # 브레인·카드 맡기기처럼 다른 세션이 보낸 것(from)은 사용자가 그 세션과 직접 대화한 게 아니니 켜지 않는다
+            live = live_remote(sess["session_id"])
             if (store.get_setting(conn, "auto_remote", False) and not body.get("from")
-                    and not sess["remote"] and not sess["rc_requested_at"]):
+                    and not (live if live is not None else sess["remote"]) and not sess["rc_requested_at"]):
                 rc_sent, _, _ = focus.send_prompt(handle, "/remote-control")
                 if rc_sent:
                     conn.execute("UPDATE sessions SET rc_requested_at=? WHERE session_id=?", (store.now(), sess["session_id"]))
@@ -2188,7 +2222,25 @@ class Handler(BaseHTTPRequestHandler):
             why = brain_guard(conn, body, sess["session_id"])
             if why:
                 return self._send(403, {"error": why})
-            if sess["remote"]:
+            live = live_remote(sess["session_id"])
+            on = live if live is not None else sess["remote"]
+            if body.get("off"):
+                # 원격 끄기: /remote-control 로 상태 창을 열고 「Disconnect this session」
+                if not on:
+                    conn.execute("UPDATE sessions SET remote=NULL, rc_requested_at=NULL WHERE session_id=?", (sess["session_id"],))
+                    return self._send(200, {"ok": True, "message": "이미 꺼져 있습니다"})
+                if sess["state"] in ("working", "waiting"):
+                    return self._send(409, {"error": "작업 중이거나 확인을 기다리는 중입니다 — 끝난 뒤 꺼 주세요"})
+                handle, err = terminal_target(conn, sess)
+                if not handle:
+                    return self._send(409, {"error": err})
+                ok, msg = focus.rc_disconnect(handle)
+                if ok:
+                    conn.execute("UPDATE sessions SET remote=NULL, rc_requested_at=NULL WHERE session_id=?", (sess["session_id"],))
+                return self._send(200 if ok else 409, {"ok": True, "message": msg} if ok else {"error": msg})
+            if on:
+                if not sess["remote"]:
+                    conn.execute("UPDATE sessions SET remote=? WHERE session_id=?", (on, sess["session_id"]))
                 return self._send(200, {"ok": True, "message": "이미 연결돼 있습니다"})
             if sess["state"] == "waiting":
                 return self._send(409, {"error": "확인 필요 상태입니다. 터미널에서 승인·답변을 먼저 해 주세요"})
@@ -2373,10 +2425,13 @@ class Handler(BaseHTTPRequestHandler):
             why = brain_guard(conn, body, sid)
             if why:
                 return self._send(403, {"error": why})
-            if brain.is_brain(sess["cwd"]):
+            # restart: 이미 보드 터미널에 있는 세션도 같은 방법(끝내고 같은 대화로 이어 열기)으로 다시 연다 — 환경이 꼬인 세션을
+            # 깨끗한 환경에서 다시 띄울 때(실행 중인 프로세스의 환경 변수는 바꿀 수 없다)
+            restart = bool(body.get("restart"))
+            if brain.is_brain(sess["cwd"]) and not restart:
                 return self._send(409, {"error": "브레인은 늘 보드 터미널에서 돕니다 — 브레인 패널에서 다시 시작해 주세요"})
             tg = focus.target_of(sess)
-            if tg and tg.terminal.name == "web" and sess["state"] != "ended" and not not_running(conn, sid):
+            if tg and tg.terminal.name == "web" and sess["state"] != "ended" and not not_running(conn, sid) and not restart:
                 return self._send(409, {"error": "이미 보드 터미널에서 돌고 있습니다"})
             full = conn.execute("SELECT bg, cwd, worktree FROM sessions WHERE session_id=?", (sid,)).fetchone()
             x = live_agent(sid) if full["bg"] else None
@@ -2600,6 +2655,9 @@ def _link_teams():
 
 
 def main():
+    # 보드를 띄운 세션의 Claude Code·터미널 변수를 버린다 — 여기서 띄우는 터미널(보드 터미널 tmux 서버 등)과 세션이 물려받지 않게
+    for k in [k for k in os.environ if terminals.session_env(k)]:
+        del os.environ[k]
     store.connect().close()
     threading.Thread(target=_link_teams, daemon=True).start()
     try:

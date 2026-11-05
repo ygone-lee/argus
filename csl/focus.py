@@ -165,7 +165,8 @@ def _pid_alive(pid):
 
 
 def running_sessions():
-    """{세션 ID: {"pid", "kind"}} — 지금 살아 있는 Claude Code 프로세스. 실행 목록을 읽을 수 없으면 None(모름)."""
+    """{세션 ID: {"pid", "kind", "bridge"}} — 지금 살아 있는 Claude Code 프로세스. 실행 목록을 읽을 수 없으면 None(모름).
+    bridge: 지금 연결된 Remote Control 세션 ID(연결 안 됐으면 "") — 훅 환경 변수보다 정확하다(자동 연결도 보인다)."""
     try:
         names = os.listdir(SESSIONS_DIR)
     except OSError:
@@ -184,7 +185,7 @@ def running_sessions():
             continue
         readable = True
         if _pid_alive(pid):
-            out[sid] = {"pid": pid, "kind": d.get("kind") or ""}
+            out[sid] = {"pid": pid, "kind": d.get("kind") or "", "bridge": d.get("bridgeSessionId") or ""}
     return out if readable else None
 
 
@@ -1007,15 +1008,20 @@ def _ask_view(lines):
     if top is None:
         return None
     body = lines[top + 1:]
-    if body and body[0].strip() == "Review your answers":
-        answers, cur = [], None
-        for ln in body[1:]:
+    first = next((ln.strip() for ln in body if ln.strip()), "")   # v2.1.318 은 제목 위에 빈 줄을 하나 더 그린다
+    if first == "Review your answers":
+        answers, cur, in_answer = [], None, False
+        for ln in body[body.index(next(ln for ln in body if ln.strip())) + 1:]:
             s = ln.strip()
+            if s.startswith("Ready to submit"):
+                break
             if s.startswith("●"):
-                cur = [s[1:].strip(), ""]
+                cur, in_answer = [s[1:].strip(), ""], False
                 answers.append(cur)
             elif s.startswith("→") and cur is not None:
-                cur[1] = s[1:].strip()
+                cur[1], in_answer = s[1:].strip(), True
+            elif s and cur is not None:   # 칸 너비에서 감긴 줄 — 답이면 답에, 아니면 질문에 잇는다
+                cur[1 if in_answer else 0] += " " + s
         return {"kind": "review", "answers": answers}
     question, rows, submit_cursor, started = [], [], False, False
     # 선택지 아래 가로줄 밑의 「N. Chat about this」 — 답하지 않고 대화로(질문을 거절하고 입력칸으로 돌아간다)
@@ -1025,9 +1031,11 @@ def _ask_view(lines):
         if m and int(m.group(2)) == len(rows) + 1:
             started = True
             rows.append({"n": int(m.group(2)), "label": m.group(4), "checked": m.group(3) not in (None, " "),
-                         "box": m.group(3) is not None, "cursor": bool(m.group(1))})
+                         "box": m.group(3) is not None, "cursor": bool(m.group(1)), "more": []})
         elif _ASK_SUBMIT.match(ln):
             submit_cursor = bool(_ASK_SUBMIT.match(ln).group(1))
+        elif started and rows and ln.strip() and not ln.startswith("─"):
+            rows[-1]["more"].append(ln.strip())   # 그 선택지의 설명 줄, 또는 직접 입력한 글이 감긴 줄
         elif not started and ln.strip():
             question.append(ln.strip())
         elif ln.startswith("─"):
@@ -1037,6 +1045,17 @@ def _ask_view(lines):
 
 def _norm_q(s):
     return re.sub(r"\s+", "", s or "")
+
+
+def _other_text(row):
+    """직접 입력 줄의 글 전체(칸 너비에서 감긴 줄까지 — 빈칸은 뺀 비교용)."""
+    return _norm_q(row["label"] + "".join(row.get("more") or [])) if row else ""
+
+
+def _other_ok(row, other):
+    got, want = _other_text(row), _norm_q(other)
+    # 아주 긴 글은 창이 앞뒤만 보여 줄 수 있다 — 앞부분과 끝부분이 맞으면 들어간 것
+    return got == want or (len(want) > 300 and got.startswith(want[:100]) and want[-30:] in got)
 
 
 @_serial
@@ -1069,6 +1088,76 @@ def decline_ask(t, questions):
     return False, "눌렀지만 질문 창이 그대로입니다 — 터미널에서 확인해 주세요"
 
 
+RC_DISCONNECT = "Disconnect this session"
+
+
+@_serial
+def rc_disconnect(t):
+    """원격(Remote Control)이 켜진 세션에 /remote-control 을 보내 상태 창을 열고 「Disconnect this session」을 고른다.
+    상태 창(v2.1.318 실측): 「Remote Control / … / Disconnect this session / Show QR code … / ❯ Continue / Enter to select · Esc to continue」
+    — 번호 없이 커서(❯)로 고른다. (성공 여부, 안내)"""
+    if not t:
+        return False, "터미널을 찾지 못했습니다"
+    box = dialog_text(t)
+    if box:
+        return False, "터미널에 선택 창이 떠 있습니다: " + box
+    if not (t.terminal.write(t.handle, "/remote-control") and _landed(t, "/remote-control")):
+        return False, "입력 전송 실패"
+    time.sleep(0.3)
+    t.terminal.write(t.handle, "\r")
+
+    def opts():
+        lines = [ln.replace("\xa0", " ").rstrip() for ln in _screen(t)]
+        if not any(RC_DISCONNECT in ln for ln in lines):
+            return None
+        rows = [ln for ln in lines if ln.strip().lstrip("❯").strip().startswith((RC_DISCONNECT, "Show QR code", "Continue"))]
+        names = [r.strip().lstrip("❯").strip() for r in rows]
+        cur = next((i for i, r in enumerate(rows) if r.strip().startswith("❯")), None)
+        tgt = next((i for i, n in enumerate(names) if n.startswith(RC_DISCONNECT)), None)
+        return cur, tgt
+    v = None
+    for _ in range(16):
+        time.sleep(0.25)
+        v = opts()
+        if v and v[0] is not None:
+            break
+    if not v or v[0] is None or v[1] is None:
+        if v:
+            _raw(t, ESC)
+        return False, "원격 상태 창을 찾지 못했습니다(이미 꺼져 있을 수 있음)"
+    cur, tgt = v
+    if cur != tgt:
+        _raw(t, (UP if tgt < cur else DOWN) * abs(cur - tgt))
+        time.sleep(0.35)
+        v = opts()
+        if not v or v[0] != v[1]:
+            _raw(t, ESC)
+            return False, "「Disconnect」 줄로 가지 못했습니다 — 터미널에서 확인해 주세요"
+    _raw(t, "\r")
+    for _ in range(12):
+        time.sleep(0.25)
+        if opts() is None:
+            return True, "원격(Remote Control)을 껐습니다"
+    return False, "끄기를 눌렀지만 상태 창이 그대로입니다 — 터미널에서 확인해 주세요"
+
+
+OTHER_PLACEHOLDER = "Type something."   # 빈 직접 입력 줄의 자리 글(v2.1.318 실측)
+
+
+def _clear_other(t, row, view, n):
+    """직접 입력 줄에 남은 글(앞선 시도·사용자가 쓰다 만 것)을 Ctrl+U 로 지운다. 못 지웠으면 안내 문구, 지웠으면 None.
+    빈 줄의 자리 글(「Type something」 등)은 그대로 둬도 된다 — 지운 뒤 글이 바뀌었는지로만 본다."""
+    before = _other_text(row)
+    if not before or before == _norm_q(OTHER_PLACEHOLDER):   # 빈 줄(자리 글만)
+        return None
+    _raw(t, "\x15")
+    v = view(lambda v: v and len(v["rows"]) > n and _other_text(v["rows"][n]) != before, tries=8)
+    after = _other_text(v["rows"][n]) if v and len(v["rows"]) > n else before
+    if after != before and (after == _norm_q(OTHER_PLACEHOLDER) or len(after) < len(before)):
+        return None
+    return "직접 입력 칸에 이미 다른 글이 있어 넣지 않았습니다"
+
+
 def _answer_ask(t, questions, answers):
     def view(pred, tries=16):
         v = None
@@ -1087,6 +1176,30 @@ def _answer_ask(t, questions, answers):
             _norm_q(questions[i]["question"])[:40])
 
     needs_review = len(questions) > 1 or any(q.get("multiSelect") for q in questions)
+
+    def review_ok(v):
+        """검토 화면의 답이 보드에서 고른 답과 같은지 — (같은지, 다른 답 안내)."""
+        for (qt, got), q, a in zip(v["answers"], questions, answers):
+            opts = q.get("options") or []
+            labels = [opts[int(c) - 1]["label"] for c in sorted({int(c) for c in a.get("choices") or []}) if 1 <= int(c) <= len(opts)]
+            other = re.sub(r"\s+", " ", (a.get("other") or "")).strip()
+            expect = ", ".join(labels + ([other] if other else []))
+            if _norm_q(got) != _norm_q(expect):
+                return False, "검토 화면의 답(%s)이 고른 답(%s)과 다릅니다" % (got, expect)
+        return len(v["answers"]) == len(questions), "검토 화면의 답 수가 질문 수와 다릅니다"
+
+    # 앞선 시도가 검토 화면(Review your answers)까지 와서 멈춘 경우: 답이 같으면 바로 제출, 다르면 ← 로 첫 질문까지 돌아가 다시 고른다
+    cur = _ask_view(_screen(t))
+    if cur and cur["kind"] == "review":
+        ok, _ = review_ok(cur)
+        if ok:
+            _raw(t, "1")
+            return (True, "답을 보냈습니다") if view(lambda v: v is None) is None else stop("제출했지만 질문 창이 아직 닫히지 않았습니다")
+        for _ in range(len(questions) + 1):
+            _raw(t, LEFT)
+            time.sleep(0.3)
+            if is_q(0)(_ask_view(_screen(t))):
+                break
     if not view(is_q(0)) or not is_q(0)(_ask_view(_screen(t))):
         return stop("질문 창이 터미널에 보이지 않습니다")
     for i, q in enumerate(questions):
@@ -1102,14 +1215,20 @@ def _answer_ask(t, questions, answers):
         last = i == len(questions) - 1
         if not q.get("multiSelect"):
             if other:
-                _raw(t, str(n + 1))
+                # 이미 직접 입력 줄에 있으면(앞선 시도가 글을 넣다 멈춘 경우 등) 번호를 누르지 않는다 — 누르면 숫자가 글로 들어갔다
+                if not v["rows"][n]["cursor"]:
+                    _raw(t, str(n + 1))
                 v = view(lambda v: v and v["kind"] == "question" and len(v["rows"]) > n and v["rows"][n]["cursor"])
                 if not (v and len(v["rows"]) > n and v["rows"][n]["cursor"]):
                     return stop("직접 입력 줄로 가지 못했습니다")
-                _raw(t, other)
-                v = view(lambda v: v and len(v["rows"]) > n and _norm_q(v["rows"][n]["label"]) == _norm_q(other))
-                if not (v and len(v["rows"]) > n and _norm_q(v["rows"][n]["label"]) == _norm_q(other)):
-                    return stop("직접 입력한 글이 확인되지 않습니다")
+                if not _other_ok(v["rows"][n], other):
+                    err = _clear_other(t, v["rows"][n], view, n)
+                    if err:
+                        return stop(err)
+                    _raw(t, other)
+                    v = view(lambda v: v and len(v["rows"]) > n and _other_ok(v["rows"][n], other))
+                    if not (v and len(v["rows"]) > n and _other_ok(v["rows"][n], other)):
+                        return stop("직접 입력한 글이 확인되지 않습니다")
                 _raw(t, "\r")
             elif len(choices) == 1:
                 _raw(t, str(choices[0]))
@@ -1138,8 +1257,7 @@ def _answer_ask(t, questions, answers):
                     return False
                 got = {r["n"] for r in v["rows"][:n] if r["checked"]}
                 o = v["rows"][n]
-                return got == want and o["checked"] == bool(other) and (
-                    not other or _norm_q(o["label"]) == _norm_q(other))
+                return got == want and o["checked"] == bool(other) and (not other or _other_ok(o, other))
             v = view(boxes_ok)
             if not boxes_ok(v):
                 return stop("체크 상태가 고른 답과 다릅니다")
@@ -1160,13 +1278,9 @@ def _answer_ask(t, questions, answers):
         v = view(lambda v: v and v["kind"] == "review")
         if not (v and v["kind"] == "review"):
             return stop("검토 화면이 나오지 않았습니다")
-        for (qt, got), q, a in zip(v["answers"], questions, answers):
-            opts = q.get("options") or []
-            labels = [opts[int(c) - 1]["label"] for c in sorted({int(c) for c in a.get("choices") or []}) if 1 <= int(c) <= len(opts)]
-            other = re.sub(r"\s+", " ", (a.get("other") or "")).strip()
-            expect = ", ".join(labels + ([other] if other else []))
-            if _norm_q(got) != _norm_q(expect):
-                return stop("검토 화면의 답(%s)이 고른 답(%s)과 다릅니다" % (got, expect))
+        ok, why = review_ok(v)
+        if not ok:
+            return stop(why)
         _raw(t, "1")
     v = view(lambda v: v is None)
     if v is not None:

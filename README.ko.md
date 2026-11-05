@@ -59,7 +59,7 @@ curl -fsSL https://raw.githubusercontent.com/ygone-lee/argus/main/install.sh | s
 ```
 
 Argus 를 `~/.argus` 에 내려받고 설치 프로그램을 실행합니다. 설치 프로그램은 Claude Code 에 Argus 훅을 넣고(먼저 설정을
-백업) 보드를 열지 묻습니다. 같은 줄을 다시 실행하면 업데이트됩니다.
+백업) 보드를 열지 묻습니다. 같은 줄을 다시 실행하면 업데이트됩니다. 보드의 ⋮ → ⟳ 업데이트 확인으로도 GitHub 의 새 변경·새 릴리스를 확인하고 받을 수 있습니다(fast-forward 만 — 커밋 안 한 변경이나 올리지 않은 커밋이 있는 폴더에서는 받지 않습니다). 하루에 한 번은 저절로 확인해 새 것이 있으면 ⋮ 버튼에 점을 찍습니다.
 
 > **이 Mac 에서 개발 도구를 처음 쓰신다면:** Argus 에는 Apple 의 *Command Line Tools*(git 과 Python 3)가 필요합니다.
 > 없으면 이 명령이 설치 창을 띄웁니다. **설치** 를 누르고 몇 분 기다린 뒤 다시 실행하세요.

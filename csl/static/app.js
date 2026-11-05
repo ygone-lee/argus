@@ -2166,16 +2166,22 @@ function ctxChip(s, d) {
   return `<button class="ctx-chip ${lv}" data-action="ctx-menu" data-sid="${esc(s.session_id)}" title="${esc(tip + "\n누르면 컴팩트(/compact)")}">
     <span class="ctx-ring" style="--p:${pct}"></span>${pct}%</button>`;
 }
+// 머리의 「📡 원격」: 리모트 컨트롤 켜기·끄기 버튼(켜졌으면 초록, 꺼졌으면 흐리게). claude.ai/code 에서 열기는 ⋮ 메뉴.
+// 보드가 그 터미널을 조작할 수 있는 세션만(켜고 끄려면 /remote-control 을 쳐야 한다)
 function remoteBadge(s, d) {
-  if (d === "ended") return "";
-  if (s.remote && /^session_[A-Za-z0-9]+$/.test(s.remote)) {
-    return `<a class="rc-badge on" href="https://claude.ai/code/${s.remote}" target="_blank" rel="noopener noreferrer"
-      title="리모트 컨트롤 연결됨 — claude.ai/code 에서 열기" data-icon="📡">📡 원격</a>`;
-  }
-  if (s.rc_requested_at && Date.now() / 1000 - s.rc_requested_at < 180) {
+  if (d === "ended" || s.running === false || !["web", "tmux", "orca"].includes(s.term_name)) return "";
+  const on = !!(s.remote && /^session_[A-Za-z0-9]+$/.test(s.remote));
+  if (!on && s.rc_requested_at && Date.now() / 1000 - s.rc_requested_at < 180) {
     return '<span class="rc-badge pending" title="리모트 컨트롤을 켜는 중(다음 응답 때 연결이 확인됩니다)" data-icon="📡">📡 연결 중</span>';
   }
-  return "";
+  return `<button class="rc-badge ${on ? "on" : "off"}" data-action="rc-toggle" data-sid="${esc(s.session_id)}" data-on="${on ? 1 : ""}" data-icon="📡"
+    title="${on ? "원격(리모트 컨트롤) 켜짐 — 누르면 끄기 · claude.ai/code 에서 열기는 ⋮ 메뉴" : "원격(리모트 컨트롤) 꺼짐 — 누르면 켜기 ( /remote-control )"}">📡 원격</button>`;
+}
+async function toggleRemote(sid, on) {
+  toast(on ? "원격을 끄는 중…" : "원격을 켜는 중…");
+  try { toast((await api("POST", `/api/sessions/${sid}/remote`, on ? { off: true } : {})).message); }
+  catch (err) { toast(err.message); }
+  return refresh(sid);
 }
 // 이 세션이 열린 터미널 탭으로(단축키 T). 머리의 「↗ 터미널」 버튼은 자리만 차지해 없앴다
 let focusing = false;
@@ -2247,12 +2253,14 @@ function openColMenu(btn) {
   const rcOn = s.remote && /^session_[A-Za-z0-9]+$/.test(s.remote);
   const rcPending = !rcOn && s.rc_requested_at && Date.now() / 1000 - s.rc_requested_at < 180;
   const remote = d === "ended" ? `<button class="cm-item" disabled>📡 원격 <span class="muted">종료된 세션</span></button>`
-    : rcOn ? `<a class="cm-item" href="https://claude.ai/code/${s.remote}" target="_blank" rel="noopener noreferrer" data-cm-close>📡 원격으로 열기 <span class="muted">claude.ai/code</span></a>`
+    : rcOn ? `<a class="cm-item" href="https://claude.ai/code/${s.remote}" target="_blank" rel="noopener noreferrer" data-cm-close>📡 원격으로 열기 <span class="muted">claude.ai/code</span></a>
+      <button class="cm-item" data-cm="remote-off">📡 원격 끄기 <span class="muted">/remote-control → Disconnect</span></button>`
     : rcPending ? `<button class="cm-item" disabled>📡 원격 연결 중…</button>`
     : `<button class="cm-item" data-cm="remote">📡 원격 켜기 <span class="muted">/remote-control</span></button>`;
   menu.dataset.sid = sid;
   menu.innerHTML = `
     <button class="cm-item" data-cm="archive">🗄 ${s.archived ? "보관 해제" : "보관"} <span class="muted">${s.archived ? "" : "보드에서 숨기기"}</span></button>
+    ${s.term_web && s.state !== "ended" && s.running !== false ? `<button class="cm-item" data-cm="restart">↻ 다시 열기 <span class="muted">끝내고 같은 대화로 새로</span></button>` : ""}
     ${!s.term_web && !s.brain ? `<button class="cm-item" data-cm="import">⇄ 보드 터미널로 가져오기 <span class="muted">${s.state === "ended" ? "이어 열기" : "다른 터미널에서 옮기기"}</span></button>` : ""}
     ${s.state !== "ended" ? `<button class="cm-item danger" data-cm="quit">⏻ 세션 종료 <span class="muted">Claude Code 를 닫고(/exit) 터미널 탭도 닫기</span></button>` : ""}
     ${remote}
@@ -2279,6 +2287,16 @@ $("#colMenu").addEventListener("click", async e => {
     menu.querySelector('[data-cm="archive-yes"]').focus();
     return;
   }
+  if (s && item.dataset.cm === "restart") {
+    // 보드 터미널 세션을 끝내고 같은 대화로 새로 연다 — 환경이 꼬인 세션(다른 세션의 변수를 물려받은 것 등)을 깨끗하게
+    const busy = ["working", "waiting"].includes(displayState(s));
+    item.outerHTML = `<div class="cm-confirm">
+      <div>${busy ? "<b>작업 중이거나 확인을 기다리는 중입니다.</b> 끝난 뒤 다시 열어 주세요." : "이 세션을 다시 열까요?"}<br><span class="muted">Claude Code 를 끝내고(워크트리는 남김) 보드 터미널에서 같은 대화로 새로 엽니다. 모델·effort·권한 모드는 그대로 넘깁니다(권한 확인 건너뛰기 모드는 빼고). 그 세션에서 돌던 백그라운드 작업은 끊깁니다</span></div>
+      <div class="cm-confirm-btns"><button class="btn" data-cm="cancel">취소</button>${busy ? "" : `<button class="btn primary" data-cm="restart-yes">다시 열기</button>`}</div>
+    </div>`;
+    (menu.querySelector('[data-cm="restart-yes"]') || menu.querySelector('[data-cm="cancel"]')).focus();
+    return;
+  }
   if (s && item.dataset.cm === "import") {
     // 다른 터미널의 세션을 보드 터미널로: 같은 세션 ID 로 이어 연다(Orca·tmux 는 보드가 끝내고, 그 밖의 앱은 직접 끝낸 뒤)
     const busy = ["working", "waiting"].includes(displayState(s));
@@ -2299,13 +2317,14 @@ $("#colMenu").addEventListener("click", async e => {
   if (s && item.dataset.cm === "quit") {
     const busy = ["working", "waiting"].includes(displayState(s));
     // claude --worktree 로 만든 워크트리(.claude/worktrees/…)면 종료하면서 남길지 정리할지 함께 묻는다 — Claude Code 가 종료 때
-    // 묻는 「Keep worktree / Remove worktree」에 서버가 고른 대로 답한다. 기본은 남기기(지우면 되돌릴 수 없다)
+    // 묻는 「Keep worktree / Remove worktree」에 서버가 고른 대로 답한다. 기본은 정리하기 — 다만 커밋 안 한 변경이 있으면
+    // 그 변경까지 지워지니 남기기를 기본으로 둔다
     const wt = s.worktree && /\/\.claude\/worktrees\/[^/]+\/?$/.test(s.worktree) ? s.worktree : "";
     const dirty = s.dirty && s.dirty.files ? s.dirty.files : 0;
     const wtBox = wt ? `<div class="cm-wt">
         <div class="cm-wt-head">🌿 워크트리 <b>${esc(base(wt))}</b> <span class="muted">${dirty ? `커밋 안 한 변경 ${dirty}개` : "커밋 안 한 변경 없음"}</span></div>
-        <label class="cm-wt-opt"><input type="radio" name="cmWt" value="keep" checked> <span class="cm-wt-name">남기기</span> <span class="muted">폴더와 브랜치를 그대로 — 나중에 이어서 작업</span></label>
-        <label class="cm-wt-opt"><input type="radio" name="cmWt" value="remove"> <span class="cm-wt-name">정리하기</span> <span class="muted">폴더와 브랜치를 지웁니다${dirty ? " · <b>커밋 안 한 변경도 함께 지워집니다</b>" : ""}</span></label>
+        <label class="cm-wt-opt"><input type="radio" name="cmWt" value="keep"${dirty ? " checked" : ""}> <span class="cm-wt-name">남기기</span> <span class="muted">폴더와 브랜치를 그대로 — 나중에 이어서 작업</span></label>
+        <label class="cm-wt-opt"><input type="radio" name="cmWt" value="remove"${dirty ? "" : " checked"}> <span class="cm-wt-name">정리하기</span> <span class="muted">폴더와 브랜치를 지웁니다${dirty ? " · <b>커밋 안 한 변경도 함께 지워집니다</b>" : ""}</span></label>
         ${dirty ? "" : `<div class="muted cm-wt-note">새 커밋도 없으면 Claude Code 가 묻지 않고 정리할 수 있습니다</div>`}
       </div>` : "";
     item.outerHTML = `<div class="cm-confirm">
@@ -2318,6 +2337,17 @@ $("#colMenu").addEventListener("click", async e => {
   }
   menu.hidden = true;
   if (!s || item.dataset.cm === "cancel") return;
+  if (item.dataset.cm === "restart-yes") {
+    const job = { at: Date.now(), done: false };
+    S.importing.set(sid, job);
+    S.uiVer++;
+    renderBoard();
+    try { toast((await api("POST", `/api/sessions/${sid}/import`, { restart: true })).message.replace("보드 터미널로 가져왔습니다", "다시 열었습니다")); }
+    catch (err) { S.importing.delete(sid); toast(err.message); }
+    Object.assign(job, { done: true, at: Date.now() });
+    S.uiVer++;
+    return refresh(sid);
+  }
   if (item.dataset.cm === "import-yes") {
     const job = { at: Date.now(), done: false };
     S.importing.set(sid, job);
@@ -2346,14 +2376,7 @@ $("#colMenu").addEventListener("click", async e => {
     toast(s.archived ? "보관 해제했습니다" : "보관했습니다 (⋮ → 「종료·보관 세션도 보기」로 다시 보입니다)");
     return refresh(sid);
   }
-  if (item.dataset.cm === "remote") {
-    try {
-      toast((await api("POST", `/api/sessions/${sid}/remote`, {})).message);
-    } catch (err) {
-      toast(err.message);
-    }
-    return refresh(sid);
-  }
+  if (item.dataset.cm === "remote" || item.dataset.cm === "remote-off") return toggleRemote(sid, item.dataset.cm === "remote-off");
 });
 $("#board").addEventListener("scroll", () => {
   $("#colMenu").hidden = true; $("#ctxMenu").hidden = true;
@@ -4814,6 +4837,7 @@ document.addEventListener("click", async e => {
   if (!el) return;
   const a = el.dataset.action;
   if (a === "open-diff") return openDiff(el.dataset.sid);
+  if (a === "rc-toggle") return toggleRemote(el.dataset.sid, !!el.dataset.on);
   if (a === "note-qmove") { S.noteFocus = el.dataset.nid; return moveQueued(el.closest(".col").dataset.col, +el.dataset.nid, +el.dataset.dir); }
   if (a === "open-file" || a === "reveal-file") {
     e.preventDefault();
@@ -5132,7 +5156,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") {
     // 위에 뜬 것부터 하나만 닫는다. 같은 Esc 로 펼친 카드까지 접히지 않게 뒤 처리기로 넘기지 않는다
     if (DRAG.on) { endDrag(true); e.stopImmediatePropagation(); return; }
-    const open = ["#resumeModal", "#xMenu", "#taskModal", "#diffModal", "#colMenu", "#ctxMenu", "#newMenu", "#projMenu", "#topMenu", "#notifMenu", "#help", "#settings", "#connectors"].find(id => !$(id).hidden);
+    const open = ["#resumeModal", "#xMenu", "#taskModal", "#diffModal", "#colMenu", "#ctxMenu", "#newMenu", "#projMenu", "#topMenu", "#notifMenu", "#help", "#updateModal", "#settings", "#connectors"].find(id => !$(id).hidden);
     if (open) { $(open).hidden = true; e.stopImmediatePropagation(); return; }
     if (document.activeElement === $("#search") || !$("#searchPanel").hidden) { closeSearch(); e.stopImmediatePropagation(); return; }
     // 입력창에서 빠져나오기(쓰던 글은 그대로). 메모 고치기·이름 바꾸기는 각자 Esc 를 처리한다
@@ -5779,6 +5803,73 @@ async function saveSettings() {
   refresh();
 }
 $("#settingsBtn").addEventListener("click", openSettings);
+
+// ------------------------------------------------------------------ 업데이트: GitHub(원격)에 받을 변경·새 릴리스가 있는지 확인하고 받기
+// 받기는 fast-forward 만(커밋 안 한 변경·올리지 않은 커밋이 있으면 서버가 거절). 받으면 서버가 새 코드로 다시 뜨고 화면을 새로 고친다.
+// 하루에 한 번은 보드를 열 때 조용히 확인해 ⋮ 버튼에 점을 찍는다
+const UPD_KEY = "csl.updateCheck";
+function updHtml(r) {
+  if (!r.ok) return `<p class="upd-err">${esc(r.error || "확인하지 못했습니다")}</p>`;
+  const when = r.checked_at ? `${dateLabel(r.checked_at)} ${hm(r.checked_at)}` : "";
+  const rel = r.new_release ? `<p class="upd-rel">🎉 새 릴리스 <b>${esc(r.latest_tag)}</b> (지금 ${esc(r.current_tag || "태그 없음")})</p>` : "";
+  const list = r.commits.length ? `<ul class="upd-commits">${r.commits.map(c => `<li><code>${esc(c.hash)}</code> ${esc(c.subject)} <span class="muted">${dateLabel(c.at)}</span></li>`).join("")}</ul>` : "";
+  const state = r.behind ? `받을 변경 <b>${r.behind}개</b>` : "이미 최신입니다";
+  return `<p>${state} <span class="muted">· ${esc(r.branch)} ← ${esc(r.upstream)} · 지금 ${esc(r.head)}${r.current_tag ? " (" + esc(r.current_tag) + ")" : ""} · ${esc(when)} 확인</span></p>
+    ${rel}${list}${r.behind && !r.can_apply ? `<p class="upd-err">받을 수 없습니다 — ${esc(r.reason)}. 이 폴더에서 정리한 뒤 다시 확인해 주세요</p>` : ""}`;
+}
+function updMark(r) {
+  const has = !!(r && r.ok && (r.behind || r.new_release));
+  $("#updDot").hidden = !has;
+  $("#topMenuBtn").classList.toggle("has-update", has);
+}
+async function checkUpdate(fetch) {
+  const r = await api("GET", "/api/update" + (fetch ? "" : "?fetch=0"));
+  save(UPD_KEY, { at: Date.now(), behind: r.behind || 0, rel: !!r.new_release, ok: !!r.ok });
+  updMark(r);
+  return r;
+}
+async function openUpdate() {
+  const m = $("#updateModal");
+  m.hidden = false;
+  $("#updApply").hidden = true;
+  $("#updMsg").textContent = "";
+  setHtml($("#updBody"), '<p class="muted">GitHub 에서 확인하는 중…</p>');
+  let r;
+  try { r = await checkUpdate(true); } catch (e) { r = { ok: false, error: e.message }; }
+  setHtml($("#updBody"), updHtml(r));
+  $("#updApply").hidden = !(r.ok && r.behind && r.can_apply);
+}
+async function applyUpdate() {
+  const b = $("#updApply");
+  b.disabled = true;
+  $("#updMsg").textContent = "받는 중…";
+  try {
+    const r = await api("POST", "/api/update", {});
+    $("#updMsg").textContent = r.message;
+    // 서버가 새 코드로 다시 뜬다 — 다시 응답하면 화면을 새로 고친다(새 화면 파일도 받게)
+    const t0 = Date.now();
+    await new Promise(res => setTimeout(res, 1800));
+    while (Date.now() - t0 < 30000) {
+      try { await api("GET", "/api/update?fetch=0"); location.reload(); return; } catch (e) { await new Promise(res => setTimeout(res, 800)); }
+    }
+    $("#updMsg").textContent = "보드가 다시 뜨지 않았습니다 — ./ctl.sh open 으로 띄워 주세요";
+  } catch (e) {
+    $("#updMsg").textContent = e.message;
+    b.disabled = false;
+  }
+}
+$("#updateBtn").addEventListener("click", openUpdate);
+$("#updApply").addEventListener("click", applyUpdate);
+$("#updateModal").addEventListener("click", e => {
+  if (e.target.id === "updateModal" || e.target.closest("[data-upd-close]")) $("#updateModal").hidden = true;
+  if (e.target.closest("[data-upd-check]")) openUpdate();
+});
+// 하루에 한 번 조용히 확인(마지막 결과는 바로 점으로)
+(() => {
+  const last = load(UPD_KEY, null);
+  if (last) updMark({ ok: last.ok, behind: last.behind, new_release: last.rel });
+  if (!last || Date.now() - last.at > 24 * 3600 * 1000) setTimeout(() => checkUpdate(true).catch(() => {}), 8000);
+})();
 $("#settingsSave").addEventListener("click", saveSettings);
 $("#settings").addEventListener("click", e => {
   if (e.target.closest("[data-settings-close]") || e.target === $("#settings")) $("#settings").hidden = true;

@@ -391,6 +391,27 @@ def link_fork(conn, sid, origin, bg):
                  (origin[0], origin[1], "fork" if bg else "branch", sid))
 
 
+def bridge_of(sid):
+    """(찾았는지, 원격 세션 ID 또는 None). 훅을 부른 Claude Code 프로세스(부모·조부모)의 실행 정보 파일에서."""
+    pid = os.getppid()
+    for _ in range(3):
+        try:
+            with open(os.path.expanduser("~/.claude/sessions/%d.json" % pid)) as f:
+                d = json.load(f)
+            if d.get("sessionId") == sid:
+                return True, d.get("bridgeSessionId") or None
+        except (OSError, ValueError):
+            pass
+        try:
+            out = subprocess.run(["ps", "-o", "ppid=", "-p", str(pid)], capture_output=True, text=True, timeout=2).stdout.strip()
+            pid = int(out)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            break
+        if pid <= 1:
+            break
+    return False, None
+
+
 def ensure_server():
     try:
         with socket.create_connection(("127.0.0.1", store.PORT), timeout=0.3):
@@ -568,9 +589,12 @@ def handle(data):
                 conn.execute("UPDATE sessions SET permission_mode=? WHERE session_id=? AND permission_mode IS NOT ?", (pm, sid, pm))
             link_continuation(conn, sid, cmds if event == "SessionStart" else pre.get("cmds"))
             link_fork(conn, sid, pre.get("fork"), is_background(cmds if event == "SessionStart" else pre.get("cmds")))
-            # Remote Control 이 연결돼 있으면 Claude Code 가 훅에 이 변수를 넣어 준다(v2.1.199+). 바뀔 때만 쓴다
+            # Remote Control: 그 세션의 실행 정보 파일(~/.claude/sessions/<pid>.json 의 bridgeSessionId)을 먼저 본다 — 자동 연결도 보이고,
+            # 띄운 쪽 세션에게서 물려받은 환경 변수(CLAUDE_CODE_BRIDGE_SESSION_ID)에 속지 않는다. 파일을 못 찾으면 환경 변수(v2.1.199+)
             if event != "SessionEnd":
-                rc = os.environ.get("CLAUDE_CODE_BRIDGE_SESSION_ID") or None
+                found, rc = bridge_of(sid)
+                if not found:
+                    rc = os.environ.get("CLAUDE_CODE_BRIDGE_SESSION_ID") or None
                 conn.execute("UPDATE sessions SET remote=? WHERE session_id=? AND remote IS NOT ?", (rc, sid, rc))
     finally:
         conn.close()

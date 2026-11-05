@@ -10,6 +10,7 @@ import os
 import re
 import time
 
+from csl import terminals
 from csl.terminals.tmux import Tmux, _bin, _pane, _tmux
 
 SERVER = ["-L", "argus-web"]
@@ -49,6 +50,12 @@ class Web(Tmux):
         for k, v in OPTIONS:
             self._t("set-option", "-g", k, v)
         self._t("set-environment", "-g", "ARGUS_WEB", "1")
+        # 서버를 처음 띄운 쪽(예전엔 Claude 세션 안의 보드 서버)의 세션 변수가 전역 환경에 남아 있으면 지운다 — 새 세션이 물려받지 않게
+        r = self._t("show-environment", "-g")
+        for line in (r.stdout.splitlines() if r else []):
+            name = line.split("=", 1)[0].lstrip("-")
+            if name != "ARGUS_WEB" and terminals.session_env(name):
+                self._t("set-environment", "-g", "-u", name)
 
     def create(self, cwd, title, command):
         name = "%s-%d" % ((re.sub(r"[^\w\-]+", "-", title or "").strip("-")[:40] or "claude"), int(time.time() * 1000) % 10**7)

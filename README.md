@@ -88,7 +88,7 @@ curl -fsSL https://raw.githubusercontent.com/ygone-lee/argus/main/install.sh | s
 ```
 
 That downloads Argus into `~/.argus` and runs its installer, which adds Argus's hooks to Claude Code (a backup of your
-settings is saved first) and offers to open the board. Run the same line again to update.
+settings is saved first) and offers to open the board. Run the same line again to update — or use ⋮ → ⟳ 업데이트 확인 (Check for updates) on the board: it fetches GitHub, lists the new commits and any newer release tag, and updates with a fast-forward `git pull`, re-runs the installer for new hooks and restarts the board. It refuses when the folder has uncommitted changes, unpushed commits or no upstream branch, so a development checkout is never overwritten. The board also checks quietly once a day and puts a dot on the ⋮ button when something is new.
 
 > **First time using developer tools on this Mac?** Argus needs Apple's *Command Line Tools* (git and Python 3). If they
 > are missing, the command opens the macOS installer for them — click **Install**, wait a few minutes, then run it again.

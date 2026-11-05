@@ -510,6 +510,9 @@ body.view-board .board::after { order: 999999; }
 }
 .rc-badge.on { background: var(--working-soft); color: var(--working); }
 .rc-badge.on:hover { box-shadow: 0 0 0 1px var(--working); }
+button.rc-badge { border: 0; font: inherit; cursor: pointer; }
+.rc-badge.off { background: transparent; color: var(--text-3); box-shadow: inset 0 0 0 1px var(--border); }
+.rc-badge.off:hover { color: var(--working); box-shadow: inset 0 0 0 1px var(--working); }
 .rc-badge.pending { background: var(--surface-hover); color: var(--text-3); animation: rcwait 1.4s ease-in-out infinite; }
 @keyframes rcwait { 50% { opacity: .45; } }
 
@@ -1855,3 +1858,15 @@ li.note.q-after { box-shadow: inset 0 -2px 0 var(--accent); }
 .img-view-btn[hidden] { display: none; }
 .mid-files .resp-img { display: inline-flex; line-height: 0; }
 .mid-files .resp-img[hidden] { display: none; }
+
+/* 업데이트 */
+.upd-dot { display: inline-block; width: 8px; height: 8px; margin-left: 4px; border-radius: 50%; background: var(--alert); vertical-align: middle; }
+.upd-dot[hidden] { display: none; }
+#topMenuBtn.has-update { position: relative; }
+#topMenuBtn.has-update::after { content: ""; position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--alert); }
+.upd-box .settings-body { font-size: 13px; line-height: 1.55; }
+.upd-commits { margin: 6px 0 0; padding-left: 18px; max-height: 42vh; overflow-y: auto; }
+.upd-commits li { margin: 2px 0; }
+.upd-commits code { font-size: 11.5px; color: var(--text-3); }
+.upd-err { color: var(--error); }
+.upd-rel { color: var(--accent); }
