@@ -1733,6 +1733,8 @@ select {
 .col-term-btn:hover { border-color: var(--accent); color: var(--accent); }
 .col-term-btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .col.term-mode .col-thread, .col.term-mode .composer, .col.term-mode .ask-card, .col.term-mode .fam-bar { display: none !important; }
+/* 터미널을 보는 중에는 위쪽에 넥스트 액션만 — recap(요약)은 터미널 화면을 좁히기만 해서 감춘다 */
+.col.term-mode .cf-recap { display: none !important; }
 .col-term { position: relative; flex: 1 1 auto; min-height: 0; background: #1c1b19; display: flex; flex-direction: column; }
 .col-term[hidden] { display: none; }
 .term-host { flex: 1 1 auto; min-height: 0; padding: 6px 4px 4px 8px; }
@@ -1940,3 +1942,15 @@ li.note.q-after { box-shadow: inset 0 -2px 0 var(--accent); }
 .md .md-task { margin: 0 4px 0 0; vertical-align: -1px; accent-color: var(--accent); }
 .md .md-task:not([disabled]) { cursor: pointer; }
 .md li:has(> .md-task:checked) { color: var(--text-3); text-decoration: line-through; }
+/* 업데이트 띠: 머리 바로 아래 가운데에 떠 있다(보드 높이를 밀지 않게) */
+.upd-banner {
+  position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 60; max-width: min(860px, calc(100vw - 32px));
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px 8px 14px;
+  background: var(--surface); border: 1px solid var(--accent); border-radius: 10px; box-shadow: var(--shadow);
+  font-size: calc(13px * var(--fs, 1));
+}
+.upd-banner[hidden] { display: none; }
+.upd-banner > span { flex: 1 1 auto; min-width: 200px; }
+.upd-banner .btn { height: 28px; padding: 0 10px; font-size: calc(12.5px * var(--fs, 1)); }
+.upd-notes { margin: 8px 0; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); max-height: 36vh; overflow-y: auto; }
+.upd-sub { margin: 8px 0 2px; font-size: calc(11.5px * var(--fs, 1)); }

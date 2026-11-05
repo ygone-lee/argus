@@ -157,7 +157,7 @@ and doesn't restart a server you stopped yourself.
 | Check the installation (changes nothing) | `~/.argus/ctl.sh check` |
 | Bring in conversations from before the install (last 7 days by default) | `~/.argus/ctl.sh backfill 7` |
 | Open a demo board (made-up sessions, leaves your setup alone) | `~/.argus/ctl.sh demo` |
-| Update | ⋮ → ⟳ 업데이트 확인 (Check for updates) on the board, or run the curl install line again |
+| Update | The board's update banner or ⋮ → ⟳ 업데이트 확인 (Check for updates) — see [Updating](#5-updating) |
 | Uninstall | `~/.argus/ctl.sh uninstall`, then delete `~/.argus` |
 | List every command | `~/.argus/ctl.sh help` |
 
@@ -166,14 +166,18 @@ server — sessions in the board terminal keep running in their tmux server.
 
 ### 5. Updating
 
-⋮ → ⟳ 업데이트 확인 (Check for updates) on the board fetches GitHub and lists the new commits and any newer release tag. Press 「업데이트」 (Update) and it:
+Even with the curl one-liner, `~/.argus` is a git clone of the GitHub repository, so updating pulls the new changes from GitHub.
 
-1. pulls the changes (fast-forward only),
-2. re-runs the installer so new hooks are in place,
-3. restarts the board.
+- **Notice:** the board server checks GitHub every few hours. When there's a new version, a banner appears on the board — "🎉 Argus 새 버전 v0.2.0 이 나왔습니다" (a new version is out) with *What's new*, *Update* and *Later* — and a browser notification is sent once. *Later* hides that version for good.
+- **Updating:** *Update* (or ⋮ → ⟳ 업데이트 확인, Check for updates) pulls the changes (fast-forward only), re-runs the installer so new hooks are in place, and restarts the board. Only the board server restarts; sessions keep running.
+- **Settings (⋮ → ⚙ 설정 → 업데이트, Updates):**
 
-It refuses when the folder has uncommitted changes, unpushed commits or no upstream branch, so a development checkout is never overwritten.
-The board also checks quietly once a day and puts a dot on the ⋮ button when something is new.
+  | Setting | Choices |
+  |---|---|
+  | Update mode | **Notify only** (default) · **Update automatically** — when no session is working or waiting and the board hasn't been used for 10 minutes; a "✅ updated to v0.2.0" banner tells you afterwards · **Off** |
+  | Update channel | **Stable (releases only)** (default) — only when a release such as v0.2.0 is tagged · **Latest** — every commit pushed to main |
+
+It refuses when the folder has uncommitted changes, unpushed commits or no upstream branch, so a development checkout is never overwritten. Running the curl install line again also updates.
 
 ### 6. First steps
 

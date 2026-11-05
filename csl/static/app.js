@@ -448,6 +448,8 @@ async function poll() {
   renderRemoteBtn();
   renderProjBtn();
   renderUsage(data.usage);
+  S.lastUpdate = data.update;
+  renderUpdateBanner(data.update);
   checkAlerts();
   const groups = stateGroups();
   renderCounters(groups);
@@ -5863,6 +5865,11 @@ document.addEventListener("input", e => {
   const hint = document.querySelector(`.cfg-time[data-hour-for="${k}"]`);
   if (hint) hint.innerHTML = hourHint(e.target.value);
 });
+// 고르는 칸에서 값 대신 보여 줄 이름
+const CHOICE_LABEL = {
+  update_mode: { notify: "알림만", auto: "자동으로 받기", off: "끔" },
+  update_channel: { stable: "안정판(릴리스만)", latest: "최신판(main 의 모든 커밋)" },
+};
 async function openSettings() {
   try { CFG = (await api("GET", "/api/config")).items; } catch (e) { return toast(e.message); }
   const groups = [...new Set(CFG.map(c => c.group))];
@@ -5871,7 +5878,7 @@ async function openSettings() {
     if (c.type === "bool") return `<input type="checkbox" id="${id}" ${c.value ? "checked" : ""}>`;
     if (c.type === "choice") {
       return `<select id="${id}">${c.options.map(o => `<option value="${esc(String(o))}" ${String(o) === String(c.value) ? "selected" : ""}>${
-        o === "" ? "기본(설정대로)" : o === 0 && c.key === "brain_slack_every" ? "끔" : esc(String(o))}</option>`).join("")}</select>`;
+        o === "" ? "기본(설정대로)" : o === 0 && c.key === "brain_slack_every" ? "끔" : esc((CHOICE_LABEL[c.key] || {})[o] || String(o))}</option>`).join("")}</select>`;
     }
     if (c.type === "int") return `<input type="number" id="${id}" value="${c.value}" min="${c.options[0]}" max="${c.options[1]}">`;
     return `<input type="text" id="${id}" class="cfg-path" value="${esc(c.value)}" spellcheck="false">`;
@@ -5917,27 +5924,83 @@ $("#settingsBtn").addEventListener("click", openSettings);
 // ------------------------------------------------------------------ 업데이트: GitHub(원격)에 받을 변경·새 릴리스가 있는지 확인하고 받기
 // 받기는 fast-forward 만(커밋 안 한 변경·올리지 않은 커밋이 있으면 서버가 거절). 받으면 서버가 새 코드로 다시 뜨고 화면을 새로 고친다.
 // 하루에 한 번은 보드를 열 때 조용히 확인해 ⋮ 버튼에 점을 찍는다
-const UPD_KEY = "csl.updateCheck";
 function updHtml(r) {
   if (!r.ok) return `<p class="upd-err">${esc(r.error || "확인하지 못했습니다")}</p>`;
   const when = r.checked_at ? `${dateLabel(r.checked_at)} ${hm(r.checked_at)}` : "";
-  const rel = r.new_release ? `<p class="upd-rel">🎉 새 릴리스 <b>${esc(r.latest_tag)}</b> (지금 ${esc(r.current_tag || "태그 없음")})</p>` : "";
-  const list = r.commits.length ? `<ul class="upd-commits">${r.commits.map(c => `<li><code>${esc(c.hash)}</code> ${esc(c.subject)} <span class="muted">${dateLabel(c.at)}</span></li>`).join("")}</ul>` : "";
-  const state = r.behind ? `받을 변경 <b>${r.behind}개</b>` : "이미 최신입니다";
-  return `<p>${state} <span class="muted">· ${esc(r.branch)} ← ${esc(r.upstream)} · 지금 ${esc(r.head)}${r.current_tag ? " (" + esc(r.current_tag) + ")" : ""} · ${esc(when)} 확인</span></p>
-    ${rel}${list}${r.behind && !r.can_apply ? `<p class="upd-err">받을 수 없습니다 — ${esc(r.reason)}. 이 폴더에서 정리한 뒤 다시 확인해 주세요</p>` : ""}`;
+  const stable = r.channel === "stable";
+  const rel = r.new_release ? `<p class="upd-rel">🎉 새 릴리스 <b>${esc(r.target_label)}</b> (지금 ${esc(r.current_tag || "태그 없음")})${
+    r.notes_url ? ` · <a href="${esc(r.notes_url)}" target="_blank" rel="noopener noreferrer">GitHub 에서 보기</a>` : ""}</p>` : "";
+  const notes = r.notes ? `<div class="upd-notes md">${md(r.notes)}</div>` : "";
+  const list = r.commits.length ? `${notes ? '<p class="muted upd-sub">커밋</p>' : ""}<ul class="upd-commits">${r.commits.map(c => `<li><code>${esc(c.hash)}</code> ${esc(c.subject)} <span class="muted">${dateLabel(c.at)}</span></li>`).join("")}</ul>` : "";
+  const state = r.behind ? `받을 변경 <b>${r.behind}개</b>` : stable ? "새 릴리스가 없습니다" : "이미 최신입니다";
+  return `<p>${state} <span class="muted">· ${stable ? "안정판(릴리스만)" : "최신판(main 의 모든 커밋)"} · 지금 ${esc(r.head)}${r.current_tag ? " (" + esc(r.current_tag) + ")" : ""} · ${esc(when)} 확인</span></p>
+    ${rel}${notes}${list}${r.behind && !r.can_apply ? `<p class="upd-err">받을 수 없습니다 — ${esc(r.reason)}. 이 폴더에서 정리한 뒤 다시 확인해 주세요</p>` : ""}
+    <p class="muted upd-sub">채널·자동 업데이트는 ⋮ → ⚙ 설정 → 업데이트에서 바꿉니다</p>`;
 }
 function updMark(r) {
-  const has = !!(r && r.ok && (r.behind || r.new_release));
+  const has = !!(r && (r.available || (r.ok && r.behind)));
   $("#updDot").hidden = !has;
   $("#topMenuBtn").classList.toggle("has-update", has);
 }
 async function checkUpdate(fetch) {
   const r = await api("GET", "/api/update" + (fetch ? "" : "?fetch=0"));
-  save(UPD_KEY, { at: Date.now(), behind: r.behind || 0, rel: !!r.new_release, ok: !!r.ok });
   updMark(r);
   return r;
 }
+// 보드 위 띠: 새 버전이 있으면(서버가 몇 시간마다 확인해 둔 것) · 자동 업데이트를 받았으면 한 번. 「나중에」는 그 버전만 접는다.
+// 새 버전을 처음 보면 브라우저 알림도 한 번(알림을 허락했을 때)
+function renderUpdateBanner(u) {
+  const el = $("#updBanner");
+  if (!el || !u) return;
+  updMark(u);
+  const dismissed = load("csl.updDismissed", ""), applied = u.applied, seenApplied = +load("csl.updAppliedSeen", 0);
+  let html = "";
+  if (applied && applied.at > seenApplied && Date.now() / 1000 - applied.at < 3 * 86400) {
+    html = `<span>✅ Argus 를 <b>${esc(applied.label || applied.to)}</b> 로 업데이트했습니다${applied.commits && applied.commits.length ? ` <span class="muted">· 커밋 ${applied.commits.length}개</span>` : ""}</span>
+      <button class="btn" data-upd-act="applied-notes">바뀐 점 보기</button><button class="btn ghost" data-upd-act="applied-ok">닫기</button>`;
+  } else if (u.available && u.target !== dismissed) {
+    const what = u.new_release ? `새 버전 <b>${esc(u.label)}</b> 이 나왔습니다` : `새 변경 <b>${u.behind}개</b> 가 있습니다`;
+    const tail = !u.can_apply ? `<span class="muted">· 이 폴더에서는 받을 수 없음(${esc(u.reason)})</span>`
+      : u.mode === "auto" ? `<span class="muted">· 작업이 없을 때 자동으로 받습니다</span>` : "";
+    html = `<span>🎉 Argus ${what} ${tail}</span><button class="btn" data-upd-act="open">바뀐 점 보기</button>${
+      u.can_apply ? `<button class="btn primary" data-upd-act="apply">업데이트</button>` : ""}<button class="btn ghost" data-upd-act="later">나중에</button>`;
+    if (load("csl.updNotified", "") !== u.target && S.notify && "Notification" in window && Notification.permission === "granted") {
+      save("csl.updNotified", u.target);
+      try {
+        const n = new Notification("Argus 업데이트", { body: u.new_release ? `새 버전 ${u.label} 이 나왔습니다` : `새 변경 ${u.behind}개가 있습니다`, tag: "argus-update" });
+        n.onclick = () => { window.focus(); openUpdate(); n.close(); };
+      } catch (e) { /* 알림을 못 띄우는 환경 */ }
+    }
+  }
+  el.hidden = !html;
+  el.dataset.target = u.target || "";   // 「나중에」·「닫기」가 지금 띠에 보이는 것을 기억하게
+  el.dataset.appliedAt = (applied && applied.at) || 0;
+  if (html) setHtml(el, html);
+}
+$("#updBanner").addEventListener("click", e => {
+  const b = e.target.closest("[data-upd-act]");
+  if (!b) return;
+  const u = S.lastUpdate || {};
+  const act = b.dataset.updAct;
+  if (act === "open") return openUpdate();
+  if (act === "apply") { openUpdate().then(() => { if (!$("#updApply").hidden) applyUpdate(); }); return; }
+  const banner = $("#updBanner");
+  if (act === "later") { save("csl.updDismissed", banner.dataset.target || ""); banner.hidden = true; return; }
+  if (act === "applied-ok") { save("csl.updAppliedSeen", +banner.dataset.appliedAt || 0); banner.hidden = true; return; }
+  if (act === "applied-notes") {
+    const a = u.applied || {};
+    save("csl.updAppliedSeen", +$("#updBanner").dataset.appliedAt || a.at || 0);
+    $("#updBanner").hidden = true;
+    const m = $("#updateModal");
+    m.hidden = false;
+    $("#updApply").hidden = true;
+    $("#updMsg").textContent = "";
+    setHtml($("#updBody"), `<p><b>${esc(a.label || a.to)}</b> 로 업데이트했습니다 <span class="muted">· ${esc(a.from)} → ${esc(a.to)} · ${dateLabel(a.at)} ${hm(a.at)}</span>${
+      a.notes_url ? ` · <a href="${esc(a.notes_url)}" target="_blank" rel="noopener noreferrer">GitHub 에서 보기</a>` : ""}</p>
+      ${a.notes ? `<div class="upd-notes md">${md(a.notes)}</div>` : ""}
+      ${a.commits && a.commits.length ? `<ul class="upd-commits">${a.commits.map(c => `<li><code>${esc(c.hash)}</code> ${esc(c.subject)}</li>`).join("")}</ul>` : ""}`);
+  }
+});
 async function openUpdate() {
   const m = $("#updateModal");
   m.hidden = false;
@@ -5974,12 +6037,7 @@ $("#updateModal").addEventListener("click", e => {
   if (e.target.id === "updateModal" || e.target.closest("[data-upd-close]")) $("#updateModal").hidden = true;
   if (e.target.closest("[data-upd-check]")) openUpdate();
 });
-// 하루에 한 번 조용히 확인(마지막 결과는 바로 점으로)
-(() => {
-  const last = load(UPD_KEY, null);
-  if (last) updMark({ ok: last.ok, behind: last.behind, new_release: last.rel });
-  if (!last || Date.now() - last.at > 24 * 3600 * 1000) setTimeout(() => checkUpdate(true).catch(() => {}), 8000);
-})();
+// 확인은 서버가 몇 시간마다 한다(update.start_scheduler) — 결과는 폴링 상태(data.update)로 띠·점에
 $("#settingsSave").addEventListener("click", saveSettings);
 $("#settings").addEventListener("change", e => {
   const k = e.target.dataset && e.target.dataset.fontScale;

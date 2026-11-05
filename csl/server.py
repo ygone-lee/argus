@@ -960,7 +960,8 @@ def list_state(conn, days, show_archived):
     # 할 일 카드가 생긴 시각들 — 보드가 「마지막으로 인박스를 본 뒤 새로 온 카드」를 센다(본 시각은 브라우저에 기억)
     inbox_new_at = [r[0] for r in conn.execute("SELECT created_at FROM inbox WHERE status='new'")]
     return {"sessions": sessions, "notes": notes, "settings": settings, "usage": store.read_usage(), "now": store.now(),
-            "inbox_new": len(inbox_new_at), "inbox_new_at": inbox_new_at, "boards": boards.listing(conn, show_archived)}
+            "inbox_new": len(inbox_new_at), "inbox_new_at": inbox_new_at, "boards": boards.listing(conn, show_archived),
+            "update": update.summary(conn)}
 
 
 AGENTS = {"at": 0, "items": []}
@@ -1127,6 +1128,8 @@ class Handler(BaseHTTPRequestHandler):
         if method == "GET" and not path.startswith("/api/"):
             return self._static(path)
         body = None
+        if method in ("POST", "PATCH", "DELETE"):
+            update.LAST_UI[0] = time.time()   # 보드에서 무언가 했다 — 자동 업데이트는 한동안 조용할 때만
         if method in ("POST", "PATCH"):
             body = self._json_body()
             if body is None:
@@ -2727,6 +2730,7 @@ def main():
     daily.start_scheduler()
     delegate.start_watcher()   # 세션에 맡긴 인박스 카드 지켜보기
     sendqueue.start()          # 넥스트 액션 「끝나면 보내기」
+    update.start_scheduler(restart_server)   # 몇 시간마다 새 버전 확인 · 자동이면 조용할 때 받기
     threading.Thread(target=_reap_loop, daemon=True).start()   # 정상 종료한 세션의 빈 탭 닫기
     threading.Thread(target=_dirty_loop, daemon=True).start()  # 칸 머리 변경 보기 버튼용 커밋 안 한 변경 수
     print("Argus: http://127.0.0.1:%d" % store.PORT, flush=True)
