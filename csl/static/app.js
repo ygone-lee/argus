@@ -400,7 +400,7 @@ async function poll() {
   let data;
   const seq = ++S.pollSeq;   // 주기·refresh·본 것 처리가 겹쳐 부른다 — 먼저 보낸 요청의 응답이 늦게 와도 되돌아가지 않게
   try {
-    data = await api("GET", "/api/state?archived=" + (S.showEnded ? 1 : 0));
+    data = await api("GET", "/api/state?archived=" + (S.showEnded || S.reveal.size ? 1 : 0));
   } catch (e) {
     document.title = t("연결 끊김 · Argus");
     return;
@@ -667,7 +667,18 @@ async function gotoCounter(kind) {
 
 // ------------------------------------------------------------------ 종료 포함 필터
 function matches(s) {
-  return S.showEnded || isImporting(s) || (s.state !== "ended" && !s.archived);
+  return S.showEnded || isImporting(s) || S.reveal.has(s.session_id) || (s.state !== "ended" && !s.archived);
+}
+// 검색·활동에서 고른 종료·보관 세션 — 「종료·보관 세션도 보기」를 켜 두지 않고 그 칸만 보인다(다른 세션을 고르거나 새로고침하면 사라짐)
+S.reveal = new Set();
+// 보드 터미널 밖(Orca·tmux·iTerm2·백그라운드 …)에서 도는 세션이면 { where, note }, 아니면 null(종료·브레인·보드 터미널)
+function elsewhere(s) {
+  if (s.term_web || s.brain || s.state === "ended" || s.archived || isImporting(s)) return null;
+  if (s.bg) return { where: "백그라운드", note: "터미널 없이 돌고 있습니다" };
+  if (s.running === false) return { where: "꺼진 세션", note: "어느 터미널에서도 돌고 있지 않습니다", btn: "⇄ 이어 열기" };
+  const where = s.term_label || "다른 터미널";
+  return { where, note: ["orca", "tmux"].includes(s.term_name) ? "보드 터미널 밖에서 도는 세션"
+    : "보드에서 입력할 수 없는 터미널 — 그쪽에서 /exit 한 뒤 가져오기" };
 }
 // 보드 터미널로 가져오는 중: 지금 터미널에서 끝내고 다시 여는 사이 잠깐 「종료」가 되어도 칸을 그대로 두고 표시한다.
 // 서버가 알려 주는 것(importing — 다른 탭·기기에서도) + 이 화면에서 누른 것(다시 열려 종료가 풀릴 때까지)
@@ -1000,7 +1011,7 @@ function boardFamilies() {
   const byId = new Map(S.sessions.map(s => [s.session_id, s]));
   const fams = new Map();
   for (const s of S.sessions) {
-    if (liveBrain(s) || s.archived && !S.showEnded) continue;
+    if (liveBrain(s) || s.archived && !S.showEnded && !S.reveal.has(s.session_id)) continue;
     const r = famRootOf(s, byId);
     if (!fams.has(r)) fams.set(r, []);
     fams.get(r).push(s);
@@ -1187,13 +1198,30 @@ function updateCol(col, s, rank, lastPin) {
   const cached0 = S.boardCache.get(sid);
   const live = S.live.get(sid);
   const key = [sigOf(s), famSig(s), bgSig(s), dirtySig(s), rank, live ? live.key : "", S.renaming === sid,
-    S.recapOpen.has(sid), S.uiVer, S.visibleCols.has(sid), S.activeCol === sid, lastPin, S.notesFolded.has(sid), isImporting(s)].join("|");
+    S.recapOpen.has(sid), S.uiVer, S.visibleCols.has(sid), S.activeCol === sid, lastPin, S.notesFolded.has(sid), isImporting(s),
+    s.term_label, s.term_name, s.bg, s.running].join("|");
   if (col._key === key && col._detail === (cached0 && cached0.detail)) return;
   col._key = key;
   col._detail = cached0 && cached0.detail;
   const pinned = !!pinOf(s);
   col.className = "col " + d + (S.activeCol === sid ? " active" : "") + (pinned ? " pinned" : "") + (lastPin ? " pin-last" : "") +
     (S.notesFolded.has(sid) ? " notes-folded" : "") + (isImporting(s) ? " importing" : "");
+  // 보드 터미널이 아닌 곳에서 도는 세션: 머리 아래 띠로 어디서 도는지 보이고 바로 가져오게
+  const away = elsewhere(s);
+  col.classList.toggle("elsewhere", !!away);
+  col.classList.toggle("off-col", !!(away && away.btn));
+  let band = col.querySelector(".col-elsewhere");
+  if (away) {
+    if (!band) {
+      band = document.createElement("div");
+      band.className = "col-elsewhere";
+      col.querySelector(".col-head").after(band);
+    }
+    const html = `<span class="ce-where">${esc(away.where)}</span><span class="ce-note" title="${esc(away.note)}">${esc(away.note)}</span>
+      <button class="ce-btn" data-action="import-open" data-sid="${esc(sid)}" title="⇄ 보드 터미널로 가져오기 — 같은 대화로 보드 터미널에서 다시 엽니다">${away.btn || "⇄ 가져오기"}</button>`;
+    band.classList.toggle("off", !!away.btn);
+    setHtml(band, html);
+  } else if (band) band.remove();
   let imp = col.querySelector(".col-importing");
   if (isImporting(s) && !imp) {
     imp = document.createElement("div");
@@ -2102,7 +2130,7 @@ $("#colMenu").addEventListener("click", async e => {
   if (s && item.dataset.cm === "import") {
     // 다른 터미널의 세션을 보드 터미널로: 같은 세션 ID 로 이어 연다(Orca·tmux 는 보드가 끝내고, 그 밖의 앱은 직접 끝낸 뒤)
     const busy = ["working", "waiting"].includes(displayState(s));
-    const live = s.state !== "ended";
+    const live = s.state !== "ended" && s.running !== false;   // 꺼진 채 「대기」로 남은 세션은 바로 이어 연다
     const how = !live ? "보드 터미널에서 이 세션을 이어 엽니다(claude --resume)."
       : s.bg ? "백그라운드 세션이라 끄지 않고 보드 터미널에서 붙습니다(claude attach)."
       : ["orca", "tmux"].includes(s.term_name) ? "지금 터미널에서 Claude Code 를 끝내고(워크트리는 남김) 보드 터미널에서 같은 대화로 다시 엽니다. 모델·effort·권한 모드도 그대로 넘깁니다(권한 확인 건너뛰기 모드는 빼고)."
@@ -5163,6 +5191,15 @@ function closeLaunchTerm() {
 }
 $("#termModal").addEventListener("click", e => { if (e.target.closest("[data-term-close]")) closeLaunchTerm(); });
 document.addEventListener("click", e => {
+  const ib = e.target.closest("[data-action='import-open']");
+  if (ib) {
+    const btn = colEl(ib.dataset.sid) && colEl(ib.dataset.sid).querySelector(".col-menu-btn");
+    if (!btn) return;
+    if ($("#colMenu").hidden || $("#colMenu").dataset.sid !== ib.dataset.sid) openColMenu(btn);
+    const item = $("#colMenu").querySelector('[data-cm="import"]');
+    if (item) item.click();
+    return;
+  }
   const b = e.target.closest("[data-action='term-toggle'], [data-action='term-reconnect']");
   if (!b) return;
   if (b.dataset.action === "term-toggle") return toggleTerm(b.dataset.sid);
@@ -5670,13 +5707,13 @@ async function openSearchItem(i) {
   if (!it) return;
   closeSearch();
   if (it.kind === "session") { await focusCol(it.s.session_id); return; }
-  await jumpToTurn(it.r, SR.q);   // 종료·보관된 세션이면 「종료 포함」을 켜서 보드에 꺼낸다
+  await jumpToTurn(it.r, SR.q);   // 종료·보관된 세션이면 그 칸만 잠깐 보드에 꺼낸다
 }
 // 보드의 그 세션 칸에서 그 턴으로(검색·활동 화면). r: { session_id, turn_id, from_end, in }
 async function jumpToTurn(r, words) {
   if (S.view !== "board") setView("board");
   if (!boardSessions().some(s => s.session_id === r.session_id) && !S.showEnded) {
-    S.showEnded = true; $("#showEnded").checked = true; save("csl.showEnded", true);
+    S.reveal = new Set([r.session_id]);   // 설정을 바꾸지 않고 이 세션만 잠깐
     await poll();
   }
   const col = await focusCol(r.session_id);

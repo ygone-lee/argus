@@ -30,6 +30,24 @@ ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 ATTACHABLE = ("web", "tmux")   # 보드 칸 안(xterm.js)에서 열 수 있는 터미널
 
 
+TERM_APPS = {"iTerm.app": "iTerm2", "Apple_Terminal": "터미널.app", "vscode": "VS Code", "ghostty": "Ghostty",
+             "WarpTerminal": "Warp", "WezTerm": "WezTerm", "Hyper": "Hyper", "Tabby": "Tabby", "kitty": "kitty"}
+
+
+def term_label(raw, tg):
+    """세션이 도는 곳의 이름 — 조작할 수 있는 터미널이면 그 이름, 아니면 훅이 기록한 앱(TERM_PROGRAM 등). 모르면 ""."""
+    if tg:
+        return tg.terminal.label
+    try:
+        term = json.loads(raw or "{}") or {}
+    except ValueError:
+        term = {}
+    if term.get("entrypoint") == "claude-desktop":
+        return "Claude 데스크톱 앱"
+    prog = term.get("program") or ""
+    return TERM_APPS.get(prog, prog[:24])
+
+
 def security_headers():
     """모든 응답에 붙이는 보안 헤더. 보드는 슬랙·메일 본문·대화 기록 같은 바깥 글을 그리고, 브라우저 안에 터미널이 있다 —
     - CSP: 보드 파일(static)의 스크립트만 실행(인라인·eval·바깥 스크립트 금지), 연결은 이 서버(웹소켓 포함)로만,
@@ -849,6 +867,7 @@ def list_state(conn, days, show_archived):
         (since,),
     ).fetchall()
     sessions = []
+    running = focus.running_sessions()
     for r in rows:
         s = dict(r)
         tg, is_brain = focus.target_of(s), brain.is_brain(s.get("cwd"))
@@ -867,6 +886,9 @@ def list_state(conn, days, show_archived):
         s["term_name"] = tg.terminal.name if tg else ""   # 어느 터미널(orca·tmux·web …) — 보드 터미널로 가져오기 안내에
         s["importing"] = store.now() - IMPORTING.get(s["session_id"], 0) < 180   # 가져오는 중 — 잠깐 종료로 보여도 칸을 둔다
         s["brain"] = is_brain       # 브레인 세션은 칸 대신 브레인 패널에
+        s["term_label"] = term_label(s.get("terminal"), tg)   # 어디서 도는지(보드 터미널이 아니면 칸에 띠로 보인다)
+        # 프로세스가 살아 있는지(Claude Code 실행 목록) — 모르면 True. 꺼졌는데 「대기」로 남은 세션을 칸에 표시한다
+        s["running"] = running is None or s["session_id"] in running
         s.pop("terminal", None)
         s["ctx"] = store.context_info(s["session_id"], s.get("transcript_path"))
         s["goal"] = store.goal_info(s.get("transcript_path"))   # /goal (기록 파일이 그대로면 기억한 값)

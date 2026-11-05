@@ -73,7 +73,7 @@ class Slack(Connector):
         "steps": [
             "「Slack 앱 만들기」 → 워크스페이스 고르기 → Next → Create (필요한 권한은 미리 채워져 있습니다. 「created by a 3rd party」 경고는 링크로 채운 매니페스트라 늘 나오는 것이니 그대로 진행)",
             "만든 앱 화면의 「Install to Workspace」 → Allow (회사 워크스페이스는 관리자 승인 요청이 될 수 있습니다)",
-            "「User OAuth Token」(xoxp-…) 옆 Copy → 아래 칸에 붙여 넣으면 바로 저장하고 연결을 확인합니다",
+            "「User OAuth Token」(xoxp-…) 옆 Copy → 아래 칸에 붙여 넣으면 바로 저장하고 연결을 확인합니다. 토큰은 앱 화면 왼쪽 메뉴 Features → OAuth & Permissions → 맨 위 「OAuth Tokens」에 있습니다",
         ],
         "links": [["이미 만든 앱에서 토큰 다시 보기 ↗", "https://api.slack.com/apps"]],
     }

@@ -156,6 +156,12 @@ const I18N_ROWS = [
   ["끄면 종료할 때 묻는 창에서 취소합니다", "オフなら終了時の確認で取り消します", "If off, the move is cancelled when exiting asks about it"],
   ["보드 터미널로 가져오는 중…", "ボードターミナルに移しています…", "Moving to the board terminal…"],
   ["지금 터미널에서 끝내고 같은 대화로 다시 엽니다", "今のターミナルで終了し、同じ会話で開き直します", "Ending it in its current terminal and reopening the same conversation"], ["보드 터미널로 가져왔습니다", "ボードターミナルに移しました", "Moved to the board terminal"],
+  // 보드 터미널 밖에서 도는 세션 띠
+  ["백그라운드", "バックグラウンド", "Background"], ["터미널 없이 돌고 있습니다", "ターミナルなしで動いています", "running without a terminal"],
+  ["다른 터미널", "別のターミナル", "Another terminal"], ["보드 터미널 밖에서 도는 세션", "ボードターミナルの外で動くセッション", "Running outside the board terminal"],
+  ["보드에서 입력할 수 없는 터미널 — 그쪽에서 /exit 한 뒤 가져오기", "ボードから入力できないターミナル — そちらで /exit してから移す", "The board can't type into this terminal — /exit there, then move it"],
+  ["⇄ 가져오기", "⇄ 移す", "⇄ Move here"], ["꺼진 세션", "停止したセッション", "Not running"], ["어느 터미널에서도 돌고 있지 않습니다", "どのターミナルでも動いていません", "not running in any terminal"], ["⇄ 이어 열기", "⇄ 続きを開く", "⇄ Resume"], ["⇄ 보드 터미널로 가져오기 — 같은 대화로 보드 터미널에서 다시 엽니다", "⇄ ボードターミナルに移す — 同じ会話でボードターミナルで開き直します", "⇄ Move to the board terminal — reopens the same conversation there"],
+  ["터미널.app", "ターミナル.app", "Terminal.app"], ["Claude 데스크톱 앱", "Claude デスクトップアプリ", "Claude desktop app"],
   // 세션 종료 — 워크트리 남기기·정리하기
   ["워크트리", "ワークツリー", "Worktree"], ["커밋 안 한 변경 없음", "未コミットの変更なし", "no uncommitted changes"], ["커밋 안 한 변경 {}개", "未コミットの変更 {} 件", "{} uncommitted changes"],
   ["남기기", "残す", "Keep"], ["폴더와 브랜치를 그대로 — 나중에 이어서 작업", "フォルダとブランチをそのまま — 後で続きを作業", "Keep the folder and branch — continue later"],
@@ -175,7 +181,7 @@ const I18N_ROWS = [
   ["빠른 연결", "クイック接続", "Quick connect"], ["Slack 앱 만들기 ↗", "Slack アプリを作成 ↗", "Create the Slack app ↗"],
   ["「Slack 앱 만들기」 → 워크스페이스 고르기 → Next → Create (필요한 권한은 미리 채워져 있습니다. 「created by a 3rd party」 경고는 링크로 채운 매니페스트라 늘 나오는 것이니 그대로 진행)", "「Slack アプリを作成」→ ワークスペースを選ぶ → Next → Create(必要な権限は入力済みです。「created by a 3rd party」の警告はリンクで埋めたマニフェストなので必ず出ます。そのまま進めてください)", "\"Create the Slack app\" → pick the workspace → Next → Create (the needed scopes are prefilled; the \"created by a 3rd party\" warning always shows for a manifest filled in from a link — just continue)"],
   ["만든 앱 화면의 「Install to Workspace」 → Allow (회사 워크스페이스는 관리자 승인 요청이 될 수 있습니다)", "作ったアプリ画面の「Install to Workspace」→ Allow(会社のワークスペースでは管理者への承認リクエストになることがあります)", "On the new app's page, \"Install to Workspace\" → Allow (company workspaces may turn this into an admin approval request)"],
-  ["「User OAuth Token」(xoxp-…) 옆 Copy → 아래 칸에 붙여 넣으면 바로 저장하고 연결을 확인합니다", "「User OAuth Token」(xoxp-…)の Copy → 下の欄に貼り付けるとすぐ保存して接続を確認します", "Copy the \"User OAuth Token\" (xoxp-…) → paste it below and it's saved and checked right away"],
+  ["「User OAuth Token」(xoxp-…) 옆 Copy → 아래 칸에 붙여 넣으면 바로 저장하고 연결을 확인합니다. 토큰은 앱 화면 왼쪽 메뉴 Features → OAuth & Permissions → 맨 위 「OAuth Tokens」에 있습니다", "「User OAuth Token」(xoxp-…)の Copy → 下の欄に貼り付けるとすぐ保存して接続を確認します。トークンはアプリ画面の左メニュー Features → OAuth & Permissions → 一番上の「OAuth Tokens」にあります", "Copy the \"User OAuth Token\" (xoxp-…) → paste it below and it's saved and checked right away. The token is in the app's left menu: Features → OAuth & Permissions → \"OAuth Tokens\" at the top"],
   ["이미 만든 앱에서 토큰 다시 보기 ↗", "作成済みのアプリでトークンを見る ↗", "See the token of an app you already made ↗"],
   ["Slack 앱의 OAuth & Permissions 에 있는 xoxp- 토큰. 이미 키체인에 넣어 두었으면 keychain:항목이름", "Slack アプリの OAuth & Permissions にある xoxp- トークン。キーチェーンに入れてあれば keychain:項目名", "The xoxp- token under OAuth & Permissions of the Slack app. If it's already in the keychain, keychain:item-name"],
   ["{}… 붙여 넣기 (또는 keychain:항목이름)", "{}… を貼り付け(または keychain:項目名)", "Paste {}… (or keychain:item-name)"],
