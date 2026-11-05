@@ -73,7 +73,9 @@ cd argus
 ```
 
 이제 Claude Code 를 평소처럼 쓰면 됩니다. 열려 있던 세션은 다음 요청부터, 새 세션은 시작하자마자 보드에 나타납니다.
-재부팅한 뒤에도 훅이 서버를 알아서 띄웁니다.
+설치 프로그램은 tmux 도 확인합니다 — 없고 Homebrew 가 있으면 `brew install tmux` 로 설치할지 묻습니다(묻지 않고 설치하지 않음).
+또 로그인할 때 보드를 자동으로 띄울지 묻습니다(macOS LaunchAgent). 끄면 재부팅한 뒤 `./ctl.sh open` 으로 직접 띄우면 됩니다
+(Claude Code 세션이 하나라도 시작되면 훅이 띄우기도 합니다). 나중에 `./ctl.sh autostart on|off|status` 로 바꿀 수 있습니다.
 
 **먼저 구경만 하고 싶다면:** `/usr/bin/python3 demo/run.py` 를 실행하면 지어낸 프로젝트와 세션이 움직이는 진짜 보드가
 http://127.0.0.1:7798 에 열립니다. 따로 쓰는 임시 폴더와 포트를 써서 내 Claude Code 설정은 건드리지 않고, Ctrl+C 로 끄면 정리됩니다.

@@ -1,6 +1,7 @@
 #!/bin/sh
-# Argus 보드 서버 관리: ./ctl.sh start|stop|restart|status|open
-# 훅이 SessionStart·UserPromptSubmit 때 서버가 꺼져 있으면 알아서 띄우므로 평소엔 쓸 일이 없다.
+# Argus 보드 서버 관리: ./ctl.sh start|stop|restart|status|open|autostart on|off|status
+# 훅이 SessionStart·UserPromptSubmit 때 서버가 꺼져 있으면 알아서 띄운다. 재부팅 뒤 Claude 세션이 아직 없을 때는
+# ./ctl.sh open 으로 직접 띄우거나, ./ctl.sh autostart on 으로 로그인할 때 저절로 뜨게(macOS LaunchAgent) 해 둔다.
 HERE=$(cd "$(dirname "$0")" && pwd)
 PORT=${CSL_PORT:-7799}
 DATA=${CSL_DATA_DIR:-$HOME/.claude/session-log}
@@ -26,9 +27,13 @@ case "$1" in
   open)
     [ -z "$(pid)" ] && { "$0" start || exit 1; }
     open "http://127.0.0.1:$PORT" ;;
+  autostart)
+    case "${2:-status}" in on|off|status) exec "$PY" "$HERE/install.py" --set-autostart "${2:-status}" ;;
+      *) echo "Usage: $0 autostart on | off | status"; exit 1 ;; esac ;;
   *)
-    echo "Usage: $0 start | stop | restart | status | open"
-    echo "  open     start the board if needed and open it in your browser"
-    echo "  status   is the board running?"
+    echo "Usage: $0 start | stop | restart | status | open | autostart on|off|status"
+    echo "  open       start the board if needed and open it in your browser"
+    echo "  status     is the board running?"
+    echo "  autostart  start the board when you log in (on), stop doing that (off), or show it (status)"
     exit 1 ;;
 esac

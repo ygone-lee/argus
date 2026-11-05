@@ -39,6 +39,9 @@ SKILLS_DIR = os.path.expanduser("~/.claude/skills")
 MARK = "/csl/hook.py"   # 저장소 폴더 이름이 바뀌어도(예전 claude-session-log) 이 도구의 훅으로 알아본다
 PORT = int(os.environ.get("CSL_PORT", "7799"))
 DATA_DIR = os.path.expanduser(os.environ.get("CSL_DATA_DIR", "~/.claude/session-log"))
+# 로그인할 때 보드 서버를 띄우는 macOS LaunchAgent(선택 — 설치 때 묻는다. ./ctl.sh autostart on|off 로 나중에 바꾼다)
+AGENT_LABEL = "com.argus.board"
+AGENT_PLIST = os.path.expanduser("~/Library/LaunchAgents/%s.plist" % AGENT_LABEL)
 
 # (이벤트, matcher, async) — 요청 기록은 순서가 중요해 동기, 나머지는 Claude 를 막지 않게 async
 HOOKS = [
@@ -220,6 +223,93 @@ def save_settings(settings):
 
 
 # ---------------------------------------------------------------- 상태 점검
+def tmux_bin():
+    """tmux 경로(없으면 None). 보드 터미널·터미널 패널·브레인이 그 위에서 돈다."""
+    return shutil.which("tmux") or next((p for p in ("/opt/homebrew/bin/tmux", "/usr/local/bin/tmux") if os.path.exists(p)), None)
+
+
+def brew_bin():
+    return shutil.which("brew") or next((p for p in ("/opt/homebrew/bin/brew", "/usr/local/bin/brew") if os.path.exists(p)), None)
+
+
+def ask(question, default=True):
+    """터미널에서 물을 수 있으면 [Y/n] 으로 묻는다. 못 물으면(파이프 등) None."""
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return None
+    try:
+        a = input("%s [%s] " % (question, "Y/n" if default else "y/N")).strip().lower()
+    except EOFError:
+        return None
+    return default if not a else a in ("y", "yes")
+
+
+def ensure_tmux(want=None):
+    """tmux 가 없으면 알리고, Homebrew 가 있으면 설치할지 묻는다(want: True=묻지 않고 설치, False=설치 안 함). 결과 한 줄."""
+    t = tmux_bin()
+    if t:
+        return "found (%s)" % home(t)
+    brew = brew_bin()
+    if not brew:
+        return ("not installed — Argus needs it for the board terminal. Install Homebrew (https://brew.sh), then run: "
+                "brew install tmux")
+    if want is None:
+        say("\ntmux isn't installed. Argus runs every session it starts, the Brain and the terminal panel in tmux.")
+        want = ask("Install it now with Homebrew (brew install tmux)?")
+    if not want:
+        return "not installed — install it later with: brew install tmux"
+    say("Running: brew install tmux")
+    r = subprocess.run([brew, "install", "tmux"])
+    t = tmux_bin()
+    return "installed (%s)" % home(t) if r.returncode == 0 and t else "install failed — run it yourself: brew install tmux"
+
+
+def autostart_state():
+    """로그인 자동 시작: (켜졌는지, 설명)."""
+    if not os.path.exists(AGENT_PLIST):
+        return False, "off — start the board yourself after a restart: ./ctl.sh open"
+    loaded = subprocess.run(["launchctl", "print", "gui/%d/%s" % (os.getuid(), AGENT_LABEL)],
+                            capture_output=True, text=True).returncode == 0
+    return True, "on — starts at login (%s%s)" % (home(AGENT_PLIST), "" if loaded else ", not loaded yet")
+
+
+def autostart_on():
+    """로그인할 때 보드 서버를 띄우는 LaunchAgent 를 쓰고 바로 등록한다. 결과 한 줄."""
+    import plistlib
+    os.makedirs(os.path.dirname(AGENT_PLIST), exist_ok=True)
+    os.makedirs(DATA_DIR, exist_ok=True)
+    env = {"PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", "CSL_SKIP": "1"}
+    for k in ("CSL_PORT", "CSL_DATA_DIR"):
+        if os.environ.get(k):
+            env[k] = os.environ[k]
+    log = os.path.join(DATA_DIR, "server.log")
+    plist = {"Label": AGENT_LABEL, "ProgramArguments": [PYTHON, os.path.join(HERE, "csl", "server.py")],
+             "RunAtLoad": True, "KeepAlive": False, "WorkingDirectory": HERE, "ProcessType": "Background",
+             "EnvironmentVariables": env, "StandardOutPath": log, "StandardErrorPath": log}
+    with open(AGENT_PLIST, "wb") as f:
+        plistlib.dump(plist, f)
+    domain = "gui/%d" % os.getuid()
+    subprocess.run(["launchctl", "bootout", "%s/%s" % (domain, AGENT_LABEL)], capture_output=True)
+    r = subprocess.run(["launchctl", "bootstrap", domain, AGENT_PLIST], capture_output=True, text=True)
+    if r.returncode != 0:
+        return "written to %s, but launchctl couldn't load it (%s) — it loads at your next login" % (
+            home(AGENT_PLIST), (r.stderr or "").strip()[:120])
+    return "on — the board starts when you log in (%s)" % home(AGENT_PLIST)
+
+
+def autostart_off():
+    """LaunchAgent 를 내리고 지운다. 그 에이전트가 띄운 서버가 같이 꺼지면 다시 띄워 둔다(지금 쓰는 보드가 끊기지 않게)."""
+    if not os.path.exists(AGENT_PLIST):
+        return "off"
+    was_up = server_up()
+    subprocess.run(["launchctl", "bootout", "gui/%d/%s" % (os.getuid(), AGENT_LABEL)], capture_output=True)
+    os.remove(AGENT_PLIST)
+    if was_up:
+        time.sleep(0.5)
+        if not server_up():
+            subprocess.run([os.path.join(HERE, "ctl.sh"), "start"], capture_output=True)
+    return "off — start the board yourself after a restart: ./ctl.sh open"
+
+
 def server_up():
     try:
         with socket.create_connection(("127.0.0.1", PORT), timeout=0.3):
@@ -255,7 +345,9 @@ def check():
         ("Hooks", n == len(HOOKS), "%d of %d in %s" % (n, len(HOOKS), home(SETTINGS)) + ("" if n else " — run install.py")),
         ("Status line tap", TAP_MARK in cmd or _script_has_tap(cmd), "" if TAP_MARK in cmd or _script_has_tap(cmd)
          else "not connected — context % and usage bars will be estimated or hidden"),
+        ("tmux", bool(tmux_bin()), home(tmux_bin() or "") or "not installed — brew install tmux (needed for the board terminal)"),
         ("Board server", server_up(), "http://127.0.0.1:%d" % PORT if server_up() else "not running — ./ctl.sh open"),
+        ("Start at login", autostart_state()[0], autostart_state()[1]),
         ("Recorded sessions", bool(sessions), str(sessions) if sessions is not None else "none yet — send a prompt in Claude Code"),
     ]
     say("Argus install check\n")
@@ -279,10 +371,18 @@ def main():
     ap.add_argument("--open", action="store_true", help="start the board and open it in the browser when done, without asking")
     ap.add_argument("--no-open", action="store_true", help="don't offer to open the board")
     ap.add_argument("--force", action="store_true", help="install even if this isn't macOS")
+    ap.add_argument("--autostart", choices=("on", "off"), help="start the board at login (macOS LaunchAgent) — asked if not given")
+    ap.add_argument("--tmux", choices=("install", "skip"), help="install tmux with Homebrew if it's missing, or don't — asked if not given")
+    ap.add_argument("--set-autostart", choices=("on", "off", "status"), metavar="on|off|status",
+                    help="only turn starting the board at login on or off (or show it), then exit — same as ./ctl.sh autostart")
     args = ap.parse_args()
 
     if args.check:
         return check()
+    if args.set_autostart:
+        say("Start at login: " + (autostart_state()[1] if args.set_autostart == "status"
+                                  else autostart_on() if args.set_autostart == "on" else autostart_off()))
+        return
 
     warnings = [] if args.uninstall else preflight(args.force)
     settings, created = load_settings()
@@ -314,10 +414,12 @@ def main():
     save_settings(settings)
 
     if args.uninstall:
+        login = autostart_off()
         say("Argus removed ✓\n")
         say("  Hooks        removed from %s (your other hooks are untouched)" % home(SETTINGS))
         say("  Status line  %s" % statusline)
         say("  Skill links  removed: %s" % skills)
+        say("  Start at login  %s" % ("removed" if login.startswith("off —") else "was off"))
         if backup:
             say("  Backup       %s" % home(backup))
         say("\nYour recorded data is still in %s — delete that folder to remove it too." % home(DATA_DIR))
@@ -332,6 +434,17 @@ def main():
     say("  Skill        %s linked into %s" % (skills, home(SKILLS_DIR)))
     if backup:
         say("  Backup       %s" % home(backup))
+    tmux = ensure_tmux({"install": True, "skip": False}.get(args.tmux))
+    if args.autostart:
+        login = autostart_on() if args.autostart == "on" else autostart_off()
+    elif autostart_state()[0]:
+        login = autostart_on()   # 이미 켜 두었으면 경로가 바뀌었을 수 있으니 다시 쓴다
+    else:
+        want = ask("\nStart the board automatically when you log in? (otherwise run ./ctl.sh open after a restart)")
+        login = autostart_on() if want else "off — start the board yourself after a restart: %sctl.sh open" % (
+            "" if os.path.realpath(os.getcwd()) == os.path.realpath(HERE) else home(HERE).rstrip("/") + "/")
+    say("\n  tmux            %s" % tmux)
+    say("  Start at login  %s" % login)
     for w in warnings:
         say("\n! " + w)
     # 저장소 밖(한 줄 설치 등)에서 실행했으면 명령을 저장소 경로로 적는다 — 그대로 붙여 넣어 쓸 수 있게
@@ -343,8 +456,8 @@ Next
      Sessions that are already open appear from their next prompt; no restart needed.
   3. Optional: import the last week of conversations:
        /usr/bin/python3 %(h)scsl/backfill.py --days 7
-  4. Optional: run sessions in the Orca terminal, or inside tmux in any terminal app, to reply and
-     answer prompts from the board (see "Working with sessions" in the README).
+  4. After a restart the board is started at login if you turned that on; otherwise run %(ctl)s open
+     (turn it on or off any time: %(ctl)s autostart on|off).
 
 Check the install any time:  /usr/bin/python3 %(h)sinstall.py --check
 Remove it:                   /usr/bin/python3 %(h)sinstall.py --uninstall""" % {"h": here, "ctl": (here or "./") + "ctl.sh", "port": PORT})

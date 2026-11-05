@@ -108,7 +108,7 @@ and offers to open the board at http://127.0.0.1:7799. Later, `./ctl.sh open` (i
 
 Optional: `/usr/bin/python3 csl/backfill.py --days 7` brings in the last week of conversations from before the install.
 
-That's it. Keep working in Claude Code as usual — every open session shows up on the board from its next prompt, and new sessions appear as soon as they start. The server starts itself from the hooks after a reboot, so you rarely need `ctl.sh` again.
+That's it. Keep working in Claude Code as usual — every open session shows up on the board from its next prompt, and new sessions appear as soon as they start. The installer also checks for tmux — if it's missing and Homebrew is there, it offers to run `brew install tmux` (it never installs without asking; `--tmux install|skip` answers up front) — and asks whether to start the board when you log in (a macOS LaunchAgent, `~/Library/LaunchAgents/com.argus.board.plist`; `--autostart on|off` answers up front). With that off, start it yourself after a restart with `./ctl.sh open` (the hooks also start it as soon as any Claude Code session starts). Change it any time with `./ctl.sh autostart on|off|status`; `install.py --uninstall` removes the LaunchAgent too.
 
 **Just want to look first?** `/usr/bin/python3 demo/run.py` opens the real board at http://127.0.0.1:7798 with made-up projects and sessions that change while you watch (you can send them messages too). It uses its own temporary data folder and port, never touches your Claude Code setup, and cleans up when you stop it with Ctrl+C.
 
