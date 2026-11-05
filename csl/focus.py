@@ -353,7 +353,40 @@ def send_prompt(t, text, allow_bang=False):
     box = dialog_text(t)
     if box:
         return False, [], "터미널에 선택 창이 떠 있습니다: " + box
-    return t.terminal.submit(t.handle, text)
+    if t.terminal.checks_submit:
+        return t.terminal.submit(t.handle, text)
+    # 글을 넣고, 입력칸에 실제로 들어간 것을 본 뒤에만 Enter — 확인한 직후 선택 창(Claude Code 가 스스로 띄우는 설정 창 등)이
+    # 뜨면 글이 그 창으로 들어가고 Enter 가 엉뚱한 선택이 된다
+    t0 = time.time()
+    if not t.terminal.write(t.handle, text):
+        return False, [], "입력 전송 실패"
+    if not _landed(t, text):
+        return False, [], NOT_LANDED
+    time.sleep(max(0.0, 0.3 - (time.time() - t0)))   # 한 번에 보내면 붙여넣기로 보고 Enter 를 줄바꿈으로 받는다 — 글을 다 받은 뒤 Enter
+    if not t.terminal.write(t.handle, "\r"):
+        return False, [], "Enter 전송 실패(입력창에 글이 남아 있을 수 있음)"
+    return True, [], ""
+
+
+NOT_LANDED = "글이 입력칸에 들어가지 않아 Enter 는 누르지 않았습니다 — 터미널에 선택 창이 떴는지 확인해 주세요(칸의 「⌨ 터미널」)"
+
+
+def _landed(t, text, wait=2.0):
+    """보낸 글이 입력칸에 들어갔는지 — Enter 를 누르기 전에 화면을 다시 본다(글이 다 그려질 때까지 잠깐 기다림).
+    첫 줄 앞부분(빈칸 무시)이 입력칸에 보이거나, 길어서 [Pasted text …]·이미지 [Image #…] 로 접혔으면 들어간 것.
+    화면을 못 읽거나 입력칸이 안 보이면(창이 떴다) False."""
+    first = next((ln for ln in IMAGE_TOKEN.sub("", text).splitlines() if ln.strip()), "")
+    want = re.sub(r"\s+", "", re.sub(r"^\s*!", "", first))[:30]
+    end = time.time() + wait
+    while True:
+        got = _input_line_of(_screen(t))
+        if got is not None:
+            g = re.sub(r"\s+", "", got)
+            if (want and want in g) or "[Pastedtext" in g or "[Image#" in g or (not want and g):
+                return True
+        if time.time() >= end:
+            return False
+        time.sleep(0.25)
 
 
 IMAGE_TOKEN = re.compile(r"\[이미지 (\d+)\]")
@@ -393,9 +426,12 @@ def type_text(t, text, image_paths, allow_bang=False):
     for i, p in enumerate(image_paths):
         if i not in used:
             typed += (" " if typed else "") + "\x1b[200~" + p + "\x1b[201~"
+    t0 = time.time()
     if not _raw(t, typed):
         return False, "입력 전송 실패"
-    time.sleep(0.3)   # 입력창이 글을 다 받은 뒤 Enter
+    if not _landed(t, text):   # 선택 창이 끼어들었으면 Enter 를 누르지 않는다(send_prompt 와 같은 이유)
+        return False, NOT_LANDED
+    time.sleep(max(0.0, 0.3 - (time.time() - t0)))   # 입력창이 글을 다 받은 뒤 Enter
     if not _raw(t, "\r"):
         return False, "Enter 전송 실패(입력창에 글이 남아 있을 수 있음)"
     return True, ""
@@ -467,10 +503,10 @@ def input_line(t):
 def _input_line_of(lines):
     """화면 줄에서 입력칸 글(입력칸이 안 보이면 None)."""
     rules = [i for i, ln in enumerate(lines) if ln.lstrip().startswith("──")]
-    # 입력칸은 가로줄 두 개 사이, 첫 줄이 ❯ 로 시작한다
+    # 입력칸은 가로줄 두 개 사이, 첫 줄이 ❯ 로 시작한다(셸 모드 — 「!」를 친 뒤 — 면 「!」로)
     for a, b in zip(reversed(rules[:-1]), reversed(rules[1:])):
         body = lines[a + 1:b]
-        if body and body[0].startswith("❯"):
+        if body and body[0].startswith(("❯", "!")):
             first = body[0][1:].replace("\xa0", " ").strip()
             rest = [ln.replace("\xa0", " ")[2:].rstrip() for ln in body[1:]]
             return "\n".join([first] + rest).strip()

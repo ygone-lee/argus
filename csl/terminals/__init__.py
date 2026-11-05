@@ -20,6 +20,7 @@ Target = namedtuple("Target", "terminal handle")
 class Terminal:
     name = ""          # 내부 이름(세션 기록의 "backend" 값)
     label = ""         # 화면에 보일 이름
+    checks_submit = False   # submit 이 입력창에 들어갔는지 스스로 확인한다(Orca) — 아니면 보드가 Enter 전에 화면을 다시 본다
     env_keys = {}      # 훅이 기록할 {터미널 정보 키: 환경 변수}
 
     # --- 있는지·누구 것인지

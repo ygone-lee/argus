@@ -40,6 +40,7 @@ def norm_title(t):
 class Orca(Terminal):
     name = "orca"
     label = "Orca"
+    checks_submit = True   # orca terminal send --wait-submit 이 접수를 확인한다
     env_keys = {"orca_handle": "ORCA_TERMINAL_HANDLE"}
 
     def available(self):
