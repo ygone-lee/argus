@@ -73,6 +73,7 @@ Everything stays on your machine: a small Python server bound to 127.0.0.1 and a
 | 💬 **Act without finding the terminal** | Reply (with images or dropped file paths), answer permission and question prompts, stop a running turn, rename, change model and effort for one session, change permission mode, rewind, branch or fork, run slash commands, end a session. *Needs tmux.* |
 | 📝 **Keep track of what's next** | Personal *next actions* per session that are never sent to Claude — or queued to be sent automatically when the current reply finishes. A report of to-dos left in ended sessions, and of missed git work (uncommitted changes, unpushed commits, branches without a PR). |
 | 🔎 **Find anything you discussed** | Full-text search across every prompt and reply in every session (Korean and Japanese included). The `argus-recall` skill lets any Claude Code session search past conversations too ("how did we fix this last time?"). |
+| 🗂 **Terminal and doc columns** | Shell columns and markdown document columns next to your sessions. Edit a doc right in its column, or ask the AI to tidy it up — it edits only that file. |
 | 🧾 **Review changes** | A diff viewer per session folder — uncommitted changes or the whole branch, unified or side by side. |
 | 📅 **Look back** | An activity feed of every session in time order, and an optional daily work log written each morning. |
 | 🧠 **Ask the Brain** *(optional)* | Chat with a Claude Code session that can read the board: "what's waiting for me?", "what did I do today?", "tell the api session to run the tests". It can collect Slack and Gmail mentions into an inbox kanban, suggest who should handle each one, and delegate cards to sessions. |
@@ -81,17 +82,38 @@ The board UI is available in 한국어, 日本語 and English — it follows you
 
 ## Quick start
 
-**You need:** macOS, [Claude Code](https://docs.anthropic.com/en/docs/claude-code) signed in with your Claude account (a subscription plan is enough — no API key), the system Python 3 (`/usr/bin/python3`, 3.9 or later — nothing to `pip install`), [tmux](https://github.com/tmux/tmux) (`brew install tmux`) and a modern browser (tested in Chrome). tmux is the only thing to install: sessions, the Brain and the terminal panel run in the board's own tmux server and show up right in the browser — no terminal app needed.
+### 1. What you need
+
+- **macOS**
+- **Claude Code**, signed in with your Claude account (a subscription plan is enough — no API key)
+- **Python 3** — the system `/usr/bin/python3` (3.9 or later). Nothing to `pip install`
+- **tmux** — `brew install tmux`. If it's missing, the installer offers to install it
+- **A modern browser** — tested in Chrome
+
+tmux is the only thing to install. Sessions, the Brain and terminals run in the board's own tmux server and show up right in the browser, so no terminal app is needed.
+
+> **First time using developer tools on this Mac?** Argus needs Apple's *Command Line Tools* (git and Python 3). If they
+> are missing, the install command opens the macOS installer for them — click **Install**, wait a few minutes, then run the command again.
+
+### 2. Install
+
+Paste this line into a terminal:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ygone-lee/argus/main/install.sh | sh
 ```
 
-That downloads Argus into `~/.argus` and runs its installer, which adds Argus's hooks to Claude Code (a backup of your
-settings is saved first) and offers to open the board. Run the same line again to update — or use ⋮ → ⟳ 업데이트 확인 (Check for updates) on the board: it fetches GitHub, lists the new commits and any newer release tag, and updates with a fast-forward `git pull`, re-runs the installer for new hooks and restarts the board. It refuses when the folder has uncommitted changes, unpushed commits or no upstream branch, so a development checkout is never overwritten. The board also checks quietly once a day and puts a dot on the ⋮ button when something is new.
+It downloads Argus into **`~/.argus`** and runs the installer. The installer backs up your Claude Code settings
+(`~/.claude/settings.json`) and then adds Argus's hooks; your other hooks and settings are kept. It asks three questions:
 
-> **First time using developer tools on this Mac?** Argus needs Apple's *Command Line Tools* (git and Python 3). If they
-> are missing, the command opens the macOS installer for them — click **Install**, wait a few minutes, then run it again.
+| Question | If you say yes |
+|---|---|
+| tmux is missing — install it with Homebrew? | Runs `brew install tmux`. Say no and install it yourself later |
+| Start the board when you log in? | The board starts by itself after you turn on the Mac and log in — see [3. After you restart your Mac](#3-after-you-restart-your-mac) |
+| Open the board now? | Opens http://127.0.0.1:7799 in your browser |
+
+That's it. Keep working in Claude Code as usual — every open session shows up on the board from its next prompt, and new sessions appear as soon as they start.
+To bring in conversations from before the install, run `/usr/bin/python3 ~/.argus/csl/backfill.py --days 7` (the last 7 days).
 
 Prefer to see what runs first? [`install.sh`](install.sh) is about 40 lines. Or install from a clone of your own:
 
@@ -101,16 +123,83 @@ cd argus
 /usr/bin/python3 install.py
 ```
 
-The installer checks that you're on macOS with Claude Code installed, creates `~/.claude/settings.json` if you don't have
-one yet (and stops without changing anything if the file isn't valid JSON), prints what it changed and the next steps,
-and offers to open the board at http://127.0.0.1:7799. Later, `./ctl.sh open` (in the Argus folder) opens it again, and
-`/usr/bin/python3 install.py --check` shows whether everything is installed and running.
+> `~/.argus` in the commands below is the Argus folder of a curl install. If you cloned it, use your clone's path instead.
 
-Optional: `/usr/bin/python3 csl/backfill.py --days 7` brings in the last week of conversations from before the install.
+The installer can also be answered up front: `--tmux install|skip`, `--autostart on|off`, `--open` / `--no-open`. It stops without
+changing anything if `~/.claude/settings.json` isn't valid JSON, and creates the file if you don't have one yet.
 
-That's it. Keep working in Claude Code as usual — every open session shows up on the board from its next prompt, and new sessions appear as soon as they start. The installer also checks for tmux — if it's missing and Homebrew is there, it offers to run `brew install tmux` (it never installs without asking; `--tmux install|skip` answers up front) — and asks whether to start the board when you log in (a macOS LaunchAgent, `~/Library/LaunchAgents/com.argus.board.plist`; `--autostart on|off` answers up front). With that off, start it yourself after a restart with `./ctl.sh open` (the hooks also start it as soon as any Claude Code session starts). Change it any time with `./ctl.sh autostart on|off|status`; `install.py --uninstall` removes the LaunchAgent too.
+### 3. After you restart your Mac
 
-**Just want to look first?** `/usr/bin/python3 demo/run.py` opens the real board at http://127.0.0.1:7798 with made-up projects and sessions that change while you watch (you can send them messages too). It uses its own temporary data folder and port, never touches your Claude Code setup, and cleans up when you stop it with Ctrl+C.
+The board is a small server running on your Mac (http://127.0.0.1:7799). After a restart:
+
+- **With autostart on** — the server starts as soon as you log in. Just open http://127.0.0.1:7799 (a bookmark helps).
+- **With autostart off** — the hooks start the server as soon as any Claude Code session starts. To open the board before that, run `~/.argus/ctl.sh open`.
+
+Change it any time:
+
+```sh
+~/.argus/ctl.sh autostart on      # start the board when you log in
+~/.argus/ctl.sh autostart off     # don't
+~/.argus/ctl.sh autostart status  # show the current setting
+```
+
+Autostart is a macOS login item (a LaunchAgent, `~/Library/LaunchAgents/com.argus.board.plist`). It starts the board once at login
+and doesn't restart a server you stopped yourself.
+
+### 4. Everyday commands
+
+| To | Run |
+|---|---|
+| Open the board (starting it first if needed) | `~/.argus/ctl.sh open` |
+| Check whether it's running | `~/.argus/ctl.sh status` |
+| Stop · restart it | `~/.argus/ctl.sh stop` · `~/.argus/ctl.sh restart` |
+| Turn autostart at login on · off · show it | `~/.argus/ctl.sh autostart on` · `off` · `status` |
+| Check the installation (changes nothing) | `/usr/bin/python3 ~/.argus/install.py --check` |
+| Update | ⋮ → ⟳ 업데이트 확인 (Check for updates) on the board, or run the curl install line again |
+| Uninstall | `/usr/bin/python3 ~/.argus/install.py --uninstall`, then delete `~/.argus` |
+
+If the board doesn't start, the reason is at the end of `~/.claude/session-log/server.log`. Stopping or restarting only restarts the board
+server — sessions in the board terminal keep running in their tmux server.
+
+### 5. Updating
+
+⋮ → ⟳ 업데이트 확인 (Check for updates) on the board fetches GitHub and lists the new commits and any newer release tag. Press 「업데이트」 (Update) and it:
+
+1. pulls the changes (fast-forward only),
+2. re-runs the installer so new hooks are in place,
+3. restarts the board.
+
+It refuses when the folder has uncommitted changes, unpushed commits or no upstream branch, so a development checkout is never overwritten.
+The board also checks quietly once a day and puts a dot on the ⋮ button when something is new.
+
+### 6. First steps
+
+1. Open the board — http://127.0.0.1:7799
+2. Top bar **＋ 새 보드** (New board) → **✳ Claude Code** → pick a folder → **만들기** (Create). The session starts in the board terminal and gets a column.
+3. Type in the message box under the column and press Enter. Answer permission prompts and questions right in the column.
+4. **⌨ 터미널** (Terminal) in the column header shows that session's terminal; **💬 대화** (Chat) goes back.
+5. Press <kbd>?</kbd> for every shortcut — <kbd>⌘</kbd><kbd>1</kbd>–<kbd>9</kbd> to jump to a column, <kbd>Z</kbd> to enlarge one, <kbd>/</kbd> to search conversations, <kbd>G</kbd> for the quick switcher …
+
+Sessions you already run in another terminal show up as they are. To reply to them from the board too, use the column's ⋮ → **⇄ 보드 터미널로 가져오기** (Move to the board terminal).
+
+**Just want to look first?** `/usr/bin/python3 ~/.argus/demo/run.py` opens the real board at http://127.0.0.1:7798 with made-up projects and sessions that change while you watch (you can send them messages too). It uses its own temporary data folder and port, never touches your Claude Code setup, and cleans up when you stop it with Ctrl+C.
+
+## New board: Claude Code · terminal · markdown
+
+**＋ 새 보드** (New board) in the top bar makes three kinds of columns. All of them are board columns, so pinning, dragging to reorder,
+⌘number, <kbd>Z</kbd> zoom and archiving work the same way.
+
+- **✳ Claude Code** — a Claude Code session in the chosen folder, with model, effort, a new worktree (`claude -w`) and a first message.
+- **⌨ Terminal** — a shell in the chosen folder; the column is the terminal.
+  - It runs on the board's tmux server, so it survives reloads and board restarts.
+  - After `exit`, the column offers 「↻ 같은 폴더에서 다시 열기」 (Reopen in the same folder).
+  - Deleting the column closes the shell.
+- **📝 Markdown** — a document saved as `.argus/boards/<name>.md` in the chosen folder. `.argus/` is added to that repository's `.git/info/exclude`, so it never mixes into commits.
+  - **Top (the document):** switch between ✎ edit and 👁 view. Edits save automatically. In view, click a checklist item (`- [ ]`) to tick it.
+  - **Bottom (AI chat):** ask something like "turn this into meeting notes" and Claude edits that file only. Other files, commands and the web are blocked.
+  - **Undo:** each AI edit has 「되돌리기」 (Undo) under its reply, which restores the text from before that edit.
+  - **Model:** ⋮ → ⚙ 설정 → 「마크다운 보드 AI 모델」 (Markdown board AI model), Sonnet by default. Each request uses Claude usage.
+  - Deleting the column keeps the document file.
 
 **Optional extras**
 
@@ -118,7 +207,7 @@ That's it. Keep working in Claude Code as usual — every open session shows up 
 - **Argus Brain** — click the 브레인 (Brain) icon next to the Argus logo, or press `B`, and start it. See [Argus Brain](#feature-reference) in the feature reference.
 - **Connectors** — ⋮ → 🔌 커넥터 (Connectors) to collect Slack mentions/DMs and Gmail into the Brain's inbox. Secrets go into the macOS Keychain. For Slack, "Create the Slack app" opens Slack with a read-only app manifest prefilled: pick the workspace → Create → Install → copy the User OAuth Token (xoxp-…) and paste it — Argus saves it, checks the connection and names the connector after the workspace.
 
-**To remove Argus:** `/usr/bin/python3 ~/.argus/install.py --uninstall` (or `install.py --uninstall` in your clone) removes the hooks and restores your original status line, then delete the Argus folder. Your data stays in `~/.claude/session-log` until you delete that folder.
+**To remove Argus:** `/usr/bin/python3 ~/.argus/install.py --uninstall` (or `install.py --uninstall` in your clone) removes the hooks, restores your original status line and turns autostart off; then delete the Argus folder. Your data stays in `~/.claude/session-log` until you delete that folder.
 
 ## A tour of the board
 
@@ -152,9 +241,9 @@ Argus stores your Claude Code conversations, so it is built to keep them on your
 
 - **Local only.** The server listens on `127.0.0.1` only, checks the `Host` header and accepts only JSON requests, so other web pages can't read or drive it. All data is in `~/.claude/session-log` (SQLite + uploaded images).
 - **Secrets are masked before they are stored.** Known token formats (GitHub, Slack, Google, JWTs), `Bearer …`, passwords in URLs and `password=…`-style values become `[MASKED]`. Wrap anything else in `<private>…</private>` in your prompt: Claude still sees it, Argus stores `[private]`.
-- **No hidden model calls, no API key.** Showing the board costs no tokens. Only features you turn on or ask for — the daily log, the Brain, card chat — run Claude, using your own Claude Code account.
+- **No hidden model calls, no API key.** Showing the board costs no tokens. Only features you turn on or ask for — the daily log, the Brain, card chat, the markdown column's AI — run Claude, using your own Claude Code account.
 - **Claude Code itself is left alone.** Argus never edits Claude Code's transcripts. `install.py` keeps your other hooks, backs up `settings.json`, and `--uninstall` puts it back. Hooks never block Claude Code: if one fails it logs the error and exits normally.
-- **Typing into terminals is guarded.** The board refuses to type when a session is waiting on a prompt, has ended, when `claude` is no longer the foreground process of that terminal, or when the text starts with `!` (which would run a shell command). Every multi-step terminal action checks the screen at each step and backs out with Esc if anything doesn't match.
+- **Typing into terminals is guarded.** The board refuses to type when a session is waiting on a prompt, has ended, or when `claude` is no longer the foreground process of that terminal. Text starting with `!` (which runs a shell command) is accepted only when typed in the board's message box and sent right away — never from queued sends, the Brain or inbox delegation. Every multi-step terminal action checks the screen at each step and backs out with Esc if anything doesn't match.
 - **Connectors are read-only.** Slack uses read scopes only, Gmail and Calendar read subjects, senders and times only (no mail bodies). Tokens go into the macOS Keychain, never into settings or logs. The Brain is not allowed to write to Slack or edit files, and it only messages other sessions when you ask it to.
 
 ## Limitations and FAQ
@@ -164,7 +253,7 @@ Argus stores your Claude Code conversations, so it is built to keep them on your
 - **It follows Claude Code's internals.** Titles, recaps and live progress are read from Claude Code's transcript files, and terminal actions read Claude Code's screen. These are not public APIs and can change between versions; Argus is developed against Claude Code 2.1.x. If something breaks after an update, please [open an issue](CONTRIBUTING.md).
 - **The UI is written in Korean first.** Japanese and English are provided by a translation layer; some labels in this README are quoted in Korean because that is what the code uses. Code comments are in Korean.
 - **Do I need an Anthropic API key?** No. Argus has no API client of its own; anything that needs Claude goes through the `claude` CLI, so it runs on the Claude subscription you already use for Claude Code. (If you have set `ANTHROPIC_API_KEY` in your shell, Claude Code itself may use that instead — the same as when you run `claude` in a terminal.)
-- **Does it use my Claude quota?** Not for the board. Only the optional daily log, the Brain and card chat run Claude, and they count toward your plan's usage like any other Claude Code request — the usage bars on the board show how much is left.
+- **Does it use my Claude quota?** Not for the board. Only the optional daily log, the Brain, card chat and the markdown column's AI run Claude, and they count toward your plan's usage like any other Claude Code request — the usage bars on the board show how much is left.
 - **Does it work with sessions in VS Code or the Claude desktop app?** Sessions that run Claude Code hooks are recorded; the board can bring those apps to the front but can't type into them.
 - **Where is my data, and how long is it kept?** In `~/.claude/session-log`. Empty sessions are dropped after a day and inactive ones after 90 days (pinned sessions and sessions with open next actions are kept). See [Data retention](#data-retention).
 
@@ -212,7 +301,8 @@ The rest of this README is a detailed reference. UI labels are given in Korean a
 - **Slack inbox** (Brain panel tab): on "슬랙 확인" the Brain searches Slack with your account (direct mentions, DMs, and `@here`/`@channel` in the channels listed in `brain/channels.txt`), skips bots, your own messages and items already carded, and writes cards with `./argus inbox add`. Each card is one of: 🧑 **for me** (a person's permission, decision, reply or schedule is needed — a one-line to-do and an optional reply draft with a copy button; "→ 내 할 일에" adds it to the Brain's next actions), 🤖 **session work** (something Claude Code can finish on its own from repos, DBs or docs — a recommended session or new session and a draft prompt), or no card for FYI items. When unsure the Brain picks "for me"; mixed items are "for me" with an optional "part for a session". Cards also carry a summary, urgency, a sensitive flag, a recommendation (an existing session, a new session with folder and model, or none) and a draft prompt. Only the summary and permalink are stored, not the message text; secrets are never copied. Card buttons: put the prompt into that session's composer (you press Enter), open the new-session dialog prefilled, add to next actions (the recommended session's, or the Brain's when there is none — the button names the target), open in Slack, and mark as seen (확인 완료). Handled cards move below a "처리한 카드" divider and drop off after a day. The Brain never writes to Slack. It sends to other sessions only when you ask it to in the Brain chat (see below). The automatic check (every 10–60 min, weekdays 9–20, only when connectors collected new items) and the "지금 정리" button / chip no longer go into the Brain chat — where they cut into your conversation and piled up in the Brain's context — but to a separate **inbox worker** (`csl/inboxrun.py`): a `claude -p` run in the Brain folder, so it follows the same rules and card format, without saving a session (`--no-session-persistence`, kept out of `/resume`) and with hooks off. It may use only the inbox commands, session/calendar/search reads and Slack reads: everything that moves a session is on its deny list (the Brain folder otherwise allows all of `./argus`), and the server refuses requests from its session ID as a second guard. One run at a time; each run is kept in `inbox_runs` (start, end, new cards, urgent cards, cost, and its final report). The top of the inbox shows the latest run ("🗂 13:42 직접 정리 · 새 카드 2 · 급함 1", or 정리 중 / 실패) with "요약 ▾" for that run's report and "기록" for recent runs, followed by "· 자동 확인 14:53 — 새 항목 없어 건너뜀" when a later automatic check found nothing new to sort (bots and your own messages aren't collected, so a quiet stretch otherwise looked like the schedule had stopped; the skip time `inbox_auto_idle_at` is written at most every 5 minutes); a run that adds cards rings and sends a browser notification. Typing "인박스 정리해줘" in the Brain chat still has the Brain do it there, and the Brain reads past reports with `./argus inbox runs`. Slack's "Later"/saved list isn't available through the connector.
 - **Answer questions from the board**: when a session opens a question dialog (AskUserQuestion), the hook stores its questions and options, and a card above the composer shows them (radio buttons, checkboxes for multi-select, a free-text "직접 입력" field). "답 보내기" makes the server type the answer into that terminal's dialog through Orca, re-reading the screen after every step: number keys for single choice, toggles plus the Submit row for multi-select, the "Type something" row for free text, then "Submit answers" on the review screen after checking it matches. If anything on screen doesn't match, it stops without pressing Esc (which would cancel the question) and asks you to finish in the terminal. Questions with option previews go to the terminal. Tool permission prompts are not answered from the board.
   - The question text on screen is read without the left bar Claude Code 2.1.316 draws before it ("│ question…"); with the bar, no question matched and the card stopped with "질문 창이 터미널에 보이지 않습니다". "💬 답 대신 대화로" on the card is the dialog's "Chat about this": the board checks it's the same dialog, presses that row's number (Claude Code gets "User declined to answer questions" and waits for you), and once the composer unlocks puts the cursor there. The Brain: `./argus answer <session> chat`.
-- **New session** (＋ 새 세션, top bar): pick a folder — projects open in Orca come first (most terminals first, with branch and terminal count), then recent session folders (worktree roots; background-job and desktop-app temp folders are left out), or type any path, an optional first message, a model and an effort level (`claude --effort`); the dialog preselects the "새 세션 기본 모델" / "새 세션 기본 effort" settings (effort defaults to high), and a session opened without them (the Brain's `./argus new`) gets the same defaults from the server. When Claude exits normally (`/exit`, double Ctrl+C) the shell exits too, and since Orca keeps such a tab open but empty, the server closes it (`reap_tabs`, every 3 s: tabs it opened plus tabs of sessions that ended in the last 10 minutes, checked only once they drop out of Orca's live terminal list; it closes only when Orca reports the shell gone, `connected: false`, so no sleep is needed and anything printed on the way out — like "Worktree removed" — has already been written). If Claude exits with an error, `&& exit` doesn't run and the tab stays with the shell so you can read the message. The same applies to tabs the board opens for the Brain, "열기" (`claude attach`) and a new tab for `--resume`. "새 워크트리로 시작" is on each time the dialog opens: it adds `--worktree`, so Claude Code makes a new worktree and branch under the repository's `.claude/worktrees/` and starts there (the folder must be a git repository; turn it off to start in the folder itself). The board always starts it in the board terminal (below): a new session on the board's own tmux server running `cd <folder> && claude [--model …] [--effort …] [--worktree] && exit`; when Claude exits normally, the shell and the tmux session close with it. The hooks record the session; the board jumps to its column as soon as it appears (shown even before the first message) and then sends the first message through the normal send path, so multi-line text works. A folder Claude Code hasn't trusted yet shows its trust prompt in that terminal first.
+- **New session** (＋ 새 보드 → ✳ Claude Code, top bar): pick a folder — projects open in Orca come first (most terminals first, with branch and terminal count), then recent session folders (worktree roots; background-job and desktop-app temp folders are left out), or type any path, an optional first message, a model and an effort level (`claude --effort`); the dialog preselects the "새 세션 기본 모델" / "새 세션 기본 effort" settings (effort defaults to high), and a session opened without them (the Brain's `./argus new`) gets the same defaults from the server. When Claude exits normally (`/exit`, double Ctrl+C) the shell exits too, and since Orca keeps such a tab open but empty, the server closes it (`reap_tabs`, every 3 s: tabs it opened plus tabs of sessions that ended in the last 10 minutes, checked only once they drop out of Orca's live terminal list; it closes only when Orca reports the shell gone, `connected: false`, so no sleep is needed and anything printed on the way out — like "Worktree removed" — has already been written). If Claude exits with an error, `&& exit` doesn't run and the tab stays with the shell so you can read the message. The same applies to tabs the board opens for the Brain, "열기" (`claude attach`) and a new tab for `--resume`. "새 워크트리로 시작" is on each time the dialog opens: it adds `--worktree`, so Claude Code makes a new worktree and branch under the repository's `.claude/worktrees/` and starts there (the folder must be a git repository; turn it off to start in the folder itself). The board always starts it in the board terminal (below): a new session on the board's own tmux server running `cd <folder> && claude [--model …] [--effort …] [--worktree] && exit`; when Claude exits normally, the shell and the tmux session close with it. The hooks record the session; the board jumps to its column as soon as it appears (shown even before the first message) and then sends the first message through the normal send path, so multi-line text works. A folder Claude Code hasn't trusted yet shows its trust prompt in that terminal first.
+- **Terminal and markdown columns** (＋ 새 보드 → ⌨ 터미널 / 📝 마크다운; `csl/boards.py`): columns that aren't Claude sessions, with ids `bd-<n>` that sort, pin, archive and zoom like session columns. A terminal column is a login shell on the board tmux server named `bterm-<n>` (kept out of the terminal drawer's tabs); creating or reopening one needs the same origin and per-start token as the drawer shells. A markdown column is a file at `<folder>/.argus/boards/<name>.md` (`.argus/` goes into the repository's `.git/info/exclude`). The column autosaves 0.7 s after you stop typing and refuses to overwrite a file that changed in the meantime. Its AI chat runs `claude -p` once per request in that folder with `--permission-mode dontAsk` and only `Read`/`Edit`/`Write` of that one file allowed; the last few exchanges are passed as context, the document is read-only while it runs, and the text from before each edit is kept for undo. The model is the "마크다운 보드 AI 모델" setting (`board_ai_model`, default sonnet). Deleting a column removes its chat history and closes its shell, but leaves the markdown file.
 - **Board terminal** (every session started from the board): the session runs in the board's own tmux server (`tmux -L argus-web`, separate from your tmux; status bar off, mouse on) and the column shows it with [xterm.js](https://xtermjs.org) (vendored in `csl/static/vendor/xterm`, no CDN). The column opens on the conversation; the column header's "⌨ 터미널 / 💬 대화" switches between the terminal and the conversation, and "go to terminal" opens it in the column. While the session is starting (before the hooks register it — e.g. the folder trust prompt) a popup shows the same terminal; it closes once the column appears. The browser connects through a WebSocket (`/api/term/<session>/ws`) that runs `tmux attach` in a PTY and relays bytes (`csl/webterm.py`); closing the column only detaches, the session keeps running, and reconnecting after a server restart is automatic. Because this is a shell in the browser, the socket only accepts the board's own origin (`Origin` = `http://127.0.0.1:<port>` or `localhost`), the usual `Host` check (DNS rebinding), and a token generated at every server start (`/api/term/token`), and it can only attach to board-terminal sessions, tmux sessions running a recorded Claude session, or the terminal panel's shell tabs. Needs tmux. Every response also carries a Content-Security-Policy (only the board's own scripts run — no inline scripts, `eval` or outside scripts; connections only to this server; images only from it or `data:`) and `frame-ancestors 'none'` / `X-Frame-Options: DENY`, so text from Slack, mail or transcripts can't run script even if it slipped through escaping, and no other site can frame the board to steer clicks or keys into a terminal. Browser extensions with access to `127.0.0.1` are not covered by these (extensions bypass page CSP) — only give such access to extensions you trust.
 - **tmux sessions in the column**: a Claude session running in your own tmux also gets the "⌨ 터미널" toggle, and "go to terminal" opens it in the column when the tmux session isn't attached to any terminal window. The board attaches through a grouped session (`argus-view-…`, `destroy-unattached`) so your other terminals keep their current window and closing the column removes only that view — the tmux session and Claude keep running.
 - **Sessions outside the board terminal stand out**: a column whose session runs elsewhere gets a dashed amber border and an amber band under its header naming where it runs (Orca, tmux, iTerm2, Ghostty, VS Code, the desktop app, background …) with a "⇄ 가져오기" button; a session whose process is gone but still shows as idle gets a grey "꺼진 세션" band with "⇄ 이어 열기". The server reports `term_label` and `running` per session for this.
@@ -348,7 +438,7 @@ Every hook also records the effort level (`effort.level`) and Remote Control sta
 /usr/bin/python3 install.py --check       # what is installed and running (changes nothing)
 /usr/bin/python3 csl/backfill.py --days 7 # import conversations from before the hooks were installed (optional)
 ./ctl.sh open                             # start the server and open the browser
-/usr/bin/python3 install.py --uninstall   # remove the hooks and restore the original status line (your data is kept)
+/usr/bin/python3 install.py --uninstall   # remove the hooks and the login autostart, restore the status line (your data is kept)
 ```
 
 `install.py` also takes `--open` / `--no-open` (open the board when done without asking / don't offer) and `--force`
@@ -357,7 +447,7 @@ it keeps exactly one set of Argus hooks, and updates paths if you moved the fold
 
 Sessions that are already open pick up the new hooks right away and are recorded from their next prompt (verified on Claude Code 2.1.312).
 
-`ctl.sh start|stop|restart|status|open` manages the server; you rarely need it because the hooks start the server when it is down.
+`ctl.sh start|stop|restart|status|open|autostart on|off|status` manages the server and the login autostart — see [Everyday commands](#4-everyday-commands). You rarely need it, because the hooks start the server when it is down and autostart starts it at login.
 
 Environment variables: `CSL_PORT` (default 7799), `CSL_DATA_DIR` (default `~/.claude/session-log`), `CSL_SKIP=1` (ignore hooks in that process), `CSL_DAILY_MODEL` (default `sonnet`), `CSL_RETENTION_DAYS` (default 90).
 
