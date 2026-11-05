@@ -1403,6 +1403,7 @@ function updateCol(col, s, rank, lastPin) {
         ${forkChip(s, d)}
         ${s.term_attach && d !== "ended" ? `<button class="col-term-btn ${TERM.open.has(sid) ? "on" : ""}" data-action="term-toggle" data-sid="${esc(sid)}" data-icon="${TERM.open.has(sid) ? "💬" : "⌨"}"
           title="${TERM.open.has(sid) ? "대화 보기로" : s.term_web ? "이 세션의 터미널을 칸 안에서 열기(보드 터미널)" : "이 세션의 tmux 창을 칸 안에서 열기 — 닫아도 tmux 세션은 그대로"}">${TERM.open.has(sid) ? "💬 대화" : "⌨ 터미널"}</button>` : ""}
+        <button class="col-zoom-btn" data-action="col-zoom" data-sid="${esc(sid)}" title="이 칸만 크게 보기·되돌리기 ( Z )" aria-label="이 칸만 크게 보기"><span class="cz-in">⤢</span><span class="cz-out">⤡</span></button>
         <button class="col-menu-btn" data-action="col-menu" data-sid="${esc(sid)}" title="보관 · 원격 · 고정" aria-label="칸 메뉴">⋮</button>
       </div>
       <div class="title-line col-title-line">
@@ -4916,6 +4917,7 @@ document.addEventListener("click", async e => {
   if (a === "cmp-stop") return stopSession(el.dataset.sid, el);
   if (a === "ask-term") return focusTerminal(el.dataset.sid);
   if (a === "col-menu") return openColMenu(el);
+  if (a === "col-zoom") { setActive(el.dataset.sid); return setColZoom(!S.colZoom); }
   if (a === "toggle-resp" || a === "toggle-prompt" || a === "toggle-mid") {
     const set = a === "toggle-resp" ? S.expanded : a === "toggle-mid" ? S.midOpen : S.promptOpen;
     const id = +el.dataset.tid;
@@ -5118,6 +5120,19 @@ function setActive(sid, opts = {}) {
   }
   return col;
 }
+// 이 칸만 크게 보기: 지금 칸 하나가 보드를 가득 채운다(다른 칸은 숨김). ⌘1~9·← → 로 칸을 바꾸면 크게 보는 칸도 따라 바뀐다.
+// 지금 칸이 없으면 평소 보드 그대로 보인다(CSS :has). 새로 고쳐도 이어지게 브라우저에 기억
+const ZOOM_KEY = "csl.colZoom";
+try { S.colZoom = localStorage.getItem(ZOOM_KEY) === "1"; } catch (e) { S.colZoom = false; }
+document.body.classList.toggle("col-zoom", S.colZoom);
+function setColZoom(on) {
+  S.colZoom = on;
+  try { localStorage.setItem(ZOOM_KEY, on ? "1" : "0"); } catch (e) { /* 저장소 없음 */ }
+  document.body.classList.toggle("col-zoom", on);
+  if (on && S.view === "board" && S.boardMode === "cards") setBoardMode("cols");
+  const sid = S.activeCol && colEl(S.activeCol) ? S.activeCol : colByRank(1);
+  if (sid) setActive(sid, { scroll: true });
+}
 function colByRank(rank) {
   const s = boardSessions()[rank - 1];
   return s ? s.session_id : null;
@@ -5168,6 +5183,8 @@ document.addEventListener("keydown", e => {
       e.stopImmediatePropagation();   // 같은 Esc 로 펼친 카드까지 접히지 않게(한 번 더 누르면 접힌다)
       return;
     }
+    // 이 칸만 크게 보던 중이면 평소 보드로(입력창에서는 위에서 먼저 빠져나오고, 한 번 더 누르면)
+    if (S.colZoom && S.view === "board" && !isTyping()) { setColZoom(false); e.stopImmediatePropagation(); return; }
     return;
   }
   if (isTyping() || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
@@ -5187,7 +5204,7 @@ document.addEventListener("keydown", e => {
     if (["KeyC", "KeyN", "KeyF"].includes(code)) return;   // 칸 안의 입력칸·검색은 칸 보기에서만
   }
   // 칸을 다루는 키는 세션 보기에서만(인박스·활동 화면에서 누르면 숨은 칸이 바뀌지 않게)
-  if (S.view !== "board" && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "KeyC", "Enter", "KeyN", "KeyT", "KeyF", "KeyP"].includes(code)) return;
+  if (S.view !== "board" && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "KeyC", "Enter", "KeyN", "KeyT", "KeyF", "KeyP", "KeyZ"].includes(code)) return;
   switch (code) {
     case "ArrowLeft":
     case "ArrowRight": {
@@ -5220,6 +5237,10 @@ document.addEventListener("keydown", e => {
       e.preventDefault();
       if (S.activeCol) return togglePin(S.activeCol);
       return toast("먼저 칸을 고르세요(⌘1~9 또는 ← →)");
+    case "KeyZ":
+      e.preventDefault();
+      if (e.shiftKey) return;
+      return setColZoom(!S.colZoom);
     case "KeyD":
       e.preventDefault();
       return openDaily();

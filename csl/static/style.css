@@ -672,6 +672,19 @@ kbd {
   height: 22px; padding: 0 8px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent-soft);
   font-size: 11.5px; font-weight: 600; color: var(--accent); white-space: nowrap; cursor: pointer;
 }
+.col-zoom-btn {
+  border: 0; background: none; color: var(--text-3); cursor: pointer; padding: 2px 5px; border-radius: 6px; font-size: 16px; line-height: 1;
+}
+.col-zoom-btn:hover { background: var(--surface-hover); color: var(--text); }
+.col-zoom-btn .cz-out, body.col-zoom .col-zoom-btn .cz-in { display: none; }
+body.col-zoom .col-zoom-btn .cz-out { display: inline; }
+body.col-zoom .col.active .col-zoom-btn { color: var(--accent, var(--text)); }
+.bp-body .col .col-zoom-btn { display: none; }
+/* 이 칸만 크게 보기: 지금 칸이 있을 때만(없으면 평소 보드) — 다른 칸·더 보기는 숨기고 지금 칸이 보드를 채운다 */
+body.col-zoom .board:has(> .col.active) > .col:not(.active),
+body.col-zoom .board:has(> .col.active) > .col-more { display: none; }
+body.col-zoom .board > .col.active { flex: 1 1 auto !important; max-width: none; }
+body.col-zoom .board > .col.active .col-resize { display: none; }
 .col-menu-btn {
   width: 22px; height: 22px; padding: 0; margin-right: -6px; border: 0; border-radius: 6px; background: transparent;
   font-size: 16px; font-weight: 700; line-height: 1; color: var(--text-3); cursor: pointer;
