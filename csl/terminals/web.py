@@ -6,12 +6,14 @@
 - 화면 읽기·입력은 tmux 구현을 그대로 쓴다(서버만 다르다). 브라우저 연결은 server.py 의 /api/term/… 웹소켓이
   `tmux attach` 를 PTY 로 띄워 이어 준다 — 서버를 다시 띄워도 tmux 안의 세션은 살아 있다.
 """
+import os
 import re
 import time
 
-from csl.terminals.tmux import Tmux, _tmux
+from csl.terminals.tmux import Tmux, _bin, _pane, _tmux
 
 SERVER = ["-L", "argus-web"]
+SHELL_NAME = re.compile(r"shell-\d+")
 # 브라우저 화면에 맞춘 tmux 설정: 상태 줄 없음, 마우스(휠 스크롤), 넉넉한 기록, 마지막으로 쓴 화면 크기에 맞춤
 OPTIONS = [("status", "off"), ("mouse", "on"), ("history-limit", "50000"), ("window-size", "latest"),
            ("escape-time", "10"), ("default-terminal", "xterm-256color"), ("focus-events", "on")]
@@ -61,10 +63,48 @@ class Web(Tmux):
             return None, "보드 터미널에 명령을 입력하지 못했습니다"
         return handle, None
 
+    def attach_argv(self, handle):
+        """보드가 가진 서버라 그 세션에 바로 붙는다(다른 터미널이 보고 있지 않다)."""
+        b, name = _bin(), self.session_of(handle)
+        if not b:
+            return None, "tmux 가 없습니다"
+        if not name:
+            return None, "보드 터미널이 닫혔습니다"
+        return [b, "-u"] + SERVER + ["attach-session", "-t", "=" + name], None
+
+    def release(self, argv):
+        pass   # 보드 터미널 세션 자체에 붙었다 — 떼기만 하고 세션은 둔다
+
     def session_of(self, handle):
         """그 창이 든 tmux 세션 이름(브라우저가 붙을 대상). 없으면 None."""
-        r = self.valid(handle) and self._t("display-message", "-p", "-t", handle, "#{session_name}")
+        r = self.valid(handle) and self._t("display-message", "-p", "-t", _pane(handle), "#{session_name}")
         return r.stdout.strip() if r else None
+
+    # ---------------------------------------------------------- 셸 탭(오른쪽 터미널 드로어)
+    # Claude 세션과 같은 서버에 「shell-」 이름으로 그냥 로그인 셸을 띄운다. 보드를 새로고침하거나 서버를 다시 띄워도 남는다
+    def shells(self):
+        """[{name, created, path, command}] 만든 순서. 서버가 없으면 []."""
+        r = self._t("list-sessions", "-F", "#{session_name}\t#{session_created}\t#{pane_current_path}\t#{pane_current_command}")
+        out = []
+        for line in (r.stdout.splitlines() if r else []):
+            x = line.split("\t")
+            if len(x) == 4 and SHELL_NAME.fullmatch(x[0]):
+                out.append({"name": x[0], "created": int(x[1]) if x[1].isdigit() else 0, "path": x[2], "command": x[3]})
+        return sorted(out, key=lambda x: (x["created"], x["name"]))
+
+    def has_shell(self, name):
+        return bool(SHELL_NAME.fullmatch(name or "")) and any(x["name"] == name for x in self.shells())
+
+    def new_shell(self, cwd=None):
+        cwd = cwd if cwd and os.path.isdir(cwd) else os.path.expanduser("~")
+        name = "shell-%d" % (int(time.time() * 1000) % 10**9)
+        if not self._t("new-session", "-d", "-c", cwd, "-s", name, "-x", "120", "-y", "36", "-e", "ARGUS_WEB=1", timeout=15):
+            return None
+        self._setup()
+        return name
+
+    def kill_shell(self, name):
+        return self.has_shell(name) and bool(self._t("kill-session", "-t", "=" + name))
 
     def close(self, handle):
         name = self.session_of(handle)

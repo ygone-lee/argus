@@ -806,6 +806,11 @@ def prompt_view(t):
     idx = [i for i, ln in enumerate(lines) if _OPTION.match(ln)]
     if not idx:
         return _plain_menu(lines)
+    # 창은 화면 맨 아래 — 마지막 선택지 위의 마지막 경계(── · ▔▔) 아래 줄만 본다. 그 위 대화에 있는 번호 목록
+    # (「1. … 2. …」)을 선택지로 잘못 읽어 종료 창(「Exit and stop tasks」 등)을 못 찾던 것
+    borders = [i for i, ln in enumerate(lines[:idx[-1]]) if ln.lstrip().startswith(("──", "▔"))]
+    if borders and any(i > borders[-1] for i in idx):
+        idx = [i for i in idx if i > borders[-1]]
     first = idx[0]
     # 창 위 경계: 입력칸 자리의 가로줄(──) 또는 창 테두리(▔▔ — 종료 때 워크트리 묻는 창 등)
     top = max([i for i, ln in enumerate(lines[:first]) if ln.lstrip().startswith(("──", "▔"))] or [-1])

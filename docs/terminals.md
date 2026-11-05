@@ -131,3 +131,15 @@ characters).
   land in, or when the text starts with `!` (Claude Code's bash mode). You don't need to re-implement these checks.
 - Sessions in apps without an implementation (iTerm2, Terminal.app, VS Code, the Claude desktop app) can still be
   brought to the front by bundle id / tty, but not driven.
+
+### Shell tabs (terminal panel)
+
+`web.py` also hosts the right-hand terminal panel: `shells()` / `new_shell(cwd)` / `kill_shell(name)` manage plain login shells named `shell-<n>` on the same `-L argus-web` server (with `ARGUS_WEB=1`, so a `claude` started there is recorded as a board-terminal session). The server exposes them at `GET/POST /api/shells` and `DELETE /api/shells/<name>` (same-origin + `X-Argus-Term` token) and attaches the browser at `/api/term/shell/ws?name=…`.
+
+### Handles carry the tmux socket
+
+Pane ids are numbered per tmux server (`%0` exists on every server), so a tmux handle is `%<n>@<socket path>` (plain `%<n>` means the default server). `handle_of` builds it from `TMUX_PANE` and the first field of `TMUX`, and `create` returns it from `#{pane_id}@#{socket_path}`. An earlier version kept a global pane → socket map, which let an old record on another server redirect commands meant for the default server's `%0`.
+
+### Attaching in the board
+
+`attach_argv(handle)` returns the command the board runs in a PTY to show a pane in a column. The tmux implementation creates a grouped session (`argus-view-…`) sharing the original session's windows, selects the pane's window there, and attaches with `; set-option destroy-unattached on` so the view disappears when the column closes; `release(argv)` removes it if the attach never happened. The board terminal attaches to its own session directly. Clients of `argus-view-…` sessions are ignored when looking for the terminal window to switch to.

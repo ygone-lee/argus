@@ -6,7 +6,7 @@ const I18N_LANGS = { ko: "한국어", ja: "日本語", en: "English" };
 // 고른 언어가 없으면 브라우저 언어(한국어·日本語, 그 밖은 English)
 const BROWSER_LANG = (() => { const l = (navigator.languages || [navigator.language || ""]).join(",").toLowerCase(); const first = l.split(",").map(x => x.slice(0, 2)).find(x => x === "ko" || x === "ja" || x === "en"); return first || "en"; })();
 const LANG = (() => { try { return JSON.parse(localStorage.getItem("csl.lang")) || BROWSER_LANG; } catch (e) { return BROWSER_LANG; } })();
-const I18N_SKIP = ".col-term, .md, .bubble, .col-title, .title-text, .rename-input, .col-recap, .recap-clamp, .steps, .tdetail, .mid-text, " +
+const I18N_SKIP = ".col-term, .tp-tabs, .md, .bubble, .col-title, .title-text, .rename-input, .col-recap, .recap-clamp, .steps, .tdetail, .mid-text, " +
   ".ib-summary, .ib-rec b, .ib-rec .muted, .ib-meta b, .ib-prompt, .ask-qhead, .ask-opt b, .ask-opt .muted, .nm-folder b, " +
   ".note-text, .daily-body, .sr-text, .sr-title, .sr-scope, .msg-notice .muted, .notice-sum, .ib-target, #langSel, " +
   ".chip.proj, .pm-name, .cmp-text, .note-input, .ctx-note, .nm-prompt, textarea, script, style, code, pre, " +
@@ -40,7 +40,7 @@ const I18N_ROWS = [
   ["훅을 설치하기 전의 대화도 가져오려면", "フックを入れる前の会話も取り込むには", "To bring in conversations from before the install"],
   ["설치 상태 확인", "インストール状態の確認", "Check the install"],
   ["🧠 브레인", "🧠 ブレイン", "🧠 Brain"],
-  ["＋ 새 세션", "＋ 新しいセッション", "＋ New session"], ["새 Claude Code 세션 — Orca 터미널에 띄웁니다", "新しい Claude Code セッション — Orca のターミナルで起動します", "New Claude Code session — opens in an Orca terminal"],
+  ["＋ 새 세션", "＋ 新しいセッション", "＋ New session"], ["새 Claude Code 세션 — 보드 터미널에 띄웁니다", "新しい Claude Code セッション — ボードターミナルで起動します", "New Claude Code session — starts in the board terminal"],
   ["메뉴", "メニュー", "Menu"], ["보기·알림·하루 정리·단축키", "表示・通知・日報・ショートカット", "View · notifications · daily log · shortcuts"],
   ["종료·보관 세션도 보기", "終了・保管したセッションも表示", "Show ended & archived sessions"], ["종료·보관된 세션도 표시", "終了・保管したセッションも表示", "Also show ended and archived sessions"],
   ["새 응답·확인 필요 시 소리", "新しい応答・要確認のときに音を鳴らす", "Sound on new reply / needs you"], ["브라우저 알림", "ブラウザ通知", "Browser notifications"],
@@ -141,6 +141,35 @@ const I18N_ROWS = [
   ["터미널에 연결하는 중…", "ターミナルに接続中…", "Connecting to the terminal…"], ["터미널 화면(xterm.js)을 불러오지 못했습니다", "ターミナル画面(xterm.js)を読み込めませんでした", "Couldn't load the terminal view (xterm.js)"],
   ["터미널 연결이 끊겼습니다", "ターミナルの接続が切れました", "The terminal connection dropped"], ["다시 연결", "再接続", "Reconnect"],
   ["새 세션 터미널", "新しいセッションのターミナル", "New session terminal"], ["Claude Code 가 뜨면 칸 안으로 옮겨 갑니다", "Claude Code が起動すると列の中へ移ります", "Moves into its column once Claude Code is up"],
+  // tmux 세션을 칸 안에서 · 새 세션 터미널 고르기
+  ["이 세션의 tmux 창을 칸 안에서 열기 — 닫아도 tmux 세션은 그대로", "このセッションの tmux ウィンドウを列の中で開く — 閉じても tmux セッションはそのまま", "Open this session's tmux window inside the column — closing it leaves the tmux session running"],
+  ["tmux 세션이 어느 터미널에도 붙어 있지 않아 칸 안에서 엽니다 — 닫아도 세션은 그대로", "tmux セッションがどのターミナルにも接続されていないので列の中で開きます — 閉じてもセッションはそのまま", "The tmux session isn't attached to any terminal, so it opens inside the column — closing it leaves the session running"],
+  ["보드 터미널에 띄웁니다 — 칸 머리 「⌨ 터미널」로 터미널을 엽니다", "ボードターミナルで起動します — 列ヘッダーの「⌨ ターミナル」でターミナルを開きます", "Starts in the board terminal — open it with \"⌨ Terminal\" in the column header"],
+  ["보드 터미널", "ボードターミナル", "Board terminal"],
+  // 브레인(보드 터미널)
+  ["브레인을 보드 터미널에 띄웠습니다", "ブレインをボードターミナルで起動しました", "Started the Brain in the board terminal"],
+  ["⌨ 터미널 보기", "⌨ ターミナルを見る", "⌨ Show terminal"], ["브레인이 뜨고 있는 터미널 — 보드 터미널·tmux 면 창으로 엽니다", "ブレインが起動中のターミナル — ボードターミナル・tmux ならウィンドウで開きます", "The terminal the Brain is starting in — opens in a window for the board terminal or tmux"],
+  // 보드 터미널로 가져오기
+  ["⇄ 보드 터미널로 가져오기", "⇄ ボードターミナルに移す", "⇄ Move to the board terminal"], ["이어 열기", "続きを開く", "resume"], ["다른 터미널에서 옮기기", "他のターミナルから移す", "from another terminal"],
+  ["보드 터미널로 가져올까요?", "ボードターミナルに移しますか?", "Move it to the board terminal?"], ["가져오기", "移す", "Move"],
+  ["그 세션에서 도는 백그라운드 작업(개발 서버 등)도 끄고 옮기기", "そのセッションで動くバックグラウンド作業(開発サーバーなど)も止めて移す", "Also stop the session's background work (dev servers etc.) and move it"],
+  ["끄면 종료할 때 묻는 창에서 취소합니다", "オフなら終了時の確認で取り消します", "If off, the move is cancelled when exiting asks about it"],
+  ["보드 터미널로 가져오는 중…", "ボードターミナルに移しています…", "Moving to the board terminal…"],
+  ["지금 터미널에서 끝내고 같은 대화로 다시 엽니다", "今のターミナルで終了し、同じ会話で開き直します", "Ending it in its current terminal and reopening the same conversation"], ["보드 터미널로 가져왔습니다", "ボードターミナルに移しました", "Moved to the board terminal"],
+  // 세션 종료 — 워크트리 남기기·정리하기
+  ["워크트리", "ワークツリー", "Worktree"], ["커밋 안 한 변경 없음", "未コミットの変更なし", "no uncommitted changes"], ["커밋 안 한 변경 {}개", "未コミットの変更 {} 件", "{} uncommitted changes"],
+  ["남기기", "残す", "Keep"], ["폴더와 브랜치를 그대로 — 나중에 이어서 작업", "フォルダとブランチをそのまま — 後で続きを作業", "Keep the folder and branch — continue later"],
+  ["정리하기", "片付ける", "Remove"], ["폴더와 브랜치를 지웁니다", "フォルダとブランチを削除します", "Deletes the folder and branch"],
+  ["커밋 안 한 변경도 함께 지워집니다", "未コミットの変更も一緒に消えます", "uncommitted changes are deleted too"],
+  ["새 커밋도 없으면 Claude Code 가 묻지 않고 정리할 수 있습니다", "新しいコミットもなければ Claude Code が確認せずに片付けることがあります", "If there are no new commits either, Claude Code may remove it without asking"],
+  // 터미널 패널(오른쪽 서랍)
+  ["터미널", "ターミナル", "Terminal"], ["터미널 패널", "ターミナルパネル", "Terminal panel"],
+  ["터미널 패널 열기·닫기 — 셸 탭 여러 개 ( ` · 터미널 안에서는 ⌃` )", "ターミナルパネルの開閉 — シェルのタブを複数 ( ` ・ターミナル内では ⌃` )", "Open or close the terminal panel — multiple shell tabs ( ` · ⌃` inside a terminal )"],
+  ["새 터미널 탭 — 홈 폴더에서", "新しいターミナルタブ — ホームフォルダで", "New terminal tab — in your home folder"], ["접기 ( ` )", "閉じる ( ` )", "Collapse ( ` )"],
+  ["터미널 패널 펴기·접기 (터미널 안에서는", "ターミナルパネルの開閉 (ターミナル内では", "Open or close the terminal panel (inside a terminal,"],
+  ["열린 터미널이 없습니다", "開いているターミナルはありません", "No terminals open"], ["＋ 새 터미널", "＋ 新しいターミナル", "＋ New terminal"],
+  ["이 탭 닫기(셸 종료)", "このタブを閉じる(シェルを終了)", "Close this tab (ends the shell)"],
+  ["터미널 패널을 기본 너비로 되돌렸습니다", "ターミナルパネルを既定の幅に戻しました", "Terminal panel reset to the default width"],
   ["창만 닫기(세션은 보드 터미널에서 계속 돕니다)", "ウィンドウだけ閉じる(セッションはボードターミナルで動き続けます)", "Close the window only (the session keeps running in the board terminal)"],
   // 커넥터 빠른 연결(슬랙 앱을 매니페스트 링크로 만들고 토큰 붙여 넣기)
   ["빠른 연결", "クイック接続", "Quick connect"], ["Slack 앱 만들기 ↗", "Slack アプリを作成 ↗", "Create the Slack app ↗"],
@@ -239,7 +268,7 @@ const I18N_ROWS = [
   ["🧠 Argus Brain", "🧠 Argus Brain", "🧠 Argus Brain"], ["대화", "会話", "Chat"], ["슬랙 인박스", "Slack 受信箱", "Slack inbox"], ["슬랙 인박스 {}", "Slack 受信箱 {}", "Slack inbox {}"],
   ["10분마다", "10分ごと", "Every 10 min"], ["15분마다", "15分ごと", "Every 15 min"], ["30분마다", "30分ごと", "Every 30 min"], ["1시간마다", "1時間ごと", "Every hour"],
   ["접기 ( B )", "閉じる ( B )", "Close ( B )"], ["브레인이 꺼져 있습니다.", "ブレインはオフです。", "The Brain is off."],
-  ["저장소의", "リポジトリの", "Starts Claude Code in the repo's"], ["폴더에서 Claude Code 를 띄워 세션 현황과 슬랙 인박스를 맡깁니다. Orca 터미널 탭이 하나 생깁니다.", "フォルダで Claude Code を起動し、セッション状況と Slack 受信箱を任せます。Orca のターミナルタブが 1 つできます。", "folder to keep track of your sessions and Slack inbox. Opens one Orca terminal tab."],
+  ["저장소의", "リポジトリの", "Starts Claude Code in the repo's"], ["폴더에서 Claude Code 를 띄워 세션 현황과 슬랙 인박스를 맡깁니다. 보드 터미널에서 돌아서 이 패널 안에서 터미널을 열 수 있습니다(tmux 필요).", "フォルダで Claude Code を起動し、セッション状況と Slack 受信箱を任せます。ボードターミナルで動くので、このパネルの中でターミナルを開けます(tmux が必要)。", "folder to keep track of your sessions and Slack inbox. It runs in the board terminal, so you can open its terminal inside this panel (needs tmux)."],
   ["Sonnet (추천)", "Sonnet(おすすめ)", "Sonnet (recommended)"], ["브레인 시작", "ブレインを開始", "Start Brain"], ["전체 현황", "全体の状況", "Overview"], ["확인 필요만", "要確認だけ", "Needs you only"], ["슬랙 확인", "Slack を確認", "Check Slack"], ["오늘 한 일", "今日やったこと", "Done today"],
   ["브레인을 띄웠습니다 · Orca 에 brain 터미널이 생깁니다", "ブレインを起動しました・Orca に brain ターミナルができます", "Brain started · a brain terminal appears in Orca"],
   ["브레인이 뜨는 중… (처음이면 폴더 신뢰 확인 창이 터미널에 뜰 수 있습니다)", "ブレインを起動中…(初回はターミナルにフォルダの信頼確認が出ることがあります)", "Starting the Brain… (the first time, the terminal may show a folder trust prompt)"],

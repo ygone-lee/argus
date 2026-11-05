@@ -5,9 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Argus</title>
 <link rel="icon" id="favicon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='12' fill='%23d97757'/%3E%3C/svg%3E">
-<script>/* 테마: 첫 그림부터 맞춰 그린다(밝은 화면이 잠깐 비치지 않게). 고른 값 csl.theme — system·light·dark */
-(function () { var p; try { p = JSON.parse(localStorage.getItem("csl.theme")); } catch (e) {}
-  document.documentElement.dataset.theme = p === "dark" || (p !== "light" && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light"; })();</script>
+<!-- 테마: 첫 그림부터 맞춰 그린다(밝은 화면이 잠깐 비치지 않게) — 인라인 스크립트는 CSP 가 막으므로 파일로 -->
+<script src="theme.js"></script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="view-board">
@@ -37,7 +36,7 @@
   </div>
   <button class="new-btn agents-btn" id="agentsBtn" title="백그라운드 세션(claude agents) — 상태·열기·멈추기" hidden></button>
   <button class="new-btn proj-btn" id="projBtn" title="프로젝트별로 보기" aria-haspopup="true"></button>
-  <button class="new-btn" id="newBtn" title="새 Claude Code 세션 — Orca 터미널에 띄웁니다" aria-haspopup="true">＋ 새 세션</button>
+  <button class="new-btn" id="newBtn" title="새 Claude Code 세션 — 보드 터미널에 띄웁니다" aria-haspopup="true">＋ 새 세션</button>
   <!-- 검색 말고는 ⋮ 메뉴 안에. 켜고 끄는 항목은 눌러도 메뉴가 열린 채 상태만 바뀐다 -->
   <div class="top-menu-wrap">
     <button class="top-menu-btn" id="topMenuBtn" title="보기·알림·하루 정리·단축키" aria-label="메뉴" aria-haspopup="true">⋮</button>
@@ -56,6 +55,11 @@
       <button class="tm-item" id="helpBtn" data-tm-close title="단축키 ( ? )">⌨ 단축키 <kbd>?</kbd></button>
     </div>
   </div>
+  <!-- 터미널 패널(오른쪽 서랍) 여닫기 — 브레인 버튼과 거울 모양 -->
+  <button class="drawer-btn drawer-right" id="termBtn" title="터미널 패널 열기·닫기 — 셸 탭 여러 개 ( ` · 터미널 안에서는 ⌃` )" aria-label="터미널 패널">
+    <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <rect class="drawer-fill" x="12.25" y="4.25" width="4.5" height="11.5" rx="1.6" fill="currentColor"/><path d="M12 4v12" stroke="currentColor" stroke-width="1.5"/></svg>
+    <span class="drawer-label">터미널</span></button>
 </header>
 
 <div class="layout" id="layout">
@@ -78,6 +82,16 @@
   <section class="cards" id="cards" hidden></section>
   <section class="activity" id="activity" hidden></section>
   <section class="kanban" id="kanban" hidden></section>
+  <aside class="term-panel" id="termPanel" hidden>
+    <div class="tp-head">
+      <div class="tp-tabs" id="tpTabs" role="tablist"></div>
+      <button class="btn ghost tp-add" id="tpAdd" title="새 터미널 탭 — 홈 폴더에서">＋</button>
+      <span class="spacer"></span>
+      <button class="btn ghost" id="tpClose" title="접기 ( ` )">✕</button>
+    </div>
+    <div class="tp-body" id="tpBody"></div>
+    <div class="tp-resize" id="tpResize" title="끌어서 너비 조절 · 더블클릭: 기본 너비"></div>
+  </aside>
 
 </div>
 
@@ -133,6 +147,7 @@
       <tr><td><kbd>D</kbd></td><td>하루 정리(작업 일지)</td></tr>
       <tr><td><kbd>Shift</kbd> <kbd>T</kbd></td><td>라이트·다크 테마 바꾸기 — 시스템 설정을 따르게 하려면 ⋮ 메뉴의 🌓 에서</td></tr>
       <tr><td><kbd>B</kbd></td><td>브레인 패널 펴기·접기</td></tr>
+      <tr><td><kbd>`</kbd></td><td>터미널 패널 펴기·접기 (터미널 안에서는 <kbd>⌃`</kbd>)</td></tr>
       <tr><td><kbd>G</kbd> · <kbd>Shift</kbd> 두 번</td><td>세션 빠른 이동 — 보드 순서 목록에서 <kbd>↑</kbd><kbd>↓</kbd> 로 고르거나 몇 글자 쳐서 거른 뒤 <kbd>Enter</kbd>. Shift 두 번은 입력 중에도 동작</td></tr>
       <tr><td>서식 붙여넣은 입력창에서 <kbd>⌘</kbd> <kbd>\</kbd></td><td>서식 끄기 — 보통 입력창의 마크다운 글로(코드 블록은 ``` 로 둘러싼 글). 블록만 빠져나오려면 코드·인용 끝에서 <kbd>Shift</kbd> <kbd>Enter</kbd> 두 번, 블록 맨 앞에서 <kbd>Backspace</kbd> 는 그 블록의 서식만 풀기. 처음부터 글만 붙이려면 <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>V</kbd></td></tr>
       <tr><td>변경 보기 창에서 <kbd>J</kbd> <kbd>K</kbd> · <kbd>V</kbd> · <kbd>X</kbd></td><td>다음·이전 파일 · 한 줄/나란히 전환 · 지금 파일 접기·펴기. 입력창에 <code>/diff</code> 를 치면 이 창이 열립니다</td></tr>

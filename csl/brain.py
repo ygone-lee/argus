@@ -38,9 +38,10 @@ def current(conn):
 
 
 def start(model=None, mode=None):
-    """브레인 세션을 새 터미널(기본 터미널)에 띄운다. (Target, 오류). mode: claude --permission-mode(기본은 설정값)"""
+    """브레인 세션을 보드 터미널(보드 전용 tmux 서버 — 브레인 패널 안에서 터미널을 연다)에 띄운다. (Target, 오류).
+    mode: claude --permission-mode(기본은 설정값)"""
     mode = mode if mode in config.BRAIN_PERMS else config.get_free("brain_permission_mode")
-    return focus.new_claude_terminal(brain_dir(), model or None, extra="--permission-mode " + mode)
+    return focus.new_claude_terminal(brain_dir(), model or None, extra="--permission-mode " + mode, terminal="web")
 
 
 def ensure_name():

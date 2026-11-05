@@ -574,6 +574,9 @@ body.view-board .board::after { order: 999999; }
 .help-box { width: min(620px, 92vw); background: var(--surface); border-radius: 14px; padding: 18px 22px; box-shadow: 0 20px 60px rgba(0, 0, 0, .3); }
 .help-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .help-head h2 { margin: 0; font-size: 17px; }
+/* 단축키 창: 줄이 많아져 화면보다 길면 창 안에서 스크롤(제목·닫기는 위에 고정) */
+#help .help-box { max-height: calc(100vh - 48px); overflow-y: auto; padding-top: 0; }
+#help .help-head { position: sticky; top: 0; z-index: 1; background: var(--surface); padding-top: 18px; margin-bottom: 0; padding-bottom: 8px; }
 .resume-box { width: min(460px, 92vw); }
 .resume-box p { margin: 8px 0; line-height: 1.55; }
 .resume-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -691,6 +694,13 @@ kbd {
 .cm-confirm { padding: 8px 10px 6px; font-size: 13px; line-height: 1.45; }
 .cm-confirm .muted { font-size: 11.5px; }
 .cm-confirm-btns { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+.cm-wt { margin-top: 8px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-hover); }
+.cm-wt-head { margin-bottom: 4px; font-size: 12.5px; }
+.cm-wt-opt { display: flex; align-items: baseline; gap: 6px; padding: 3px 0; font-size: 12.5px; cursor: pointer; }
+.cm-wt-opt input { accent-color: var(--accent); flex: none; position: relative; top: 1px; }
+.cm-wt-opt .muted b { color: var(--error); font-weight: 600; }
+.cm-wt-note { margin-top: 2px; }
+.cm-wt-opt .cm-wt-name { white-space: nowrap; flex: none; }
 .btn.danger { background: var(--alert); border-color: var(--alert); color: #fff; }
 .btn.danger:hover { filter: brightness(1.08); }
 
@@ -891,6 +901,7 @@ button.ctx-chip:hover { box-shadow: 0 0 0 1px var(--border-strong) inset; color:
 .nm-check { display: flex; align-items: center; gap: 6px; margin: 10px 0 2px; font-size: 12.5px; cursor: pointer; }
 .nm-check input { accent-color: var(--accent); width: 15px; height: 15px; }
 .nm-check .muted { font-size: 11.5px; font-family: var(--mono); }
+.nm-term-hint { font-size: 11.5px; line-height: 1.4; }
 .nm-model {
   width: 100%; padding: 6px 8px; border: 1px solid var(--border-strong); border-radius: 8px;
   background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px;
@@ -945,14 +956,19 @@ button.ctx-chip:hover { box-shadow: 0 0 0 1px var(--border-strong) inset; color:
 .pc-msg { margin-top: 6px; color: var(--error); }
 
 /* ---------------------------------------------------------------- 브레인(Argus Brain) 패널 */
-.layout.brain-open { grid-template-columns: var(--bp-w, 460px) minmax(0, 1fr); }
-/* 브레인 패널 열고 닫기: 왼쪽 칸 너비가 0 ↔ 패널 너비로 미끄러지고, 패널은 살짝 비켜 들어오며 나타난다 */
-.layout { grid-template-columns: 0px minmax(0, 1fr); transition: grid-template-columns .24s cubic-bezier(.2, .8, .2, 1); }
+/* 브레인 패널(왼쪽)·터미널 패널(오른쪽) 열고 닫기: 양쪽 칸 너비가 0 ↔ 패널 너비로 미끄러지고, 패널은 살짝 비켜 들어오며 나타난다 */
+.layout { --gl: 0px; --gr: 0px; grid-template-columns: var(--gl) minmax(0, 1fr) var(--gr); transition: grid-template-columns .24s cubic-bezier(.2, .8, .2, 1); }
+.layout.brain-open { --gl: var(--bp-w, 460px); }
+.layout.term-open { --gr: var(--tp-w, 560px); }
 .layout > .brain-panel { grid-column: 1; min-width: 0; opacity: 0; transform: translateX(-16px);
   transition: opacity .2s ease, transform .24s cubic-bezier(.2, .8, .2, 1); }
 .layout.brain-open > .brain-panel { opacity: 1; transform: none; }
+.layout > .term-panel { grid-column: 3; grid-row: 1; min-width: 0; opacity: 0; transform: translateX(16px);
+  transition: opacity .2s ease, transform .24s cubic-bezier(.2, .8, .2, 1); }
+.layout.term-open > .term-panel { opacity: 1; transform: none; }
 .layout > .board, .layout > .activity, .layout > .kanban { grid-column: 2; }
-.layout.no-anim, .layout.no-anim > .brain-panel, body.bp-resizing .layout { transition: none !important; }
+.layout.no-anim, .layout.no-anim > .brain-panel, .layout.no-anim > .term-panel,
+body.bp-resizing .layout, body.tp-resizing .layout { transition: none !important; }
 /* 패널 오른쪽 가장자리를 끌어 너비 조절(세션 칸과 같은 모양), 더블클릭이면 기본 너비 */
 .brain-panel { position: relative; }
 .bp-resize { position: absolute; top: 0; right: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 5; touch-action: none; }
@@ -960,7 +976,7 @@ button.ctx-chip:hover { box-shadow: 0 0 0 1px var(--border-strong) inset; color:
   background: var(--border-strong); opacity: 0; transition: opacity .12s; }
 .brain-panel:hover .bp-resize::after { opacity: .7; }
 .bp-resize:hover::after, body.bp-resizing .bp-resize::after { opacity: 1; background: var(--accent); }
-body.bp-resizing, body.bp-resizing * { cursor: col-resize !important; user-select: none; }
+body.bp-resizing, body.bp-resizing *, body.tp-resizing, body.tp-resizing * { cursor: col-resize !important; user-select: none; }
 .brain-panel {
   display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border);
   background: var(--surface); overflow: hidden;
@@ -1700,3 +1716,45 @@ select {
 .term-modal-box .help-head { display: flex; align-items: center; gap: 10px; }
 .term-modal-box .help-head .btn { margin-left: auto; }
 .term-modal-box .col-term { border-radius: 8px; overflow: hidden; margin-top: 8px; }
+
+/* ---------------------------------------------------------------- 터미널 패널(오른쪽 서랍) — 셸 탭 여러 개 */
+.drawer-btn.drawer-right { margin-left: 6px; }
+.term-panel { position: relative; display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+  border-left: 1px solid var(--border); background: #1c1b19; }
+.term-panel[hidden] { display: none; }
+.tp-head { display: flex; align-items: center; gap: 4px; padding: 6px 8px 0 10px; background: var(--surface);
+  border-bottom: 1px solid var(--border); min-height: 38px; }
+.tp-tabs { display: flex; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; align-self: stretch; align-items: flex-end; }
+.tp-tabs::-webkit-scrollbar { display: none; }
+.tp-tab { display: inline-flex; align-items: center; gap: 6px; flex: none; max-width: 200px; height: 30px; padding: 0 6px 0 11px;
+  border: 1px solid transparent; border-bottom: 0; border-radius: 8px 8px 0 0; background: transparent; color: var(--text-3);
+  font: inherit; font-size: 12px; cursor: pointer; }
+.tp-tab:hover { color: var(--text); background: var(--surface-hover); }
+.tp-tab.on { color: #e8e4dc; background: #1c1b19; border-color: var(--border); }
+.tp-tab .tp-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-tab .tp-x { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; flex: none;
+  border-radius: 4px; color: inherit; opacity: .55; font-size: 13px; line-height: 1; }
+.tp-tab .tp-x:hover { opacity: 1; background: rgba(127, 127, 127, .25); }
+.tp-head .btn { height: 26px; padding: 0 8px; }
+.tp-add { font-size: 15px; }
+.tp-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.tp-body > .col-term { flex: 1; min-height: 0; padding-left: 2px; }
+.tp-body > .col-term[hidden] { display: none; }
+.tp-empty { margin: auto; text-align: center; color: #a8a29a; font-size: 13px; line-height: 1.8; }
+.tp-resize { position: absolute; top: 0; left: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 5; touch-action: none; }
+.tp-resize::after { content: ""; position: absolute; top: 50%; left: 2px; width: 3px; height: 36px; margin-top: -18px; border-radius: 2px;
+  background: var(--border-strong); opacity: 0; transition: opacity .12s; }
+.term-panel:hover .tp-resize::after { opacity: .7; }
+.tp-resize:hover::after, body.tp-resizing .tp-resize::after { opacity: 1; background: var(--accent); }
+
+/* 보드 터미널로 가져오는 중 — 칸은 그대로, 위에 띠를 두르고 대화·입력은 잠깐 흐리게 */
+.col.importing .col-thread, .col.importing .composer, .col.importing .col-term { opacity: .45; pointer-events: none; }
+.col-importing { position: absolute; left: 12px; right: 12px; top: 50%; transform: translateY(-50%); z-index: 6;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 8px; padding: 12px 14px;
+  border: 1px solid var(--accent); border-radius: 10px; background: var(--surface); box-shadow: 0 6px 24px rgba(0, 0, 0, .14);
+  font-size: 13px; font-weight: 600; color: var(--text); text-align: center; }
+.col-importing .muted { flex-basis: 100%; font-size: 11.5px; font-weight: 400; }
+.col-importing .spin { width: 13px; height: 13px; border: 2px solid var(--accent-soft); border-top-color: var(--accent); border-radius: 50%;
+  animation: col-imp-spin .8s linear infinite; }
+@keyframes col-imp-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .col-importing .spin { animation: none; } }

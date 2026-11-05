@@ -1,6 +1,8 @@
 """tmux. 세션 기록 키: tmux_pane(TMUX_PANE, 예: "%12") · tmux(TMUX — 앞부분이 서버 소켓 경로).
 
-핸들은 창(pane) id. 소켓을 기록해 두므로 `tmux -L 이름` 처럼 기본이 아닌 서버에서 띄운 세션도 다룬다.
+핸들은 창(pane) id 에 서버 소켓 경로를 붙인 것("%12@/private/tmp/tmux-501/default"). 창 id 는 서버마다 따로 매기므로
+(%0 이 서버마다 있다) 소켓을 핸들에 함께 들고 다닌다 — `tmux -L 이름` 처럼 기본이 아닌 서버의 세션도 다룬다.
+소켓을 모르는 핸들("%12")은 기본 서버.
 Orca·iTerm2 안에서 tmux 를 쓰면 두 터미널의 환경 변수가 함께 보인다 — 바깥 탭에 쓰면 tmux 가 지금 보이는 창으로
 보내 버리므로 tmux 가 먼저 잡는다(inner).
 """
@@ -14,8 +16,18 @@ import time
 from csl.terminals import Terminal
 from csl.terminals.orca import norm_title
 
-_PANE = re.compile(r"^%\d+$")
-_SOCK = {}   # 창 id → 서버 소켓 경로(기록에서 읽은 것). 없으면 기본 서버
+_PANE = re.compile(r"^%\d+(@/[^\s,;]+)?$")
+VIEW_PREFIX = "argus-view-"   # 보드가 칸 안에서 보려고 붙인 묶음 세션(grouped session) — 사용자의 터미널로 치지 않는다
+
+
+def _split(handle):
+    """핸들 → (창 id, 소켓 경로 또는 None)."""
+    pane, _, sock = (handle or "").partition("@")
+    return pane, sock or None
+
+
+def _pane(handle):
+    return _split(handle)[0]
 
 
 def _bin():
@@ -25,11 +37,11 @@ def _bin():
 
 
 def _tmux(*args, handle=None, timeout=6, stdin=None, server=None):
-    """server: 서버를 고르는 인자(예: ["-L", "argus-web"]). 없으면 그 창의 기록된 소켓, 그것도 없으면 기본 서버."""
+    """server: 서버를 고르는 인자(예: ["-L", "argus-web"]). 없으면 핸들에 든 소켓, 그것도 없으면 기본 서버."""
     b = _bin()
     if not b:
         return None
-    sock = _SOCK.get(handle)
+    sock = _split(handle)[1]
     try:
         r = subprocess.run([b] + (server or (["-S", sock] if sock else [])) + list(args), capture_output=True, text=True, timeout=timeout,
                            input=stdin)
@@ -93,15 +105,19 @@ class Tmux(Terminal):
     def handle_of(self, term):
         term = term or {}
         h = term.get("tmux_pane")
-        if not self.valid(h):
+        if not (h and re.fullmatch(r"%\d+", h)):
             return None
         sock = (term.get("tmux") or "").split(",")[0]
-        if sock.startswith("/"):
-            _SOCK[h] = sock
-        return h
+        return h + "@" + sock if self.valid(h + "@" + sock) else h
 
     def remember(self, term, handle):
-        return dict(term, backend=self.name, tmux_pane=handle)
+        pane, sock = _split(handle)
+        new = dict(term, backend=self.name, tmux_pane=pane)
+        if sock:
+            new["tmux"] = sock + ",,"
+        else:
+            new.pop("tmux", None)   # 기본 서버에서 찾은 창 — 예전 기록의 다른 서버 소켓을 남기지 않는다
+        return new
 
     def valid(self, handle):
         return bool(handle and _PANE.match(handle))
@@ -109,7 +125,12 @@ class Tmux(Terminal):
     def terminals(self):
         r = self._t("list-panes", "-a", "-F", "#{pane_id}\t#{pane_title}\t#{pane_current_path}")
         rows = [line.split("\t") for line in (r.stdout.splitlines() if r else [])]
-        return [{"handle": x[0], "title": x[1], "path": x[2]} for x in rows if len(x) == 3 and self.valid(x[0])]
+        out, seen = [], set()
+        for x in rows:   # 묶음 세션(보드가 보는 창 등)은 같은 창을 한 번 더 나열한다 — 한 번만
+            if len(x) == 3 and self.valid(x[0]) and x[0] not in seen:
+                seen.add(x[0])
+                out.append({"handle": x[0], "title": x[1], "path": x[2]})
+        return out
 
     def find(self, title, cwd, project_root):
         want = norm_title(title)
@@ -124,7 +145,7 @@ class Tmux(Terminal):
         """가장 최근에 쓴 클라이언트(tmux 에 붙어 있는 터미널 화면) {tty, pid, session} 또는 None."""
         r = self._t("list-clients", "-F", "#{client_activity}\t#{client_tty}\t#{client_pid}\t#{session_name}", handle=handle)
         rows = [x.split("\t") for x in (r.stdout.splitlines() if r else [])]
-        rows = [x for x in rows if len(x) == 4 and x[2].isdigit()]
+        rows = [x for x in rows if len(x) == 4 and x[2].isdigit() and not x[3].startswith(VIEW_PREFIX)]   # 보드 칸 안의 화면은 빼고
         if not rows:
             return None
         x = max(rows, key=lambda x: int(x[0]) if x[0].isdigit() else 0)
@@ -133,16 +154,16 @@ class Tmux(Terminal):
     def switch(self, handle):
         if not self.valid(handle):
             return False
-        r = self._t("display-message", "-p", "-t", handle, "#{session_name}", handle=handle)
+        r = self._t("display-message", "-p", "-t", _pane(handle), "#{session_name}", handle=handle)
         if not r:
             return False
-        self._t("select-window", "-t", handle, handle=handle)
-        self._t("select-pane", "-t", handle, handle=handle)
+        self._t("select-window", "-t", _pane(handle), handle=handle)
+        self._t("select-pane", "-t", _pane(handle), handle=handle)
         c = self._client(handle)
         if not c:
             return False   # 어느 터미널에도 붙어 있지 않은(detached) 세션 — 보여 줄 화면이 없다
         if c["session"] != r.stdout.strip():
-            self._t("switch-client", "-c", c["tty"], "-t", handle, handle=handle)
+            self._t("switch-client", "-c", c["tty"], "-t", _pane(handle), handle=handle)
         app = _app_of(c["pid"])
         if app:
             subprocess.run(["open", "-a", app], capture_output=True, timeout=5)
@@ -157,7 +178,7 @@ class Tmux(Terminal):
         return r.returncode == 0
 
     def info(self, handle):
-        r = self.valid(handle) and self._t("display-message", "-p", "-t", handle,
+        r = self.valid(handle) and self._t("display-message", "-p", "-t", _pane(handle),
                                          "#{pane_current_command}\t#{pane_title}\t#{pane_tty}", handle=handle)
         if not r:
             return None
@@ -167,11 +188,11 @@ class Tmux(Terminal):
         return {"agent": agent, "title": title}
 
     def exited(self, handle):
-        r = self.valid(handle) and self._t("display-message", "-p", "-t", handle, "#{pane_dead}", handle=handle)
+        r = self.valid(handle) and self._t("display-message", "-p", "-t", _pane(handle), "#{pane_dead}", handle=handle)
         return None if not r else r.stdout.strip() == "1"
 
     def screen(self, handle):
-        r = self.valid(handle) and self._t("capture-pane", "-p", "-t", handle, handle=handle)   # -e 없이: 색 없는 글, 보이는 영역만
+        r = self.valid(handle) and self._t("capture-pane", "-p", "-t", _pane(handle), handle=handle)   # -e 없이: 색 없는 글, 보이는 영역만
         return r.stdout.rstrip("\n").split("\n") if r else []
 
     def write(self, handle, data):
@@ -181,7 +202,7 @@ class Tmux(Terminal):
             return bool(self.valid(handle))
         buf = "argus-%d-%d" % (os.getpid(), threading.get_ident())
         return bool(self._t("load-buffer", "-b", buf, "-", handle=handle, stdin=data) and
-                    self._t("paste-buffer", "-d", "-r", "-b", buf, "-t", handle, handle=handle, timeout=15))
+                    self._t("paste-buffer", "-d", "-r", "-b", buf, "-t", _pane(handle), handle=handle, timeout=15))
 
     def submit(self, handle, text):
         if not self.write(handle, text):
@@ -192,7 +213,7 @@ class Tmux(Terminal):
     def create(self, cwd, title, command):
         """새 창(window)에 로그인 셸을 띄우고 명령을 입력한다 — 오류로 끝나도 셸이 남아 메시지를 볼 수 있다."""
         name = re.sub(r"[^\w\-]+", "-", title or "").strip("-")[:40] or "claude"
-        fmt = ("-d", "-P", "-F", "#{pane_id}", "-c", cwd)
+        fmt = ("-d", "-P", "-F", "#{pane_id}@#{socket_path}", "-c", cwd)
         r = self._t("new-window", *fmt, "-n", name, timeout=15)
         if not r:   # 돌고 있는 tmux 서버가 없다 — 세션을 새로 연다(붙으려면 tmux attach)
             r = self._t("new-session", *fmt, "-s", "%s-%d" % (name, int(time.time()) % 100000), timeout=15)
@@ -212,12 +233,54 @@ class Tmux(Terminal):
         return [{"path": p, "name": os.path.basename(p.rstrip("/")), "branch": "", "terminals": n, "at": 0}
                 for p, n in sorted(counts.items(), key=lambda kv: -kv[1])]
 
+    def attach_argv(self, handle):
+        """보드 칸 안(xterm.js)에서 그 창을 볼 `tmux attach` 명령. (argv, None) 또는 (None, 오류 문구).
+
+        원래 세션에 바로 붙으면 다른 터미널에서 보던 화면까지 이 창으로 바뀐다. 그래서 같은 창들을 함께 쓰는 묶음 세션
+        (argus-view-…)을 새로 만들어 그 창을 고른 뒤 거기에 붙는다. destroy-unattached 라 칸을 닫으면(연결이 끊기면)
+        묶음 세션만 사라지고 원래 세션·Claude Code 는 그대로다."""
+        b = _bin()
+        if not b or not self.valid(handle):
+            return None, "tmux 가 없습니다"
+        r = self._t("display-message", "-p", "-t", _pane(handle), "#{session_name}\t#{window_id}", handle=handle)
+        name, win = (r.stdout.strip().split("\t") + [""])[:2] if r else ("", "")
+        if not name:
+            return None, "그 tmux 창이 닫혔습니다"
+        if name.startswith(VIEW_PREFIX):
+            return None, "보드가 보는 세션입니다"
+        view = "%s%d-%d" % (VIEW_PREFIX, os.getpid(), int(time.time() * 1000) % 10**7)
+        r = self._t("new-session", "-d", "-P", "-F", "#{session_id}", "-t", "=" + name, "-s", view, handle=handle)
+        sid = r.stdout.strip() if r else ""
+        if not sid.startswith("$"):
+            return None, "tmux 에 붙지 못했습니다"
+        # 대상은 세션 id($N)로 — set-option 은 「=이름」 꼴을 받지 않는다. destroy-unattached 는 붙은 뒤에 켠다
+        # (아무도 붙지 않은 지금 켜면 그 자리에서 사라진다). 붙지 못하고 끝난 경우는 release 가 치운다
+        self._t("select-window", "-t", "%s:%s" % (sid, win), handle=handle)
+        self._t("select-pane", "-t", _pane(handle), handle=handle)
+        sock = _split(handle)[1]
+        server = ["-S", sock] if sock else []
+        argv = [b, "-u"] + server + ["attach-session", "-t", sid, ";", "set-option", "-t", sid, "destroy-unattached", "on"]
+        return argv, None
+
+    def release(self, argv):
+        """attach_argv 로 만든 묶음 세션을 치운다(연결이 끝난 뒤 — 이미 사라졌으면 아무것도 안 한다)."""
+        try:
+            sid = argv[argv.index("attach-session") + 2]
+            server = argv[2:argv.index("attach-session")]
+        except (ValueError, IndexError):
+            return
+        if sid.startswith("$"):
+            b = _bin()
+            r = subprocess.run([b] + server + ["display-message", "-p", "-t", sid, "#{session_name}"], capture_output=True, text=True, timeout=5)
+            if r.returncode == 0 and r.stdout.strip().startswith(VIEW_PREFIX):   # id 가 다시 쓰였을 수 있다 — 보드용 세션만
+                subprocess.run([b] + server + ["kill-session", "-t", sid], capture_output=True, timeout=5)
+
     def close(self, handle):
         if not self.valid(handle):
             return False
-        if not self._t("display-message", "-p", "-t", handle, "#{pane_id}", handle=handle):
+        if not self._t("display-message", "-p", "-t", _pane(handle), "#{pane_id}", handle=handle):
             return True   # 이미 닫혔다(보드가 띄운 창은 Claude 가 끝나면 셸과 함께 닫힌다)
-        return bool(self._t("kill-pane", "-t", handle, handle=handle))
+        return bool(self._t("kill-pane", "-t", _pane(handle), handle=handle))
 
 
 TERMINAL = Tmux

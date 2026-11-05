@@ -667,7 +667,17 @@ async function gotoCounter(kind) {
 
 // ------------------------------------------------------------------ 종료 포함 필터
 function matches(s) {
-  return S.showEnded || (s.state !== "ended" && !s.archived);
+  return S.showEnded || isImporting(s) || (s.state !== "ended" && !s.archived);
+}
+// 보드 터미널로 가져오는 중: 지금 터미널에서 끝내고 다시 여는 사이 잠깐 「종료」가 되어도 칸을 그대로 두고 표시한다.
+// 서버가 알려 주는 것(importing — 다른 탭·기기에서도) + 이 화면에서 누른 것(다시 열려 종료가 풀릴 때까지)
+S.importing = new Map();   // 세션 → { at, done }
+function isImporting(s) {
+  if (s.importing) return true;
+  const x = S.importing.get(s.session_id);
+  if (!x) return false;
+  if (x.done && (s.state !== "ended" || Date.now() - x.at > 90000)) { S.importing.delete(s.session_id); return false; }
+  return true;
 }
 
 // ------------------------------------------------------------------ 스크롤 기억(대화는 최신이 아래)
@@ -1177,13 +1187,20 @@ function updateCol(col, s, rank, lastPin) {
   const cached0 = S.boardCache.get(sid);
   const live = S.live.get(sid);
   const key = [sigOf(s), famSig(s), bgSig(s), dirtySig(s), rank, live ? live.key : "", S.renaming === sid,
-    S.recapOpen.has(sid), S.uiVer, S.visibleCols.has(sid), S.activeCol === sid, lastPin, S.notesFolded.has(sid)].join("|");
+    S.recapOpen.has(sid), S.uiVer, S.visibleCols.has(sid), S.activeCol === sid, lastPin, S.notesFolded.has(sid), isImporting(s)].join("|");
   if (col._key === key && col._detail === (cached0 && cached0.detail)) return;
   col._key = key;
   col._detail = cached0 && cached0.detail;
   const pinned = !!pinOf(s);
   col.className = "col " + d + (S.activeCol === sid ? " active" : "") + (pinned ? " pinned" : "") + (lastPin ? " pin-last" : "") +
-    (S.notesFolded.has(sid) ? " notes-folded" : "");
+    (S.notesFolded.has(sid) ? " notes-folded" : "") + (isImporting(s) ? " importing" : "");
+  let imp = col.querySelector(".col-importing");
+  if (isImporting(s) && !imp) {
+    imp = document.createElement("div");
+    imp.className = "col-importing";
+    imp.innerHTML = `<span class="spin"></span> 보드 터미널로 가져오는 중… <span class="muted">지금 터미널에서 끝내고 같은 대화로 다시 엽니다</span>`;
+    col.append(imp);
+  } else if (!isImporting(s) && imp) imp.remove();
   col.style.order = rank;
   col.style.setProperty("--proj", projColor(s.project_root || s.cwd));
   applyColWidth(col, sid);
@@ -1207,8 +1224,8 @@ function updateCol(col, s, rank, lastPin) {
         ${remoteBadge(s, d)}
         ${pinned ? `<button class="col-pin on" data-action="pin" data-sid="${esc(sid)}" title="고정 해제 ( P )">📌 고정됨</button>` : ""}
         ${forkChip(s, d)}
-        ${s.term_web && d !== "ended" ? `<button class="col-term-btn ${TERM.open.has(sid) ? "on" : ""}" data-action="term-toggle" data-sid="${esc(sid)}"
-          title="${TERM.open.has(sid) ? "대화 보기로" : "이 세션의 터미널을 칸 안에서 열기(보드 터미널)"}">${TERM.open.has(sid) ? "💬 대화" : "⌨ 터미널"}</button>` : ""}
+        ${s.term_attach && d !== "ended" ? `<button class="col-term-btn ${TERM.open.has(sid) ? "on" : ""}" data-action="term-toggle" data-sid="${esc(sid)}"
+          title="${TERM.open.has(sid) ? "대화 보기로" : s.term_web ? "이 세션의 터미널을 칸 안에서 열기(보드 터미널)" : "이 세션의 tmux 창을 칸 안에서 열기 — 닫아도 tmux 세션은 그대로"}">${TERM.open.has(sid) ? "💬 대화" : "⌨ 터미널"}</button>` : ""}
         <button class="col-menu-btn" data-action="col-menu" data-sid="${esc(sid)}" title="보관 · 원격 · 고정" aria-label="칸 메뉴">⋮</button>
       </div>
       <div class="title-line col-title-line">
@@ -2030,6 +2047,8 @@ async function focusTerminal(sid) {
   try {
     const r = await api("POST", `/api/sessions/${sid}/focus`, {});
     if (r.resume) openResume(sid);
+    // tmux 세션이 어느 터미널 창에도 붙어 있지 않으면(보여 줄 화면이 없다) 칸 안에서 그 창을 연다
+    else if (!r.ok && s.term_attach === "tmux") { openTermIn(sid); toast("tmux 세션이 어느 터미널에도 붙어 있지 않아 칸 안에서 엽니다 — 닫아도 세션은 그대로"); }
     else toast(r.message);
   } catch (err) {
     toast("이동하지 못했습니다");
@@ -2054,6 +2073,7 @@ function openColMenu(btn) {
   menu.dataset.sid = sid;
   menu.innerHTML = `
     <button class="cm-item" data-cm="archive">🗄 ${s.archived ? "보관 해제" : "보관"} <span class="muted">${s.archived ? "" : "보드에서 숨기기"}</span></button>
+    ${!s.term_web && !s.brain ? `<button class="cm-item" data-cm="import">⇄ 보드 터미널로 가져오기 <span class="muted">${s.state === "ended" ? "이어 열기" : "다른 터미널에서 옮기기"}</span></button>` : ""}
     ${s.state !== "ended" ? `<button class="cm-item danger" data-cm="quit">⏻ 세션 종료 <span class="muted">Claude Code 를 닫고(/exit) 터미널 탭도 닫기</span></button>` : ""}
     ${remote}
     <button class="cm-item" data-cm="pin">📌 ${pinOf(s) ? "고정 풀기" : "맨 앞에 고정"} <span class="muted">P</span></button>
@@ -2079,10 +2099,38 @@ $("#colMenu").addEventListener("click", async e => {
     menu.querySelector('[data-cm="archive-yes"]').focus();
     return;
   }
+  if (s && item.dataset.cm === "import") {
+    // 다른 터미널의 세션을 보드 터미널로: 같은 세션 ID 로 이어 연다(Orca·tmux 는 보드가 끝내고, 그 밖의 앱은 직접 끝낸 뒤)
+    const busy = ["working", "waiting"].includes(displayState(s));
+    const live = s.state !== "ended";
+    const how = !live ? "보드 터미널에서 이 세션을 이어 엽니다(claude --resume)."
+      : s.bg ? "백그라운드 세션이라 끄지 않고 보드 터미널에서 붙습니다(claude attach)."
+      : ["orca", "tmux"].includes(s.term_name) ? "지금 터미널에서 Claude Code 를 끝내고(워크트리는 남김) 보드 터미널에서 같은 대화로 다시 엽니다. 모델·effort·권한 모드도 그대로 넘깁니다(권한 확인 건너뛰기 모드는 빼고)."
+      : "보드가 이 터미널을 조작할 수 없습니다 — 그 터미널에서 /exit 로 끝낸 뒤 누르면 보드 터미널에서 이어 엽니다.";
+    item.outerHTML = `<div class="cm-confirm">
+      <div>${busy && live && !s.bg ? "<b>작업 중입니다.</b> 끝난 뒤 가져와 주세요." : "보드 터미널로 가져올까요?"}<br><span class="muted">${how}</span></div>
+      ${live && !s.bg && ["orca", "tmux"].includes(s.term_name) ? `<label class="cm-wt-opt"><input type="checkbox" name="cmStopTasks"> <span>그 세션에서 도는 백그라운드 작업(개발 서버 등)도 끄고 옮기기 <span class="muted">끄면 종료할 때 묻는 창에서 취소합니다</span></span></label>` : ""}
+      <div class="cm-confirm-btns"><button class="btn" data-cm="cancel">취소</button>${busy && live && !s.bg ? "" : `<button class="btn primary" data-cm="import-yes">가져오기</button>`}</div>
+    </div>`;
+    const b = menu.querySelector('[data-cm="import-yes"]') || menu.querySelector('[data-cm="cancel"]');
+    b.focus();
+    return;
+  }
   if (s && item.dataset.cm === "quit") {
     const busy = ["working", "waiting"].includes(displayState(s));
+    // claude --worktree 로 만든 워크트리(.claude/worktrees/…)면 종료하면서 남길지 정리할지 함께 묻는다 — Claude Code 가 종료 때
+    // 묻는 「Keep worktree / Remove worktree」에 서버가 고른 대로 답한다. 기본은 남기기(지우면 되돌릴 수 없다)
+    const wt = s.worktree && /\/\.claude\/worktrees\/[^/]+\/?$/.test(s.worktree) ? s.worktree : "";
+    const dirty = s.dirty && s.dirty.files ? s.dirty.files : 0;
+    const wtBox = wt ? `<div class="cm-wt">
+        <div class="cm-wt-head">🌿 워크트리 <b>${esc(base(wt))}</b> <span class="muted">${dirty ? `커밋 안 한 변경 ${dirty}개` : "커밋 안 한 변경 없음"}</span></div>
+        <label class="cm-wt-opt"><input type="radio" name="cmWt" value="keep" checked> <span class="cm-wt-name">남기기</span> <span class="muted">폴더와 브랜치를 그대로 — 나중에 이어서 작업</span></label>
+        <label class="cm-wt-opt"><input type="radio" name="cmWt" value="remove"> <span class="cm-wt-name">정리하기</span> <span class="muted">폴더와 브랜치를 지웁니다${dirty ? " · <b>커밋 안 한 변경도 함께 지워집니다</b>" : ""}</span></label>
+        ${dirty ? "" : `<div class="muted cm-wt-note">새 커밋도 없으면 Claude Code 가 묻지 않고 정리할 수 있습니다</div>`}
+      </div>` : "";
     item.outerHTML = `<div class="cm-confirm">
       <div>${busy ? "<b>작업 중입니다.</b> 작업을 멈추고 세션을 종료할까요?" : "이 세션을 종료할까요?"}<br><span class="muted">터미널에서 /exit 를 친 것처럼 Claude Code 를 닫고 탭도 닫습니다. 대화는 남아 있어 나중에 claude --resume 으로 이어 갈 수 있습니다</span></div>
+      ${wtBox}
       <div class="cm-confirm-btns"><button class="btn" data-cm="cancel">취소</button><button class="btn danger" data-cm="quit-yes" data-force="${busy ? 1 : ""}">${busy ? "멈추고 종료" : "종료"}</button></div>
     </div>`;
     menu.querySelector('[data-cm="quit-yes"]').focus();
@@ -2090,9 +2138,22 @@ $("#colMenu").addEventListener("click", async e => {
   }
   menu.hidden = true;
   if (!s || item.dataset.cm === "cancel") return;
+  if (item.dataset.cm === "import-yes") {
+    const job = { at: Date.now(), done: false };
+    S.importing.set(sid, job);
+    S.uiVer++;
+    renderBoard();
+    const stop = menu.querySelector('input[name="cmStopTasks"]');
+    try { toast((await api("POST", `/api/sessions/${sid}/import`, { stop_tasks: !!(stop && stop.checked) })).message); }
+    catch (err) { S.importing.delete(sid); toast(err.message); }
+    Object.assign(job, { done: true, at: Date.now() });
+    S.uiVer++;
+    return refresh(sid);
+  }
   if (item.dataset.cm === "quit-yes") {
     toast("종료하는 중…");
-    try { toast((await api("POST", `/api/sessions/${sid}/quit`, { force: !!item.dataset.force })).message); }
+    const wtPick = menu.querySelector('input[name="cmWt"]:checked');
+    try { toast((await api("POST", `/api/sessions/${sid}/quit`, { force: !!item.dataset.force, worktree: wtPick ? wtPick.value : "" })).message); }
     catch (err) { toast(err.message); }
     return refresh(sid);
   }
@@ -2244,7 +2305,7 @@ async function renderBrain() {
     if (!chat.querySelector(".bp-empty")) {
       chat.innerHTML = `<div class="bp-empty">
         <p><b>브레인이 꺼져 있습니다.</b><br>저장소의 <code>brain/</code> 폴더에서 Claude Code 를 띄워 세션 현황과 슬랙 인박스를 맡깁니다.
-        Orca 터미널 탭이 하나 생깁니다.</p>
+        보드 터미널에서 돌아서 이 패널 안에서 터미널을 열 수 있습니다(tmux 필요).</p>
         <select id="bpModel">${[["sonnet", "Sonnet (추천)"], ["opus", "Opus"], ["haiku", "Haiku"], ["", "기본(설정대로)"]]
           .map(([v, l]) => `<option value="${v}" ${v === ((S.settings || {}).brain_model ?? "sonnet") ? "selected" : ""}>${l}</option>`).join("")}</select>
         <select id="bpPerm" title="권한 모드 — 자동은 Claude 가 판단해 진행하고 위험해 보이는 것만 묻습니다">${[["auto", "⏵⏵ 자동(추천)"], ["manual", "⏸ 수동 — 명령마다 묻기"], ["acceptEdits", "⏵⏵ 편집 허용"], ["plan", "⏸ 계획"]]
@@ -2252,6 +2313,11 @@ async function renderBrain() {
         <button class="btn primary" data-action="brain-start">브레인 시작</button></div>`;
     }
   } else {
+    // 뜨는 동안 창으로 보던 브레인 터미널: 세션으로 잡히면 창을 닫는다
+    if (S.brainLaunchPopup && b.term_handle === S.brainLaunchPopup) {
+      S.brainLaunchPopup = null;
+      closeLaunchTerm();   // 패널은 대화 화면으로(터미널은 「⌨ 터미널」로)
+    }
     let col = chat.querySelector(".col");
     if (!col || col.dataset.col !== b.session_id) {
       chat.innerHTML = colSkeleton(b.session_id) +
@@ -2780,9 +2846,9 @@ $("#bpAuto").addEventListener("change", async e => {
 async function startBrain() {
   const model = ($("#bpModel") || {}).value || "", permission_mode = ($("#bpPerm") || {}).value || "";
   try {
-    await api("POST", "/api/brain/start", { model, permission_mode });
-    toast("브레인을 띄웠습니다 · 터미널에 brain 탭이 생깁니다");
-    S.brainLaunch = { state: "starting" };
+    const r = await api("POST", "/api/brain/start", { model, permission_mode });
+    toast("브레인을 보드 터미널에 띄웠습니다");
+    S.brainLaunch = { state: "starting", handle: r.handle, terminal: r.terminal };
     S.brainLaunchAt = 0;
     renderBrainLaunch();
     pollBrainLaunch();
@@ -2831,10 +2897,12 @@ function renderBrainLaunch() {
     : L.state === "ready" ? `<p class="muted">입력칸까지 떴습니다 — 곧 이 패널에 나타납니다</p>`
     : `<p class="muted">터미널에서 Claude Code 가 뜨기를 기다리는 중입니다</p>${L.screen ? `<div class="bp-launch-screen">${esc(L.screen)}</div>` : ""}`;
   chat.innerHTML = `<div class="bp-empty bp-launch"><div class="bp-launch-head"><b>브레인이 뜨는 중…</b><span class="spacer"></span>
-    <button class="btn" data-action="brain-launch-term" title="브레인이 뜨고 있는 터미널 탭으로">터미널로 이동 ↗</button></div>${body}</div>`;
+    <button class="btn" data-action="brain-launch-term" title="브레인이 뜨고 있는 터미널 — 보드 터미널·tmux 면 창으로 엽니다">${L.terminal === "web" || L.terminal === "tmux" ? "⌨ 터미널 보기" : "터미널로 이동 ↗"}</button></div>${body}</div>`;
 }
 async function brainLaunchAct(el) {
   if (el.dataset.action === "brain-launch-term") {
+    const L = S.brainLaunch || {};
+    if ((L.terminal === "web" || L.terminal === "tmux") && L.handle) { S.brainLaunchPopup = L.handle; return openLaunchTerm(L.handle, L.terminal); }   // 바깥 앱이 없다 — 창으로
     try { toast((await api("POST", "/api/brain/launch/focus", {})).message); } catch (e) { toast(e.message); }
     return;
   }
@@ -2885,7 +2953,7 @@ async function brainClear() {
 }
 $("#bpClear").addEventListener("click", brainClear);
 
-// ------------------------------------------------------------------ 새 세션: 폴더를 골라 Orca 터미널에 claude 를 띄운다
+// ------------------------------------------------------------------ 새 세션: 폴더를 골라 보드 터미널에 claude 를 띄운다
 // 세션은 훅이 기록해 칸이 생긴다. 첫 메시지는 칸이 생긴 뒤 보드의 보내기로 보낸다(여러 줄도 그대로)
 const NEW_KEY = "csl.newSession";
 const NEW_EFFORTS = ["low", "medium", "high", "xhigh", "max"];   // claude --effort (처음 골라진 값은 설정의 「새 세션 기본 effort」)
@@ -2909,9 +2977,8 @@ async function openNewMenu() {
       <div><label class="nm-label">effort</label>
         <select class="nm-model nm-effort">${NEW_EFFORTS.map(v => `<option value="${v}" ${v === ((S.settings || {}).new_default_effort || "high") ? "selected" : ""}>${v}</option>`).join("")}</select></div>
     </div>
-    <label class="nm-check" title="Orca 같은 바깥 터미널 대신 보드가 가진 터미널(tmux)에 띄우고, 칸 안에서 터미널을 바로 씁니다"><input type="checkbox" class="nm-web" ${last.web ? "checked" : ""}> 보드 터미널로 열기 <span class="muted">칸 안의 터미널</span></label>
     <label class="nm-check" title="claude --worktree — 그 저장소의 .claude/worktrees/ 에 새 워크트리(새 브랜치)를 만들어 거기서 시작합니다. 끄면 고른 폴더에서 그대로"><input type="checkbox" class="nm-wt" checked> 새 워크트리로 시작 <span class="muted">claude -w</span></label>
-    <div class="ctx-foot"><span class="muted">Orca 터미널 탭이 새로 열립니다</span>
+    <div class="ctx-foot"><span class="muted nm-term-hint">보드 터미널에 띄웁니다 — 칸 머리 「⌨ 터미널」로 터미널을 엽니다</span>
       <button class="btn primary" data-new-run>시작</button></div>`;
   menu.hidden = false;
   placeMenu(menu, $("#newBtn"), "right");
@@ -2940,19 +3007,19 @@ async function runNewSession() {
   const cwd = menu.querySelector(".nm-cwd").value.trim();
   const prompt = menu.querySelector(".nm-prompt").value.trim();
   const model = menu.querySelector(".nm-model").value, effort = menu.querySelector(".nm-effort").value;
-  const worktree = menu.querySelector(".nm-wt").checked, web = menu.querySelector(".nm-web").checked;
+  const worktree = menu.querySelector(".nm-wt").checked;
   if (!cwd) { menu.querySelector(".nm-cwd").focus(); return; }
   if (btn.disabled) return;   // Enter 두 번 — 터미널이 두 개 뜨던 것
   btn.disabled = true;
   btn.textContent = "띄우는 중…";
   try {
-    const r = await api("POST", "/api/sessions/new", { cwd, model, effort, worktree, terminal: web ? "web" : "" });
-    try { localStorage.setItem(NEW_KEY, JSON.stringify({ cwd, model, effort, web })); } catch (e) { /* 저장소 없음 */ }
+    // 새 세션은 늘 보드 터미널에 뜬다(서버가 정한다)
+    const r = await api("POST", "/api/sessions/new", { cwd, model, effort, worktree });
+    try { localStorage.setItem(NEW_KEY, JSON.stringify({ cwd, model, effort })); } catch (e) { /* 저장소 없음 */ }
     menu.hidden = true;
-    S.pendingNew = { handle: r.handle, prompt, at: Date.now(), sid: null, web };
+    S.pendingNew = { handle: r.handle, prompt, at: Date.now(), sid: null, label: r.label || "보드 터미널" };
     if (menu.dataset.inbox) api("PATCH", "/api/inbox/" + menu.dataset.inbox, { status: "sent" }).catch(() => {});
-    if (web) openLaunchTerm(r.handle);   // 칸이 생기기 전(폴더 신뢰 확인 창 등)에도 보이게 — 칸이 생기면 그리로 옮긴다
-    else toast("Orca 에 새 터미널을 열었습니다 · Claude 가 뜨면 칸이 생깁니다");
+    openLaunchTerm(r.handle, r.terminal);   // 칸이 생기기 전(폴더 신뢰 확인 창 등)에도 보이게 — 칸이 생기면 닫고 대화 화면으로
   } catch (e) {
     toast("새 세션 실패: " + e.message);
     btn.disabled = false;
@@ -2965,17 +3032,18 @@ async function watchNewSession() {
   if (!p) return;
   const s = S.sessions.find(x => x.term_handle === p.handle && x.state !== "ended");
   if (!s) {
-    if (Date.now() - p.at > (p.web ? 600000 : 60000)) {   // 보드 터미널은 창에서 확인 창을 직접 보고 있다 — 넉넉히
+    if (Date.now() - p.at > 600000) {   // 창에서 확인 창을 직접 보고 있다 — 넉넉히
       S.pendingNew = null;
-      toast("새 세션이 아직 안 보입니다 — Orca 터미널을 확인하세요(폴더 신뢰 확인 창일 수 있습니다)");
+      toast(`새 세션이 아직 안 보입니다 — ${p.label} 을 확인하세요(폴더 신뢰 확인 창일 수 있습니다)`);
     }
     return;
   }
   if (!p.sid) {
     p.sid = s.session_id;
-    if (p.web) { closeLaunchTerm(); TERM.open.add(s.session_id); save("csl.termOpen", [...TERM.open]); S.uiVer++; }
+    closeLaunchTerm();
+    // 칸은 대화 화면으로 연다(터미널은 칸 머리 「⌨ 터미널」로)
+    if (TERM.open.delete(s.session_id)) { saveTermOpen(); S.uiVer++; }
     await focusCol(s.session_id);
-    if (p.web) focusTermSoon(s.session_id);   // 칸으로 옮긴 터미널에 바로 칠 수 있게
   }
   if (!p.prompt) { S.pendingNew = null; return; }
   if (s.state !== "idle" && s.state !== "done") return;   // 시작이 끝나 입력을 받을 수 있을 때
@@ -4916,6 +4984,9 @@ document.addEventListener("keydown", e => {
     case "KeyB":
       e.preventDefault();
       return setBrainOpen(!S.brainOpen);
+    case "Backquote":
+      e.preventDefault();
+      return setTermPanelOpen(!TP.open);
     case "KeyG":
       e.preventDefault();
       return openSwitcher();
@@ -4981,6 +5052,7 @@ function toggleTerm(sid) {
   saveTermOpen();
   S.uiVer++;
   renderBoard();
+  if (S.brainOpen && (sessionById(sid) || {}).brain) renderBrain();   // 브레인 칸은 보드가 아니라 브레인 패널에 있다
   if (TERM.open.has(sid)) focusTermSoon(sid);
 }
 function openTermIn(sid) {
@@ -4999,7 +5071,7 @@ function focusTermSoon(sid) {   // 터미널이 붙을 때까지(스크립트·�
 // 칸을 그릴 때마다: 켜 둔 보드 터미널 세션이면 붙이고, 아니면 뗀다(칸이 사라진 터미널도 정리)
 function syncTerm(col, s) {
   for (const box of [...TERM.live.keys()]) if (!box.isConnected) disposeTerm(box);
-  const on = !!(s.term_web && s.state !== "ended" && TERM.open.has(s.session_id));
+  const on = !!(s.term_attach && s.state !== "ended" && TERM.open.has(s.session_id));
   col.classList.toggle("term-mode", on);
   const box = col.querySelector(".col-term");
   if (!box) return;
@@ -5008,8 +5080,8 @@ function syncTerm(col, s) {
   if (cur && (!on || cur.sid !== s.session_id)) disposeTerm(box);
   if (on && !TERM.live.has(box)) mountTerm(box, { sid: s.session_id });
 }
-async function mountTerm(box, q) {   // q: { sid } 또는 막 띄운 세션의 { handle }
-  const rec = { sid: q.sid || null, handle: q.handle || null, term: null, fit: null, ws: null, closed: false, tries: 0 };
+async function mountTerm(box, q) {   // q: { sid } · 막 띄운 세션의 { handle, kind } · 터미널 패널 셸 탭의 { shell }
+  const rec = { sid: q.sid || null, handle: q.handle || null, kind: q.kind || "web", shell: q.shell || null, term: null, fit: null, ws: null, closed: false, tries: 0 };
   TERM.live.set(box, rec);
   setHtml(box, `<div class="term-status muted">터미널에 연결하는 중…</div>`);
   try { await loadXterm(); await termToken(); }
@@ -5039,14 +5111,20 @@ function connectTerm(box, rec) {
   const old = box.querySelector(".term-gone");
   if (old) old.remove();
   const p = new URLSearchParams({ token: TERM.token, cols: rec.term.cols, rows: rec.term.rows });
-  if (rec.handle) p.set("handle", rec.handle);
-  const ws = new WebSocket(`ws://${location.host}/api/term/${encodeURIComponent(rec.sid || "launch")}/ws?${p}`);
+  if (rec.handle) { p.set("handle", rec.handle); p.set("term", rec.kind); }
+  if (rec.shell) p.set("name", rec.shell);
+  const ws = new WebSocket(`ws://${location.host}/api/term/${encodeURIComponent(rec.shell ? "shell" : rec.sid || "launch")}/ws?${p}`);
   ws.binaryType = "arraybuffer";
   let opened = false;
   ws.onopen = () => { opened = true; rec.tries = 0; };
   ws.onmessage = ev => rec.term.write(new Uint8Array(ev.data));
   ws.onclose = async () => {
     if (rec.closed || TERM.live.get(box) !== rec) return;
+    // 셸 탭에서 exit 하면 tmux 세션이 끝나 연결이 닫힌다 — 목록을 다시 읽어 그 탭을 닫는다(다시 붙지 않는다)
+    if (rec.shell) {
+      const list = await refreshShells().catch(() => null);
+      if (rec.closed || TERM.live.get(box) !== rec || (list && !list.some(x => x.name === rec.shell))) return;
+    }
     // 서버를 다시 띄우면 토큰이 바뀐다 — 새 토큰으로 몇 번 다시 붙어 본다. 그래도 안 되면 버튼
     if (rec.tries++ < 3) {
       await new Promise(r => setTimeout(r, opened ? 300 : 1500));
@@ -5071,12 +5149,12 @@ function disposeTerm(box) {
   box.textContent = "";
 }
 // 막 띄운 보드 터미널 세션: 훅이 세션을 기록하기 전(폴더 신뢰 확인 창 등)에는 칸이 없으니 창에서 보여 준다
-function openLaunchTerm(handle) {
+function openLaunchTerm(handle, kind) {
   const m = $("#termModal"), box = m.querySelector(".col-term");
   disposeTerm(box);
   m.hidden = false;
   box.hidden = false;
-  mountTerm(box, { handle }).then(() => { const r = TERM.live.get(box); if (r && r.term) r.term.focus(); });
+  mountTerm(box, { handle, kind: kind || "web" }).then(() => { const r = TERM.live.get(box); if (r && r.term) r.term.focus(); });
 }
 function closeLaunchTerm() {
   const m = $("#termModal");
@@ -5091,6 +5169,166 @@ document.addEventListener("click", e => {
   const box = b.closest(".col-term"), rec = box && TERM.live.get(box);
   if (rec) { rec.tries = 0; termToken(true).catch(() => {}).finally(() => connectTerm(box, rec)); }
 });
+
+// ------------------------------------------------------------------ 터미널 패널(오른쪽 서랍) — 셸 탭 여러 개
+// 보드 터미널 서버(tmux -L argus-web)에 shell-… 세션으로 로그인 셸을 띄우고 탭마다 xterm 을 붙인다.
+// 셸은 서버 쪽에 남으므로 새로고침·서버 재시작 뒤에도 탭이 그대로다. 만들기·닫기·목록은 토큰 헤더(X-Argus-Term)가 있어야 한다
+const TP = { open: load("csl.termPanel", false) === true, tabs: [], cur: load("csl.termTab", null), boxes: new Map(), busy: false };
+async function termApi(method, path, body) {
+  const call = async fresh => {
+    const opt = { method, headers: { "X-Argus-Term": await termToken(fresh) } };
+    if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
+    return fetch(path, opt);
+  };
+  let res = await call(false);
+  if (res.status === 403) res = await call(true);   // 서버를 다시 띄워 토큰이 바뀌었다
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `${method} ${path} → ${res.status}`);
+  return data;
+}
+const SHELLS = new Set(["zsh", "-zsh", "bash", "-bash", "fish", "-fish", "sh", "-sh", "login"]);
+function shellLabel(x, i) {
+  const dir = !x.path ? "" : /^\/Users\/[^/]+\/?$/.test(x.path) ? "~" : x.path.split("/").filter(Boolean).pop() || "/";
+  const cmd = SHELLS.has(x.command) ? "" : x.command;
+  return `${i + 1} ${cmd ? cmd + " · " : ""}${dir}`;
+}
+function setTermPanelOpen(open, instant) {
+  TP.open = open;
+  save("csl.termPanel", open);
+  const layout = $("#layout"), panel = $("#termPanel");
+  clearTimeout(setTermPanelOpen.timer);
+  if (instant) layout.classList.add("no-anim");
+  if (open) {
+    panel.hidden = false;
+    void panel.offsetWidth;
+    layout.classList.add("term-open");
+  } else {
+    layout.classList.remove("term-open");
+    if (panel.contains(document.activeElement)) document.activeElement.blur();
+    setTermPanelOpen.timer = setTimeout(() => { if (!TP.open) panel.hidden = true; }, instant ? 0 : 260);
+  }
+  if (instant) requestAnimationFrame(() => requestAnimationFrame(() => layout.classList.remove("no-anim")));
+  $("#termBtn").classList.toggle("on", open);
+  if (open) refreshShells().then(list => list && !list.length && !instant ? newShell() : showShell(TP.cur, !instant)).catch(e => toast(e.message));
+}
+// 서버의 셸 목록에 맞춰 탭·터미널을 맞춘다(닫힌 셸의 탭은 치우고, 고른 탭이 없으면 마지막 탭)
+async function refreshShells() {
+  const list = (await termApi("GET", "/api/shells")).shells || [];
+  TP.tabs = list;
+  const names = new Set(list.map(x => x.name));
+  for (const [name, box] of TP.boxes) if (!names.has(name)) { disposeTerm(box); box.remove(); TP.boxes.delete(name); }
+  if (!names.has(TP.cur)) { TP.cur = list.length ? list[list.length - 1].name : null; save("csl.termTab", TP.cur); }
+  drawShellTabs();
+  if (TP.open) showShell(TP.cur, false);
+  return list;
+}
+function drawShellTabs() {
+  const html = TP.tabs.map((x, i) => `<button class="tp-tab ${x.name === TP.cur ? "on" : ""}" role="tab" data-shell="${esc(x.name)}" title="${esc(x.path || "")}">
+    <span class="tp-name">${esc(shellLabel(x, i))}</span><span class="tp-x" data-shell-close="${esc(x.name)}" title="이 탭 닫기(셸 종료)">×</span></button>`).join("");
+  if ($("#tpTabs").dataset.html !== html) { $("#tpTabs").dataset.html = html; setHtml($("#tpTabs"), html); }
+  const body = $("#tpBody");
+  let empty = body.querySelector(".tp-empty");
+  if (!TP.tabs.length && !empty) {
+    empty = document.createElement("div");
+    empty.className = "tp-empty";
+    empty.innerHTML = `열린 터미널이 없습니다<br><button class="btn" data-shell-new>＋ 새 터미널</button>`;
+    body.append(empty);
+  } else if (TP.tabs.length && empty) empty.remove();
+}
+function showShell(name, focus) {
+  TP.cur = name || null;
+  save("csl.termTab", TP.cur);
+  drawShellTabs();
+  for (const [n, box] of TP.boxes) box.hidden = n !== TP.cur;
+  if (!TP.cur || !TP.open) return;
+  let box = TP.boxes.get(TP.cur);
+  if (!box) {
+    box = document.createElement("div");
+    box.className = "col-term";
+    box.dataset.shell = TP.cur;
+    $("#tpBody").append(box);
+    TP.boxes.set(TP.cur, box);
+  }
+  const rec = TERM.live.get(box);
+  if (!rec) return void mountTerm(box, { shell: TP.cur }).then(() => { const r = TERM.live.get(box); if (focus && r && r.term) r.term.focus(); });
+  requestAnimationFrame(() => { try { rec.fit && rec.fit.fit(); } catch (e) { /* 크기 없음 */ } if (focus && rec.term) rec.term.focus(); });
+}
+async function newShell() {
+  if (TP.busy) return;
+  TP.busy = true;
+  try {
+    const r = await termApi("POST", "/api/shells", {});
+    TP.cur = r.name;
+    await refreshShells();
+    showShell(r.name, true);
+  } catch (e) { toast(e.message); }
+  finally { TP.busy = false; }
+}
+async function closeShell(name) {
+  try { await termApi("DELETE", "/api/shells/" + encodeURIComponent(name)); } catch (e) { toast(e.message); }
+  if (TP.cur === name) {   // 닫은 탭 옆(앞쪽 우선)으로
+    const i = TP.tabs.findIndex(x => x.name === name), next = TP.tabs[i - 1] || TP.tabs[i + 1];
+    TP.cur = next ? next.name : null;
+  }
+  await refreshShells().catch(() => {});
+  showShell(TP.cur, true);
+}
+$("#termBtn").addEventListener("click", () => setTermPanelOpen(!TP.open));
+$("#tpClose").addEventListener("click", () => setTermPanelOpen(false));
+$("#tpAdd").addEventListener("click", newShell);
+$("#termPanel").addEventListener("click", e => {
+  const x = e.target.closest("[data-shell-close]");
+  if (x) { e.stopPropagation(); return closeShell(x.dataset.shellClose); }
+  if (e.target.closest("[data-shell-new]")) return newShell();
+  const t = e.target.closest(".tp-tab");
+  if (t) showShell(t.dataset.shell, true);
+});
+$("#tpTabs").addEventListener("auxclick", e => {   // 가운데 버튼으로 탭 닫기
+  const t = e.button === 1 && e.target.closest(".tp-tab");
+  if (t) { e.preventDefault(); closeShell(t.dataset.shell); }
+});
+// ⌃` : 어디서든(터미널 안에서도) 패널 여닫기. 열 때는 터미널에 바로 포커스
+document.addEventListener("keydown", e => {
+  if (e.code !== "Backquote" || !e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+  e.preventDefault();
+  e.stopPropagation();
+  setTermPanelOpen(!TP.open);
+}, true);
+// 열려 있는 동안 탭 이름(지금 도는 명령·폴더)을 몇 초마다 새로
+setInterval(() => { if (TP.open && !document.hidden) refreshShells().catch(() => {}); }, 4000);
+// 패널 너비: 왼쪽 가장자리를 끌어 조절(브라우저에 기억), 더블클릭이면 기본 너비
+const TP_MIN = 320;
+function applyTermWidth(w) {
+  const layout = $("#layout");
+  if (w) layout.style.setProperty("--tp-w", Math.round(w) + "px"); else layout.style.removeProperty("--tp-w");
+}
+applyTermWidth(load("csl.termWidth", null));
+const TPR = { on: false, x0: 0, w0: 0 };
+$("#tpResize").addEventListener("pointerdown", e => {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  Object.assign(TPR, { on: true, x0: e.clientX, w0: $("#termPanel").getBoundingClientRect().width });
+  e.target.setPointerCapture(e.pointerId);
+  document.body.classList.add("tp-resizing");
+});
+$("#tpResize").addEventListener("pointermove", e => {
+  if (!TPR.on) return;
+  applyTermWidth(Math.max(TP_MIN, Math.min(window.innerWidth - 360, TPR.w0 - (e.clientX - TPR.x0))));
+});
+function endTermResize() {
+  if (!TPR.on) return;
+  TPR.on = false;
+  document.body.classList.remove("tp-resizing");
+  save("csl.termWidth", Math.round($("#termPanel").getBoundingClientRect().width));
+}
+$("#tpResize").addEventListener("pointerup", endTermResize);
+$("#tpResize").addEventListener("pointercancel", endTermResize);
+$("#tpResize").addEventListener("dblclick", () => {
+  applyTermWidth(null);
+  save("csl.termWidth", null);
+  toast("터미널 패널을 기본 너비로 되돌렸습니다");
+});
+if (TP.open) setTermPanelOpen(true, true);
 
 // ------------------------------------------------------------------ 커넥터 창
 // 바깥 서비스(슬랙·Gmail …)마다 인스턴스를 두고 키·설정을 넣는다. 종류는 csl/connectors/*.py 플러그인에서 온다

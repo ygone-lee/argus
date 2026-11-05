@@ -27,6 +27,20 @@ STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
                  ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml"}
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
+ATTACHABLE = ("web", "tmux")   # 보드 칸 안(xterm.js)에서 열 수 있는 터미널
+
+
+def security_headers():
+    """모든 응답에 붙이는 보안 헤더. 보드는 슬랙·메일 본문·대화 기록 같은 바깥 글을 그리고, 브라우저 안에 터미널이 있다 —
+    - CSP: 보드 파일(static)의 스크립트만 실행(인라인·eval·바깥 스크립트 금지), 연결은 이 서버(웹소켓 포함)로만,
+      이미지는 이 서버와 data: 만. 만에 하나 글이 HTML 로 새어 들어와도 스크립트가 돌거나 바깥으로 보낼 수 없다
+    - frame-ancestors·X-Frame-Options: 다른 사이트가 보드를 iframe 에 깔고 클릭·키 입력을 유도하지 못하게(클릭재킹)
+    - Referrer-Policy: 바깥 링크를 열 때 보드 주소를 넘기지 않는다"""
+    ws = " ".join("ws://%s:%d" % (h, store.PORT) for h in sorted(ALLOWED_HOSTS))
+    csp = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+           "font-src 'self' data:; connect-src 'self' " + ws + "; media-src 'self' data:; object-src 'none'; frame-src 'none'; "
+           "worker-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+    return (("Content-Security-Policy", csp), ("X-Frame-Options", "DENY"), ("Referrer-Policy", "no-referrer"))
 SESSION_COLUMNS = (
     "session_id, cwd, project_root, project_name, worktree, branch, title, title_source, recap, recap_at,"
     " state, state_detail, state_at, started_at, last_activity, last_seen_at, ended_at, archived, pinned, source,"
@@ -311,7 +325,7 @@ def attach_background(conn, sess, wait=25):
     x = live_agent(sess["session_id"]) if row and row["bg"] else None
     if not x:
         return None, None
-    tg, err = focus.new_claude_terminal(x.get("cwd") or row["cwd"] or "", extra="attach " + shlex.quote(x["id"]))
+    tg, err = focus.new_claude_terminal(x.get("cwd") or row["cwd"] or "", extra="attach " + shlex.quote(x["id"]), terminal="web")
     if not tg:
         return None, err
     LAUNCHED[tg.handle] = store.now()
@@ -451,8 +465,45 @@ def mark_dialog(conn, sid, box):
 
 
 BRAIN_ACTIONS = re.compile(
-    r"/api/sessions/([\w\-]+)/(?:send|remote|quit|archive|pin|rename|interrupt|model|permission|rewind|answer|prompt|focus|switch|attach|close-branch)"
+    r"/api/sessions/([\w\-]+)/(?:send|remote|quit|import|archive|pin|rename|interrupt|model|permission|rewind|answer|prompt|focus|switch|attach|close-branch)"
     r"|/api/sessions/new|/api/agents/[0-9a-f]{8}/\w+|/api/(?:config|settings|open|daily)|/api/notes/\d+|/api/inbox/\d+/delegate")
+
+
+RESUME_PERMS = {"default", "acceptEdits", "plan", "auto", "manual", "dontAsk"}
+
+
+def remove_claude_worktree(path):
+    """claude --worktree 가 만든 워크트리(<저장소>/.claude/worktrees/<이름>)와 그 브랜치(worktree-<이름>)를 지운다.
+    이어 연(--resume) 워크트리 세션은 종료 때 Claude Code 가 워크트리를 묻지 않아서, 세션 종료에서 「정리하기」를 고르면 보드가 지운다.
+    다른 곳의 워크트리·다른 이름의 브랜치는 건드리지 않는다. 성공하면 True"""
+    m = re.fullmatch(r"(/.+?)/\.claude/worktrees/([^/]+)/?", path or "")
+    if not m or not os.path.isdir(path):
+        return False
+    main, name = m.groups()
+    run = lambda *a: subprocess.run(["git", "-C"] + list(a), capture_output=True, text=True, timeout=30)
+    branch = run(path, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    # -f 두 번: 커밋 안 한 변경이 있어도, Claude Code 가 걸어 둔 잠금(lock)이 남아 있어도 지운다(사용자가 고른 정리)
+    if run(main, "worktree", "remove", "-f", "-f", path).returncode != 0:
+        return False
+    if branch == "worktree-" + name:
+        run(main, "branch", "-D", branch)
+    return True
+
+
+def resume_flags(conn, sid):
+    """이어 열 때(--resume) 그 세션이 쓰던 모델·effort·권한 모드를 넘기는 claude 인자(끝에 빈칸). 모르는 값은 뺀다.
+    권한 확인을 건너뛰는 모드(bypassPermissions)는 보드가 대신 켜지 않는다 — 이어 연 뒤 필요하면 사용자가 바꾼다."""
+    r = conn.execute("SELECT model, effort, permission_mode FROM sessions WHERE session_id=?", (sid,)).fetchone()
+    if not r:
+        return ""
+    out = []
+    if re.fullmatch(r"claude-[a-z0-9.\-]+|" + "|".join(config.MODELS), r["model"] or ""):
+        out.append("--model " + r["model"])
+    if (r["effort"] or "") in config.EFFORTS:
+        out.append("--effort " + r["effort"])
+    if (r["permission_mode"] or "") in RESUME_PERMS:
+        out.append("--permission-mode " + r["permission_mode"])
+    return "".join(x + " " for x in out)
 
 
 def brain_guard(conn, body, target_sid):
@@ -575,6 +626,7 @@ def follow_rename(conn, s):
 
 
 LAUNCHED = {}   # 보드에서 띄운 Orca 터미널 핸들 → 시각(서버가 켜져 있는 동안)
+IMPORTING = {}  # 보드 터미널로 가져오는 중인 세션 → 시작 시각(종료 → 이어 열기 사이에도 칸을 보이게)
 # 보드가 띄운 브레인 탭 {"handle", "terminal", "at"} — 세션은 훅(SessionStart)으로 잡히는데, 처음 실행이면 그 전에
 # 폴더 신뢰·권한 모드 같은 확인 창이 터미널에 뜬다. 그동안 브레인 패널이 그 탭 화면을 읽어 보드에서 고르게 한다
 BRAIN_LAUNCH = {}
@@ -811,6 +863,9 @@ def list_state(conn, days, show_archived):
         follow_compact(conn, s)
         s["term_handle"] = handle   # 보드에서 새로 띄운 세션을 찾는 데 쓴다
         s["term_web"] = bool(tg and tg.terminal.name == "web")   # 보드 터미널(xterm.js)에서 도는 세션 — 칸 안에서 터미널을 연다
+        s["term_attach"] = tg.terminal.name if tg and tg.terminal.name in ATTACHABLE else ""   # 칸 안에서 열 수 있는 터미널(tmux 도)
+        s["term_name"] = tg.terminal.name if tg else ""   # 어느 터미널(orca·tmux·web …) — 보드 터미널로 가져오기 안내에
+        s["importing"] = store.now() - IMPORTING.get(s["session_id"], 0) < 180   # 가져오는 중 — 잠깐 종료로 보여도 칸을 둔다
         s["brain"] = is_brain       # 브레인 세션은 칸 대신 브레인 패널에
         s.pop("terminal", None)
         s["ctx"] = store.context_info(s["session_id"], s.get("transcript_path"))
@@ -978,6 +1033,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", cache)
         self.send_header("X-Content-Type-Options", "nosniff")
+        for k, v in security_headers():
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
 
@@ -1032,19 +1089,33 @@ class Handler(BaseHTTPRequestHandler):
             return self._term_ws(m.group(1), parse_qs(urlparse(self.path).query))
         self._dispatch("GET")
 
-    def _term_ws(self, sid, query):
-        """보드 터미널(xterm.js) 웹소켓: 그 세션의 tmux 세션에 붙는다. 같은 출처·토큰·보드 터미널 세션만."""
+    def _term_ok(self, token, need_origin=True):
+        """보드 터미널을 다루는 요청: 보드 화면(같은 출처)에서 왔고, 서버를 띄울 때마다 바뀌는 토큰이 맞아야 한다.
+        need_origin=False: 브라우저는 같은 출처 GET 에 Origin 을 싣지 않는다 — 실렸으면 맞아야 하고, 없으면 토큰 헤더로 가린다
+        (다른 사이트는 미리 묻기(preflight) 없이 그 헤더를 실을 수 없고, 응답도 읽지 못한다)."""
         origins = {"http://%s:%d" % (h, store.PORT) for h in ALLOWED_HOSTS}
-        if not self._host_ok() or (self.headers.get("Origin") or "") not in origins \
-                or not webterm.token_ok((query.get("token") or [""])[0]):
+        origin = self.headers.get("Origin")
+        if origin is None and not need_origin:
+            origin = next(iter(origins))
+        return self._host_ok() and origin in origins and webterm.token_ok(token)
+
+    def _term_ws(self, sid, query):
+        """보드 터미널(xterm.js) 웹소켓: 그 세션의 tmux 세션에 붙는다. 같은 출처·토큰·보드 터미널 세션만.
+        sid 가 shell 이면 오른쪽 터미널 드로어의 셸 탭(name=shell-…)."""
+        if not self._term_ok((query.get("token") or [""])[0]):
             return self._send(403, {"error": "forbidden"})
         key = self.headers.get("Sec-WebSocket-Key")
         if not key:
             return self._send(400, {"error": "웹소켓 요청이 아닙니다"})
+        if sid == "shell":
+            web, name = terminals.registry().get("web"), (query.get("name") or [""])[0]
+            if not web or not web.has_shell(name):
+                return self._send(404, {"error": "그 셸 탭이 없습니다"})
+            return self._ws_attach(key, name, query)
         if sid == "launch":   # 막 띄운 세션(훅이 기록하기 전 — 폴더 신뢰 확인 창 등): 보드가 띄운 창만
-            h = (query.get("handle") or [""])[0]
-            web = terminals.registry().get("web")
-            tg = terminals.Target(web, h) if web and web.valid(h) and h in LAUNCHED else None
+            h, tname = (query.get("handle") or [""])[0], (query.get("term") or ["web"])[0]
+            t = terminals.registry().get(tname) if tname in ATTACHABLE else None
+            tg = terminals.Target(t, h) if t and t.valid(h) and h in LAUNCHED else None
         else:
             conn = store.connect()
             try:
@@ -1052,11 +1123,24 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 conn.close()
             tg = focus.target_of(dict(row)) if row else None
-        if not tg or tg.terminal.name != "web":
-            return self._send(404, {"error": "보드 터미널에서 띄운 세션이 아닙니다"})
-        name, tmux_bin = tg.terminal.session_of(tg.handle), tmux_term._bin()
-        if not name or not tmux_bin:
-            return self._send(410, {"error": "보드 터미널이 닫혔습니다"})
+        # 칸 안에서 열 수 있는 것: 보드 터미널 세션과, 사용자의 tmux 에서 도는 (보드에 기록된) Claude 세션의 창
+        if not tg or tg.terminal.name not in ATTACHABLE:
+            return self._send(404, {"error": "칸 안에서 열 수 있는 터미널(보드 터미널·tmux)이 아닙니다"})
+        argv, err = tg.terminal.attach_argv(tg.handle)
+        if not argv:
+            return self._send(410, {"error": err})
+        try:
+            return self._ws_attach(key, argv, query)
+        finally:
+            tg.terminal.release(argv)   # tmux: 칸 안에서 보려고 만든 묶음 세션을 치운다(원래 세션은 그대로)
+
+    def _ws_attach(self, key, argv, query):
+        """웹소켓으로 올리고 attach 명령(argv — 문자열이면 보드 터미널 서버의 그 tmux 세션 이름)을 PTY 로 이어 준다."""
+        if isinstance(argv, str):
+            tmux_bin = tmux_term._bin()
+            if not tmux_bin:
+                return self._send(410, {"error": "tmux 가 없습니다"})
+            argv = [tmux_bin, "-u"] + web_term.SERVER + ["attach-session", "-t", "=" + argv]
         try:
             cols, rows = int((query.get("cols") or ["120"])[0]), int((query.get("rows") or ["36"])[0])
         except ValueError:
@@ -1067,8 +1151,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Sec-WebSocket-Accept", webterm.accept_key(key))
         self.end_headers()
         self.close_connection = True
-        webterm.relay(webterm.WebSocket(self.rfile, self.wfile),
-                      [tmux_bin, "-u"] + web_term.SERVER + ["attach-session", "-t", "=" + name], cols, rows)
+        webterm.relay(webterm.WebSocket(self.rfile, self.wfile), argv, cols, rows)
 
     def do_POST(self):
         self._dispatch("POST")
@@ -1078,6 +1161,158 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         self._dispatch("DELETE")
+
+    def _import(self, conn, sid, sess, tg, cwd, body):
+        """보드 터미널로 가져오기의 본체 — 지금 터미널에서 끝내고(Orca·tmux) 보드 터미널에서 같은 세션으로 이어 연다."""
+        running = sid in (focus.running_sessions() or {})
+        if running:
+            if sess["state"] in ("working", "waiting"):
+                return self._send(409, {"error": "작업 중이거나 확인을 기다리는 세션입니다 — 끝난 뒤 가져와 주세요"})
+            if not tg or tg.terminal.name not in ("orca", "tmux"):
+                return self._send(409, {"error": "보드가 이 터미널을 조작할 수 없습니다 — 그 터미널에서 /exit 로 끝낸 뒤 다시 눌러 주세요"})
+            # stop_tasks: 그 세션에서 도는 백그라운드 작업(개발 서버 등)도 끄고 옮긴다 — 아니면 종료가 물을 때 취소한다
+            code, res = self._quit(conn, sid, {"worktree": "keep", "abort_prompt": True, "stop_tasks": bool(body.get("stop_tasks"))})
+            if code != 200 or res.get("pending"):
+                return self._send(409 if code == 200 else code, {"error": "종료하지 못해 가져오지 않았습니다: " + (res.get("error") or res.get("message") or "")})
+            for _ in range(20):   # 프로세스 목록에서 빠질 때까지
+                if sid not in (focus.running_sessions() or {}):
+                    break
+                time.sleep(0.5)
+        tg2, err = focus.new_claude_terminal(cwd, extra=resume_flags(conn, sid) + "--resume " + shlex.quote(sid), terminal="web")
+        if not tg2:
+            return self._send(502, {"error": err})
+        LAUNCHED[tg2.handle] = store.now()
+        conn.execute("UPDATE sessions SET terminal=? WHERE session_id=?", (json.dumps(tg2.terminal.remember({}, tg2.handle)), sid))
+        conn.commit()
+        ready, end = False, time.time() + 30
+        while time.time() < end:
+            st = conn.execute("SELECT state FROM sessions WHERE session_id=?", (sid,)).fetchone()[0]
+            if st != "ended" and focus.input_line(tg2) is not None:
+                ready = True
+                break
+            time.sleep(0.5)
+        return self._send(200, {"ok": True, "ready": ready, "message": "보드 터미널로 가져왔습니다" if ready else
+                                "보드 터미널에서 여는 중입니다 — 선택 창이 떠 있으면 칸의 「⌨ 터미널」에서 골라 주세요"})
+
+    def _quit(self, conn, sid, body):
+        """세션 종료(⋮ → 세션 종료·보드 터미널로 가져오기). (HTTP 코드, 응답 본문).
+        body: force(작업 중이면 멈추고) · worktree(keep·remove — 종료 때 워크트리를 묻는 창에 답할 것)"""
+        # 세션 종료 — 터미널에서 Claude Code 를 닫은 것처럼: /exit 로 정상 종료시키고 탭을 닫는다.
+        # 작업 중이면 force 일 때만 먼저 Esc 로 멈춘다. 종료가 선택 창(바꾼 게 있는 워크트리를 남길지 등)을 띄우면 거기서 멈추고 사람이 고른다
+        sess = session_row(conn, sid)
+        if sess is None:
+            return (404, {"error": "no session"})
+        why = brain_guard(conn, body, sess["session_id"])
+        if why:
+            return (403, {"error": why})
+        if sess["state"] == "ended":
+            return (409, {"error": "이미 종료된 세션입니다"})
+        bg = conn.execute("SELECT bg FROM sessions WHERE session_id=?", (sess["session_id"],)).fetchone()["bg"]   # session_row 엔 없다
+        x = live_agent(sess["session_id"]) if bg else None
+        if x:
+            # 백그라운드 세션 — 탭에 `claude attach` 로 붙어 있어도 거기서 /exit 를 치면 보기만 떨어지고 세션은 계속 돈다
+            # (칸이 그대로 남았다). claude stop 으로 멈추고, 붙어 있던 탭이 있으면 그 탭도 닫는다
+            if (sess["state"] == "working" or x.get("state") == "working") and not body.get("force"):
+                return (409, {"error": "작업 중입니다", "need_force": True})
+            try:
+                r = subprocess.run([daily._claude_bin(), "stop", x["id"]], capture_output=True, text=True, timeout=20,
+                                   env=daily._clean_env())
+            except (OSError, subprocess.SubprocessError) as e:
+                return (502, {"error": str(e)[:200]})
+            AGENTS["at"] = 0
+            if r.returncode != 0:
+                return (502, {"error": (r.stderr or r.stdout or "멈추지 못했습니다").strip()[:300]})
+            # 멈춘 백그라운드 세션은 SessionEnd 훅이 오지 않을 수 있다 — 여기서 종료로 둔다
+            t = store.now()
+            conn.execute("UPDATE sessions SET state='ended', state_detail='stopped', state_at=?, ended_at=? WHERE session_id=?",
+                         (t, t, sess["session_id"]))
+            store.add_event(conn, sess["session_id"], "end", "stopped")
+            conn.commit()
+            tg = focus.target_of(sess)
+            closed = False
+            if tg:
+                REAPED.add(tg.handle)
+                LAUNCHED.pop(tg.handle, None)
+                closed = tg.terminal.close(tg.handle)
+            return (200, {"ok": True, "message": "백그라운드 세션을 멈췄습니다" + (" · 터미널 탭도 닫았습니다" if closed else "")})
+        if bg and not focus.handle_of(sess):
+            return (409, {"error": "그 백그라운드 세션의 프로세스를 찾지 못했습니다"})
+        handle, err = terminal_target(conn, sess)
+        if not handle:
+            return (409, {"error": err})
+        box = focus.dialog_text(handle)
+        if box and body.get("abort_prompt"):   # 가져오기: 사람이 고를 창이 떠 있으면 건드리지 않는다
+            return (409, {"error": "터미널에 선택 창이 떠 있거나 화면을 읽지 못했습니다 — 그 터미널을 확인해 주세요"})
+        if box:
+            if focus.prompt_view(handle):   # 고를 수 있는 창이면 칸의 🔐 카드로 고르게
+                _mark_prompt(conn, sess["session_id"], "종료 중 — 터미널이 묻고 있습니다")
+                return (409, {"error": "터미널이 고를 것을 묻고 있습니다 — 칸의 🔐 확인 필요 카드에서 골라 주세요"})
+            return (409, {"error": "터미널에 선택 창이 떠 있습니다 — 먼저 골라 주세요: " + box})
+        if sess["state"] == "working" or focus.is_busy(handle):
+            if not body.get("force"):
+                return (409, {"error": "작업 중입니다", "need_force": True})
+            focus._raw(handle, focus.ESC)   # 작업을 멈추고(Claude Code 의 중단 키)
+            for _ in range(20):
+                time.sleep(0.4)
+                if not focus.is_busy(handle) and focus.input_line(handle) is not None:
+                    break
+            else:
+                return (409, {"error": "작업을 멈추지 못했습니다 — 터미널에서 확인해 주세요"})
+        ok, _, err = focus.send_prompt(handle, "/exit")
+        if not ok:
+            return (502, {"error": "/exit 를 보내지 못했습니다: " + (err or "")})
+        # 워크트리 세션: 종료할 때 Claude Code 가 묻는 「Keep worktree / Remove worktree」에 보드에서 고른 대로 답한다
+        want_wt = {"keep": "keep worktree", "remove": "remove worktree"}.get(body.get("worktree") or "")
+        wt_done = None
+        stopped_tasks = False
+        for _ in range(40):   # Claude 가 끝날 때까지(워크트리 정리 등) — 선택 창이 뜨면 사람에게 맡긴다
+            time.sleep(0.5)
+            if not focus.claude_alive(sess, handle):
+                break
+            # 닫히는 도중엔 입력칸이 사라진 화면이 잠깐 보인다 — 번호 고르기 줄(❯ 1. …)이 있을 때만 선택 창으로 본다
+            lines = focus._screen(handle)
+            opts = [ln.strip() for ln in lines[-15:] if focus._OPTION.match(ln)]
+            if opts and focus._input_line_of(lines) is None and want_wt and not wt_done:
+                v = focus.prompt_view(handle)
+                o = next((o for o in (v or {}).get("options", []) if o["label"].lower().startswith(want_wt)), None)
+                if o:
+                    ok_wt, _ = focus.answer_prompt(handle, o["n"], o["label"])
+                    if ok_wt:
+                        wt_done = body.get("worktree")
+                        continue
+            if opts and focus._input_line_of(lines) is None and body.get("stop_tasks") and not stopped_tasks:
+                # 「Background work is running — Exit and stop tasks」: 사용자가 백그라운드 작업(개발 서버 등)도 끄고 종료하기로 했다
+                v = focus.prompt_view(handle) or {}
+                o = next((o for o in v.get("options", []) if o["label"].lower().startswith("exit and stop tasks")), None)
+                if o and focus.answer_prompt(handle, o["n"], o["label"])[0]:
+                    stopped_tasks = True
+                    continue
+            if opts and focus._input_line_of(lines) is None and body.get("abort_prompt"):
+                # 가져오기: 종료가 예상 밖의 것을 묻는다(「Background work is running」 — 돌고 있는 개발 서버 등을 끌지).
+                # 사람이 정할 일이라 Esc 로 종료를 취소하고 원래대로 둔다
+                v = focus.prompt_view(handle) or {}
+                focus._raw(handle, focus.ESC)
+                time.sleep(0.8)
+                why = " / ".join(v.get("head") or [])[:200]
+                return (409, {"error": "종료하면서 터미널이 묻는 것이 있어 취소했습니다" + (": " + why if why else ""), "aborted": True})
+            if opts and focus._input_line_of(lines) is None:
+                # 바꾼 게 있는 워크트리를 남길지 등 — 「확인 필요」로 두어 칸에 🔐 카드가 뜨게(고르면 Claude 가 끝나고 탭은 서버가 닫는다)
+                _mark_prompt(conn, sess["session_id"], "종료 중 — 터미널이 묻고 있습니다")
+                return (200, {"ok": True, "pending": True, "message": "종료하는 중 터미널이 고를 것을 묻습니다 — 칸의 🔐 확인 필요 카드에서 골라 주세요"})
+        else:
+            return (409, {"error": "Claude 가 아직 끝나지 않았습니다 — 터미널에서 확인해 주세요"})
+        # 보드가 띄운 탭은 셸까지 끝났고, 직접 연 탭은 셸이 남는다 — 어느 쪽이든 탭을 닫는다(Claude 를 닫은 뒤라 잃을 것은 없다)
+        REAPED.add(handle.handle)
+        LAUNCHED.pop(handle.handle, None)
+        closed = handle.terminal.close(handle.handle)
+        if want_wt == "remove worktree" and not wt_done:
+            # 이어 연 워크트리 세션은 Claude Code 가 묻지 않고 끝난다 — 고른 대로 보드가 정리한다
+            wt = conn.execute("SELECT worktree FROM sessions WHERE session_id=?", (sess["session_id"],)).fetchone()[0]
+            if wt and remove_claude_worktree(wt):
+                wt_done = "remove"
+        wt_msg = {"keep": " · 워크트리는 남겼습니다", "remove": " · 워크트리를 정리했습니다"}.get(wt_done or "", "")
+        return (200, {"ok": True, "message": "세션을 종료했습니다" + wt_msg + (" · 터미널 탭도 닫았습니다" if closed else "(탭은 닫지 못함 — 직접 닫아 주세요)")})
+
 
     def _static(self, path):
         name = "index.html" if path in ("", "/") else path.lstrip("/")
@@ -1114,7 +1349,7 @@ class Handler(BaseHTTPRequestHandler):
             LAUNCHED[tg.handle] = store.now()
             BRAIN_LAUNCH.clear()
             BRAIN_LAUNCH.update(handle=tg.handle, terminal=tg.terminal.name, at=store.now())
-            return self._send(200, {"ok": True, "handle": tg.handle})
+            return self._send(200, {"ok": True, "handle": tg.handle, "terminal": tg.terminal.name, "label": tg.terminal.label})
         if path == "/api/brain/launch" and method == "GET":
             # 띄운 브레인이 세션으로 잡히기 전: 확인 창(선택지)·뜨는 중·입력칸까지 뜸(곧 잡힘)·탭이 닫힘
             if brain.current(conn):
@@ -1126,12 +1361,14 @@ class Handler(BaseHTTPRequestHandler):
             if tg.terminal.info(tg.handle) is None:
                 BRAIN_LAUNCH.clear()
                 return self._send(200, {"state": "gone"})
+            # handle·terminal: 보드 터미널·tmux 면 화면이 패널의 창(xterm)으로 그 터미널을 연다
+            where = {"handle": tg.handle, "terminal": tg.terminal.name, "label": tg.terminal.label}
             v = focus.prompt_view(tg)
             if v:
-                return self._send(200, {"state": "prompt", "prompt": v})
+                return self._send(200, dict(where, state="prompt", prompt=v))
             if focus.input_line(tg) is not None:
-                return self._send(200, {"state": "ready"})
-            return self._send(200, {"state": "starting", "screen": focus.dialog_text(tg)})
+                return self._send(200, dict(where, state="ready"))
+            return self._send(200, dict(where, state="starting", screen=focus.dialog_text(tg)))
         if path in ("/api/brain/launch/answer", "/api/brain/launch/focus") and method == "POST":
             tg = brain_launch_target()
             if not tg:
@@ -1473,12 +1710,34 @@ class Handler(BaseHTTPRequestHandler):
             # 모델을 아예 안 보냈으면(브레인 ./argus new) 설정의 새 세션 기본 모델. 보드 창은 고른 값을 늘 보낸다("" = Claude Code 설정대로)
             model = body["model"] if "model" in body else config.get(conn, "new_default_model")
             # terminal: "web" 이면 보드 터미널(칸 안의 xterm.js)에. 없으면 기본 터미널(Orca 등)
-            tg, err = focus.new_claude_terminal(cwd, model or None, extra=" ".join(extra),
-                                                terminal="web" if body.get("terminal") == "web" else None)
+            # 새 세션은 늘 보드 터미널(보드 전용 tmux 서버 — 칸 안에서 터미널을 연다)에 띄운다
+            tg, err = focus.new_claude_terminal(cwd, model or None, extra=" ".join(extra), terminal="web")
             if not tg:
                 return self._send(502, {"error": err})
             LAUNCHED[tg.handle] = store.now()
-            return self._send(200, {"ok": True, "handle": tg.handle})
+            return self._send(200, {"ok": True, "handle": tg.handle, "terminal": tg.terminal.name, "label": tg.terminal.label})
+        if path == "/api/shells" or path.startswith("/api/shells/"):
+            # 오른쪽 터미널 드로어의 셸 탭: 브라우저에서 내 계정으로 아무 명령이나 실행하는 길이라
+            # 같은 출처(Origin)·토큰(X-Argus-Term)을 늘 요구한다 — 다른 사이트가 몰래 셸을 띄우거나 닫지 못하게
+            if not self._term_ok(self.headers.get("X-Argus-Term") or "", need_origin=method != "GET"):
+                return self._send(403, {"error": "forbidden"})
+            web = terminals.registry().get("web")
+            if not web or not web.available():
+                return self._send(503, {"error": "tmux 가 없어 터미널을 열 수 없습니다(brew install tmux)"})
+            if method == "GET" and path == "/api/shells":
+                return self._send(200, {"shells": web.shells()})
+            if method == "POST" and path == "/api/shells":
+                cwd = body.get("cwd")
+                name = web.new_shell(os.path.expanduser(cwd) if isinstance(cwd, str) and cwd else None)
+                if not name:
+                    return self._send(502, {"error": "터미널을 열지 못했습니다"})
+                return self._send(200, {"ok": True, "name": name})
+            m = re.fullmatch(r"/api/shells/([\w\-]+)", path)
+            if method == "DELETE" and m:
+                if not web.kill_shell(m.group(1)):
+                    return self._send(404, {"error": "그 셸 탭이 없습니다"})
+                return self._send(200, {"ok": True})
+            return self._send(404, {"error": "not found"})
         if method == "GET" and path == "/api/term/token":
             # 보드 터미널 웹소켓 토큰(서버를 띄울 때마다 새로). Host 검사를 지난 같은 출처 화면만 읽을 수 있다(CORS 없음)
             return self._send(200, {"token": webterm.TOKEN, "available": bool(tmux_term._bin())})
@@ -1674,86 +1933,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200 if ok else 409, {"ok": True, "message": msg} if ok else {"error": msg})
         m = re.fullmatch(r"/api/sessions/([\w\-]+)/quit", path)
         if m and method == "POST":
-            # 세션 종료 — 터미널에서 Claude Code 를 닫은 것처럼: /exit 로 정상 종료시키고 탭을 닫는다.
-            # 작업 중이면 force 일 때만 먼저 Esc 로 멈춘다. 종료가 선택 창(바꾼 게 있는 워크트리를 남길지 등)을 띄우면 거기서 멈추고 사람이 고른다
-            sess = session_row(conn, m.group(1))
-            if sess is None:
-                return self._send(404, {"error": "no session"})
-            why = brain_guard(conn, body, sess["session_id"])
-            if why:
-                return self._send(403, {"error": why})
-            if sess["state"] == "ended":
-                return self._send(409, {"error": "이미 종료된 세션입니다"})
-            bg = conn.execute("SELECT bg FROM sessions WHERE session_id=?", (sess["session_id"],)).fetchone()["bg"]   # session_row 엔 없다
-            x = live_agent(sess["session_id"]) if bg else None
-            if x:
-                # 백그라운드 세션 — 탭에 `claude attach` 로 붙어 있어도 거기서 /exit 를 치면 보기만 떨어지고 세션은 계속 돈다
-                # (칸이 그대로 남았다). claude stop 으로 멈추고, 붙어 있던 탭이 있으면 그 탭도 닫는다
-                if (sess["state"] == "working" or x.get("state") == "working") and not body.get("force"):
-                    return self._send(409, {"error": "작업 중입니다", "need_force": True})
-                try:
-                    r = subprocess.run([daily._claude_bin(), "stop", x["id"]], capture_output=True, text=True, timeout=20,
-                                       env=daily._clean_env())
-                except (OSError, subprocess.SubprocessError) as e:
-                    return self._send(502, {"error": str(e)[:200]})
-                AGENTS["at"] = 0
-                if r.returncode != 0:
-                    return self._send(502, {"error": (r.stderr or r.stdout or "멈추지 못했습니다").strip()[:300]})
-                # 멈춘 백그라운드 세션은 SessionEnd 훅이 오지 않을 수 있다 — 여기서 종료로 둔다
-                t = store.now()
-                conn.execute("UPDATE sessions SET state='ended', state_detail='stopped', state_at=?, ended_at=? WHERE session_id=?",
-                             (t, t, sess["session_id"]))
-                store.add_event(conn, sess["session_id"], "end", "stopped")
-                conn.commit()
-                tg = focus.target_of(sess)
-                closed = False
-                if tg:
-                    REAPED.add(tg.handle)
-                    LAUNCHED.pop(tg.handle, None)
-                    closed = tg.terminal.close(tg.handle)
-                return self._send(200, {"ok": True, "message": "백그라운드 세션을 멈췄습니다" + (" · 터미널 탭도 닫았습니다" if closed else "")})
-            if bg and not focus.handle_of(sess):
-                return self._send(409, {"error": "그 백그라운드 세션의 프로세스를 찾지 못했습니다"})
-            handle, err = terminal_target(conn, sess)
-            if not handle:
-                return self._send(409, {"error": err})
-            box = focus.dialog_text(handle)
-            if box:
-                if focus.prompt_view(handle):   # 고를 수 있는 창이면 칸의 🔐 카드로 고르게
-                    _mark_prompt(conn, sess["session_id"], "종료 중 — 터미널이 묻고 있습니다")
-                    return self._send(409, {"error": "터미널이 고를 것을 묻고 있습니다 — 칸의 🔐 확인 필요 카드에서 골라 주세요"})
-                return self._send(409, {"error": "터미널에 선택 창이 떠 있습니다 — 먼저 골라 주세요: " + box})
-            if sess["state"] == "working" or focus.is_busy(handle):
-                if not body.get("force"):
-                    return self._send(409, {"error": "작업 중입니다", "need_force": True})
-                focus._raw(handle, focus.ESC)   # 작업을 멈추고(Claude Code 의 중단 키)
-                for _ in range(20):
-                    time.sleep(0.4)
-                    if not focus.is_busy(handle) and focus.input_line(handle) is not None:
-                        break
-                else:
-                    return self._send(409, {"error": "작업을 멈추지 못했습니다 — 터미널에서 확인해 주세요"})
-            ok, _, err = focus.send_prompt(handle, "/exit")
-            if not ok:
-                return self._send(502, {"error": "/exit 를 보내지 못했습니다: " + (err or "")})
-            for _ in range(40):   # Claude 가 끝날 때까지(워크트리 정리 등) — 선택 창이 뜨면 사람에게 맡긴다
-                time.sleep(0.5)
-                if not focus.claude_alive(sess, handle):
-                    break
-                # 닫히는 도중엔 입력칸이 사라진 화면이 잠깐 보인다 — 번호 고르기 줄(❯ 1. …)이 있을 때만 선택 창으로 본다
-                lines = focus._screen(handle)
-                opts = [ln.strip() for ln in lines[-15:] if focus._OPTION.match(ln)]
-                if opts and focus._input_line_of(lines) is None:
-                    # 바꾼 게 있는 워크트리를 남길지 등 — 「확인 필요」로 두어 칸에 🔐 카드가 뜨게(고르면 Claude 가 끝나고 탭은 서버가 닫는다)
-                    _mark_prompt(conn, sess["session_id"], "종료 중 — 터미널이 묻고 있습니다")
-                    return self._send(200, {"ok": True, "message": "종료하는 중 터미널이 고를 것을 묻습니다 — 칸의 🔐 확인 필요 카드에서 골라 주세요"})
-            else:
-                return self._send(409, {"error": "Claude 가 아직 끝나지 않았습니다 — 터미널에서 확인해 주세요"})
-            # 보드가 띄운 탭은 셸까지 끝났고, 직접 연 탭은 셸이 남는다 — 어느 쪽이든 탭을 닫는다(Claude 를 닫은 뒤라 잃을 것은 없다)
-            REAPED.add(handle.handle)
-            LAUNCHED.pop(handle.handle, None)
-            closed = handle.terminal.close(handle.handle)
-            return self._send(200, {"ok": True, "message": "세션을 종료했습니다" + (" · 터미널 탭도 닫았습니다" if closed else "(탭은 닫지 못함 — 직접 닫아 주세요)")})
+            return self._send(*self._quit(conn, m.group(1), body))
         m = re.fullmatch(r"/api/agents/([0-9a-f]{8})/(stop|attach|rm)", path)
         if m and method == "POST":
             aid, act = m.groups()
@@ -1775,7 +1955,7 @@ class Handler(BaseHTTPRequestHandler):
                                         else "목록에서 지웠습니다"})
             if not x.get("pid"):
                 return self._send(409, {"error": "프로세스가 없는 기록입니다(이미 끝남) — 열 수 없습니다. 「목록에서 지우기」로 정리하세요"})
-            tg, err = focus.new_claude_terminal(x.get("cwd") or "", extra="attach " + aid)
+            tg, err = focus.new_claude_terminal(x.get("cwd") or "", extra="attach " + aid, terminal="web")
             if not tg:
                 return self._send(502, {"error": err})
             LAUNCHED[tg.handle] = store.now()
@@ -2123,6 +2303,46 @@ class Handler(BaseHTTPRequestHandler):
                          (row["continued_from"], row["session_id"]))
             conn.execute("UPDATE sessions SET archived=1 WHERE session_id=?", (row["session_id"],))
             return self._send(200, {"ok": True, "message": msg})
+        m = re.fullmatch(r"/api/sessions/([\w\-]+)/import", path)
+        if m and method == "POST":
+            # 보드 터미널로 가져오기: 다른 터미널(Orca·tmux·iTerm2 …)에서 도는 세션을 보드 터미널로 옮긴다.
+            # 같은 세션 ID 로 이어 열어(claude --resume) 칸·넥스트 액션이 그대로 이어진다 — 모델·effort·권한 모드도 넘긴다.
+            #  · Orca·tmux: 보드가 /exit 로 끝낸다(워크트리는 남긴다) · 그 밖의 앱: 그 터미널에서 직접 끝낸 뒤 다시 누른다
+            #  · 백그라운드 세션: 끄지 않고 보드 터미널에서 claude attach 로 붙는다
+            sess = session_row(conn, m.group(1))
+            if sess is None:
+                return self._send(404, {"error": "no session"})
+            sid = sess["session_id"]
+            why = brain_guard(conn, body, sid)
+            if why:
+                return self._send(403, {"error": why})
+            if brain.is_brain(sess["cwd"]):
+                return self._send(409, {"error": "브레인은 늘 보드 터미널에서 돕니다 — 브레인 패널에서 다시 시작해 주세요"})
+            tg = focus.target_of(sess)
+            if tg and tg.terminal.name == "web" and sess["state"] != "ended" and not not_running(conn, sid):
+                return self._send(409, {"error": "이미 보드 터미널에서 돌고 있습니다"})
+            full = conn.execute("SELECT bg, cwd, worktree FROM sessions WHERE session_id=?", (sid,)).fetchone()
+            x = live_agent(sid) if full["bg"] else None
+            if x:
+                tg2, err = focus.new_claude_terminal(x.get("cwd") or full["cwd"], extra="attach " + shlex.quote(x["id"]), terminal="web")
+                if not tg2:
+                    return self._send(502, {"error": err})
+                LAUNCHED[tg2.handle] = store.now()
+                conn.execute("UPDATE sessions SET terminal=? WHERE session_id=?", (json.dumps(tg2.terminal.remember({}, tg2.handle)), sid))
+                return self._send(200, {"ok": True, "message": "백그라운드 세션을 보드 터미널에 붙였습니다"})
+            # 이어 열 폴더 — 지워진 워크트리면 저장소 루트에서(Claude Code 가 워크트리 묶음을 풀고 그 폴더에서 이어 연다)
+            cwd = full["cwd"] or ""
+            if not os.path.isdir(cwd):
+                root = conn.execute("SELECT project_root FROM sessions WHERE session_id=?", (sid,)).fetchone()[0] or ""
+                if "/.claude/worktrees/" in cwd and os.path.isdir(root):
+                    cwd = root
+                else:
+                    return self._send(409, {"error": "세션 폴더가 없습니다: " + cwd})
+            IMPORTING[sid] = store.now()
+            try:
+                return self._import(conn, sid, sess, tg, cwd, body)
+            finally:
+                IMPORTING.pop(sid, None)
         m = re.fullmatch(r"/api/sessions/([\w\-]+)/resume", path)
         if m and method == "POST":
             # 어느 터미널에서도 돌고 있지 않은 세션(종료·탭을 닫음)을 새 터미널 탭에서 `claude --resume` 으로 이어 연다.
@@ -2141,7 +2361,7 @@ class Handler(BaseHTTPRequestHandler):
             cwd = sess["cwd"] or ""
             if not os.path.isdir(cwd):
                 return self._send(409, {"error": "세션 폴더가 없습니다(워크트리를 지웠나요?): " + cwd})
-            tg, err = focus.new_claude_terminal(cwd, extra="--resume " + shlex.quote(sid))
+            tg, err = focus.new_claude_terminal(cwd, extra=resume_flags(conn, sid) + "--resume " + shlex.quote(sid), terminal="web")
             if not tg:
                 return self._send(502, {"error": err})
             LAUNCHED[tg.handle] = store.now()
@@ -2169,7 +2389,7 @@ class Handler(BaseHTTPRequestHandler):
                 x = live_agent(sess["session_id"])
                 if not x:
                     return self._send(409, {"error": "백그라운드로 돌고 있지 않습니다 — 「전환」으로 이어 여세요"})
-                tg, err = focus.new_claude_terminal(x.get("cwd") or full["cwd"], extra="attach " + shlex.quote(x["id"]))
+                tg, err = focus.new_claude_terminal(x.get("cwd") or full["cwd"], extra="attach " + shlex.quote(x["id"]), terminal="web")
                 if not tg:
                     return self._send(502, {"error": err})
                 LAUNCHED[tg.handle] = store.now()
@@ -2184,7 +2404,7 @@ class Handler(BaseHTTPRequestHandler):
                 (sess["session_id"],))) if mine and focus.handle_of(r) == mine]
             if not live:
                 # 그 터미널에 아무 갈래도 없으면(탭을 닫았으면) 새 탭에서 이 세션을 이어 연다
-                tg, err = focus.new_claude_terminal(full["cwd"], extra="--resume " + shlex.quote(sess["session_id"]))
+                tg, err = focus.new_claude_terminal(full["cwd"], extra="--resume " + shlex.quote(sess["session_id"]), terminal="web")
                 if not tg:
                     return self._send(502, {"error": err})
                 LAUNCHED[tg.handle] = store.now()
