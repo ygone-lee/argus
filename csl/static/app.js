@@ -13,7 +13,7 @@ const S = {
   trailOpen: new Set(),    // 작업 과정을 펼친 턴(turn id)
   recapOpen: new Set(),    // recap 전문을 펼친 세션(session_id)
   notesFolded: new Set(load("csl.notesFolded", [])),  // 넥스트 액션을 접어 둔 세션(session_id, 브라우저에 기억)
-  drafts: new Map(),       // session_id → 쓰던 메시지
+  drafts: persistMap("csl.drafts"),   // session_id → 쓰던 메시지(새로고침해도 남게 브라우저에 기억)
   compose: new Map(),      // session_id → 첨부한 이미지 [{ name, data(data URL) }]
   renaming: null,          // 이름을 고치는 중인 session_id
   uiVer: 0,                // 펼치기 등 화면 토글이 바뀔 때마다 증가(칸 다시 그리기 판단용)
@@ -55,6 +55,23 @@ function load(key, fallback) {
 }
 function save(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* 저장 불가 환경 */ }
+}
+// 브라우저에 기억하는 Map(입력창 초안). 칠 때마다 쓰지 않고 입력이 0.5초 멈추면 한 번, 페이지를 떠날 때 한 번 저장한다
+// — 타이핑이 느려지지 않게. 빈 글은 버리고, 최근 30개 세션·한 개 2만 자까지만(이미지 첨부는 남기지 않는다)
+function persistMap(key) {
+  const m = new Map((load(key, []) || []).filter(x => Array.isArray(x) && typeof x[0] === "string" && typeof x[1] === "string"));
+  const set = m.set.bind(m), del = m.delete.bind(m);
+  let timer = 0;
+  const flush = () => {
+    clearTimeout(timer);
+    timer = 0;
+    save(key, [...m].filter(([, v]) => typeof v === "string" && v.trim()).slice(-30).map(([k, v]) => [k, v.slice(0, 20000)]));
+  };
+  const later = () => { clearTimeout(timer); timer = setTimeout(flush, 500); };
+  m.set = (k, v) => { del(k); set(k, v); later(); return m; };   // 다시 넣어 최근 순으로
+  m.delete = k => { const had = del(k); if (had) later(); return had; };
+  window.addEventListener("pagehide", () => { if (timer) flush(); });
+  return m;
 }
 
 async function api(method, path, body, headers) {
@@ -6324,7 +6341,7 @@ function exitRich(el, keepText) {
   S.richDrafts.delete(el.dataset.sid);
   autoGrow(ta);
 }
-S.richDrafts = new Map();   // session_id → 서식 모드의 HTML(칸을 다시 그려도 남게)
+S.richDrafts = persistMap("csl.richDrafts");   // session_id → 서식 모드의 HTML(칸을 다시 그려도·새로고침해도 남게)
 function saveRichDraft(el) {
   const rich = richOf(el);
   S.richDrafts.set(el.dataset.sid, rich.innerHTML);
