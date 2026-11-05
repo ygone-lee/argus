@@ -1823,3 +1823,21 @@ select {
 .nt-foot:hover { background: var(--surface-hover); }
 /* 알림에서 온 확인 필요·질문 카드(또는 칸 머리) 강조 */
 .nt-hit { animation: turnhit 2.4s ease-out 1; }
+.note-imgs .note-img { display: inline-flex; line-height: 0; }
+.img-view-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 64px; border: 0; border-radius: 10px;
+  background: rgba(255, 255, 255, .14); color: #fff; font-size: 34px; line-height: 1; cursor: pointer; }
+.img-view-nav:hover { background: rgba(255, 255, 255, .26); }
+.img-view-nav.prev { left: 18px; }
+.img-view-nav.next { right: 18px; }
+.img-view-nav[hidden] { display: none; }
+.img-view-n { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); padding: 3px 10px; border-radius: 999px;
+  background: rgba(0, 0, 0, .55); color: #fff; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.img-view-n:empty { display: none; }
+
+.img-view-bar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; }
+.img-view-btn { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border: 0; border-radius: 8px;
+  background: rgba(255, 255, 255, .14); color: #fff; font: inherit; font-size: 12.5px; text-decoration: none; cursor: pointer; white-space: nowrap; }
+.img-view-btn:hover { background: rgba(255, 255, 255, .26); }
+.img-view-btn[hidden] { display: none; }
+.mid-files .resp-img { display: inline-flex; line-height: 0; }
+.mid-files .resp-img[hidden] { display: none; }

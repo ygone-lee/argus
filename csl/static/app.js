@@ -840,8 +840,9 @@ function extrasHtml(t) {
 }
 // 글에 적힌 이미지 경로도 썸네일로(없는 파일이면 숨긴다 — 아래 error 처리)
 const IMG_PATH = /\.(png|jpe?g|gif|webp)$/i;
-function thumbHtml(p) {
-  return `<img src="/api/sent-file?path=${encodeURIComponent(p)}" alt="" loading="lazy" data-action="open-file" data-path="${esc(p)}" title="${esc(base(p))} — 눌러서 열기 (⌥ 클릭: Finder)">`;
+function thumbHtml(p) {   // 누르면 이미지 팝업(← → 로 넘기기 · 다운로드 · 기본 앱으로 열기). ⌥ 클릭은 Finder
+  const u = "/api/sent-file?path=" + encodeURIComponent(p);
+  return `<a class="zoom-img resp-img" href="${u}" data-path="${esc(p)}" title="${esc(base(p))} — 눌러서 크게 보기 (⌥ 클릭: Finder)"><img src="${u}" alt="" loading="lazy"></a>`;
 }
 function thumbsIn(text) {
   const paths = [...new Set((text || "").match(PATH_RE) || [])].filter(p => IMG_PATH.test(p)).slice(0, 12);
@@ -858,35 +859,96 @@ function promptHtml(t) {
   });
 }
 // 크게 보기 — 보드 위 팝업. 아무 데나 누르거나 Esc 로 닫는다(⌘·Ctrl·Shift 클릭은 새 탭 그대로)
-function openImgView(src, alt) {
+// 이미지 팝업: 보낸 메시지·넥스트 액션·변경 보기의 이미지를 크게. 같은 묶음(같은 메시지·넥스트 액션·변경 보기)에 여러 장이면
+// ← → (또는 ‹ › 버튼)으로 넘긴다. 떠 있는 동안 키는 팝업만 받는다 — 뒤의 보드에서 칸이 바뀌거나 입력창이 잡히지 않게
+const IMGV = { list: [], i: 0 };
+function openImgView(src, alt, list) {
   let v = $("#imgView");
   if (!v) {
     v = document.createElement("div");
     v.id = "imgView";
     v.className = "img-view";
     v.hidden = true;
-    v.innerHTML = `<img alt=""><button type="button" class="img-view-x" title="닫기 (Esc)" aria-label="닫기">×</button>`;
-    v.addEventListener("click", () => { v.hidden = true; });
+    v.innerHTML = `<img alt=""><button type="button" class="img-view-x" title="닫기 (Esc)" aria-label="닫기">×</button>
+      <div class="img-view-bar"><a class="img-view-btn" data-imgv-dl download title="이 이미지를 내려받기">⬇ 다운로드</a>
+        <button type="button" class="img-view-btn" data-imgv-open title="Mac 기본 앱(미리보기 등)으로 열기">↗ 기본 앱으로 열기</button>
+        <button type="button" class="img-view-btn" data-imgv-reveal title="Finder 에서 보기">📂 Finder</button></div>
+      <button type="button" class="img-view-nav prev" data-imgv="-1" title="이전 이미지 ( ← )" aria-label="이전">‹</button>
+      <button type="button" class="img-view-nav next" data-imgv="1" title="다음 이미지 ( → )" aria-label="다음">›</button>
+      <span class="img-view-n"></span>`;
+    v.addEventListener("click", e => {
+      const nav = e.target.closest("[data-imgv]");
+      if (nav) return stepImgView(+nav.dataset.imgv);
+      if (e.target.closest("[data-imgv-dl]")) return;   // 내려받기는 링크 그대로(팝업은 열어 둔다)
+      const op = e.target.closest("[data-imgv-open], [data-imgv-reveal]");
+      if (op) {
+        const x = IMGV.list[IMGV.i], reveal = op.hasAttribute("data-imgv-reveal");
+        if (x && x.path) api("POST", "/api/open", { path: x.path, reveal })
+          .then(r => toast(r.how === "reveal" ? "Finder 에서 보여 줍니다" : "기본 앱으로 열었습니다")).catch(err => toast(err.message));
+        return;
+      }
+      v.hidden = true;   // 그 밖(이미지·바깥·×)을 누르면 닫힌다
+    });
     document.body.appendChild(v);
   }
-  const img = v.querySelector("img");
-  img.src = src;
-  img.alt = alt || "";
+  IMGV.list = list && list.length ? list : [{ src, alt }];
+  IMGV.i = Math.max(0, IMGV.list.findIndex(x => x.src === src));
+  showImgView();
   v.hidden = false;
+}
+function showImgView() {
+  const v = $("#imgView"), x = IMGV.list[IMGV.i], many = IMGV.list.length > 1;
+  const img = v.querySelector("img");
+  img.src = x.src;
+  img.alt = x.alt || "";
+  v.querySelectorAll(".img-view-nav").forEach(b => { b.hidden = !many; });
+  // 다운로드는 늘, 기본 앱·Finder 는 파일 경로를 아는 이미지(응답·넥스트 액션·보낸 파일)만
+  const dl = v.querySelector("[data-imgv-dl]");
+  dl.href = x.src;
+  dl.download = x.path ? base(x.path) : `image-${IMGV.i + 1}.png`;
+  v.querySelectorAll("[data-imgv-open], [data-imgv-reveal]").forEach(b => { b.hidden = !x.path; });
+  v.querySelector(".img-view-n").textContent = many ? `${IMGV.i + 1} / ${IMGV.list.length}` : "";
+}
+function stepImgView(d) {
+  if (IMGV.list.length < 2) return;
+  IMGV.i = (IMGV.i + d + IMGV.list.length) % IMGV.list.length;
+  showImgView();
 }
 document.addEventListener("click", e => {
   const a = e.target.closest && e.target.closest(".prompt-img, .zoom-img");
   if (!a || e.metaKey || e.ctrlKey || e.shiftKey) return;
   e.preventDefault();
-  openImgView(a.getAttribute("href"), a.querySelector("img") && a.querySelector("img").alt);
+  if (e.altKey && a.dataset.path) {   // 넥스트 액션 이미지: ⌥ 클릭이면 Finder 에서 보기(예전 동작)
+    api("POST", "/api/open", { path: a.dataset.path, reveal: true }).then(() => toast("Finder 에서 보여 줍니다")).catch(err => toast(err.message));
+    return;
+  }
+  // 같은 묶음의 이미지들: 넥스트 액션 하나·변경 보기·보낸 메시지(턴) 하나
+  const group = a.closest(".note-imgs, .dv-imgs, .turn, .act-dbody") || a.parentElement;
+  // 불러오지 못해 숨긴 썸네일(없는 파일)은 넘기기에서 뺀다
+  const list = [...group.querySelectorAll(".prompt-img, .zoom-img")].filter(x => !x.hidden)
+    .map(x => ({ src: x.getAttribute("href"), alt: (x.querySelector("img") || {}).alt || "", path: x.dataset.path || "" }));
+  openImgView(a.getAttribute("href"), a.querySelector("img") && a.querySelector("img").alt, list);
 });
-document.addEventListener("keydown", e => {   // 위에 뜬 것부터 — 팝업만 닫고 칸·입력창의 Esc 로 넘기지 않는다
-  const v = $("#imgView");
-  if (e.key === "Escape" && v && !v.hidden) { e.preventDefault(); e.stopImmediatePropagation(); v.hidden = true; }
-}, true);
+// 팝업이 떠 있는 동안: Esc 닫기 · ← → 넘기기 · 나머지 키는 뒤로 넘기지 않는다(브라우저 단축키 ⌘R 등은 그대로 동작)
+for (const type of ["keydown", "keyup"]) {
+  document.addEventListener(type, e => {
+    const v = $("#imgView");
+    if (!v || v.hidden) return;
+    e.stopImmediatePropagation();
+    if (type === "keyup") return;
+    if (e.key === "Escape") { e.preventDefault(); v.hidden = true; }
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); stepImgView(-1); }
+    else if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === " ") { e.preventDefault(); stepImgView(1); }
+    else if (!e.metaKey && !e.ctrlKey) e.preventDefault();   // 입력창에 글자가 들어가지 않게
+  }, true);
+}
 document.addEventListener("error", e => {
   if (e.target.tagName !== "IMG") return;
-  if (e.target.closest(".mid-files")) e.target.hidden = true;
+  if (e.target.closest(".mid-files")) {   // 글에 적힌 경로가 없는 파일이면 썸네일을 링크째 숨긴다
+    const a = e.target.closest(".zoom-img");
+    (a || e.target).hidden = true;
+    return;
+  }
   const a = e.target.closest(".prompt-img");   // 기록에서 이미지를 못 찾으면 원래 글자로
   if (a) a.replaceWith(document.createTextNode(e.target.alt));
   const z = e.target.closest(".zoom-img");   // 변경 보기의 이미지 — 못 읽으면 한 줄 안내로
@@ -979,8 +1041,9 @@ function noteImages(n) {
 }
 function noteImgsHtml(n) {
   const imgs = noteImages(n);
-  return imgs.length ? `<div class="note-imgs">${imgs.map(p => `<img src="/api/upload/${encodeURIComponent(base(p))}" alt=""
-    data-action="open-file" data-path="${esc(p)}" title="눌러서 열기 (⌥ 클릭: Finder)">`).join("")}</div>` : "";
+  // 누르면 보낸 메시지의 이미지처럼 팝업으로 크게(⌥ 클릭: Finder 에서 보기)
+  return imgs.length ? `<div class="note-imgs">${imgs.map(p => { const u = "/api/upload/" + encodeURIComponent(base(p));
+    return `<a class="zoom-img note-img" href="${u}" data-path="${esc(p)}" title="눌러서 크게 보기 (⌥ 클릭: Finder)"><img src="${u}" alt=""></a>`; }).join("")}</div>` : "";
 }
 function findNote(nid) {
   for (const c of S.boardCache.values()) {
