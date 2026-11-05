@@ -524,6 +524,26 @@ def resume_flags(conn, sid):
     return "".join(x + " " for x in out)
 
 
+STALE_ASK = "터미널에 질문 창이 없어 보드에 남아 있던 질문을 지웠습니다 — 입력창을 쓸 수 있습니다"
+
+
+def clear_stale_ask(conn, sid, min_age=4):
+    """보드가 기억한 질문(AskUserQuestion)이 터미널에 없으면(평소 입력칸이 보임) 지운다. 지웠으면 True.
+
+    질문 훅은 왔는데 터미널에는 창이 뜨지 않는 경우가 있다(응답 뒤 Claude Code 가 따로 돌린 작업이 같은 세션으로 부른 것 등).
+    그러면 칸은 「질문에 답할 차례」로 입력창이 막히고, 답을 보내도 넣을 창이 없다. 훅 직후에는 창이 아직 그려지는 중일 수
+    있어 min_age 초가 지난 질문만 본다."""
+    row = conn.execute("SELECT state, state_at, ask, terminal FROM sessions WHERE session_id=?", (sid,)).fetchone()
+    if not row or row["state"] != "waiting" or not row["ask"] or store.now() - (row["state_at"] or 0) < min_age:
+        return False
+    tg = focus.target_of(dict(row, session_id=sid))
+    if not tg or focus.ask_on_screen(tg) is not False:
+        return False
+    conn.execute("UPDATE sessions SET ask=NULL, state='done', state_detail=NULL, state_at=? WHERE session_id=? AND ask=?",
+                 (store.now(), sid, row["ask"]))
+    return True
+
+
 def brain_guard(conn, body, target_sid):
     """브레인(./argus send·remote·quit·archive·new)가 보낸 요청이면 막을 이유(문자열), 아니면 None.
 
@@ -1781,6 +1801,10 @@ class Handler(BaseHTTPRequestHandler):
                     recent.append(p)
             return self._send(200, {"projects": projects, "recent": recent[:12]})
 
+        m = re.fullmatch(r"/api/sessions/([\w\-]+)/ask-check", path)
+        if m and method == "POST":
+            # 질문 카드가 떠 있는 칸이 몇 초마다 묻는다: 터미널에 그 창이 정말 있는지 — 없으면 지운다
+            return self._send(200, {"cleared": clear_stale_ask(conn, m.group(1))})
         m = re.fullmatch(r"/api/sessions/([\w\-]+)/answer", path)
         if m and method == "POST":
             # 터미널의 질문 창(AskUserQuestion)에 보드에서 고른 답을 넣는다. 화면을 확인하며 한 단계씩, 어긋나면 멈춤
@@ -1795,6 +1819,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(409, {"error": "지금 답할 질문이 없습니다"})
             if (body.get("id") or None) != ask.get("id"):
                 return self._send(409, {"error": "질문이 바뀌었습니다 — 새로 고쳐 주세요"})
+            if clear_stale_ask(conn, sess["session_id"], min_age=0):
+                return self._send(409, {"error": STALE_ASK, "cleared": True})
             if body.get("chat"):   # 「Chat about this」 — 답하지 않고 대화로
                 handle, err = terminal_target(conn, sess)
                 if not handle:

@@ -445,6 +445,7 @@ async function poll() {
   await refreshLive();
   watchSuggestions();
   syncPrompts();   // 확인 필요 칸의 터미널 선택 창(기다리지 않는다)
+  syncAsks();      // 질문 카드가 떠 있는데 터미널엔 질문 창이 없으면 지운다(입력창이 막히지 않게)
   watchNewSession();
 }
 
@@ -3834,6 +3835,22 @@ function suggestionFor(s) {
 S.prompts = new Map();   // session_id → 선택 창 {head, options} 또는 null
 S.promptAt = new Map();
 function promptWanted(s) { return s && s.state === "waiting" && !askOf(s); }
+// 질문 카드가 보이는 칸: 터미널에 그 질문 창이 정말 있는지 5초에 한 번 묻는다. 없으면(평소 입력칸) 서버가 지운다 —
+// 질문 훅만 오고 창은 뜨지 않으면 「질문에 답할 차례」로 입력창이 막히고 답도 넣을 곳이 없었다
+S.askAt = new Map();
+async function syncAsks() {
+  for (const s of S.sessions) {
+    if (!askOf(s) || !document.querySelector(`.col[data-col="${CSS.escape(s.session_id)}"]`)) continue;
+    if (Date.now() - (S.askAt.get(s.session_id) || 0) < 5000) continue;
+    S.askAt.set(s.session_id, Date.now());
+    try {
+      if ((await api("POST", `/api/sessions/${s.session_id}/ask-check`, {})).cleared) {
+        toast("터미널에 질문 창이 없어 보드에 남아 있던 질문을 지웠습니다 — 입력창을 쓸 수 있습니다");
+        refresh(s.session_id);
+      }
+    } catch (e) { /* 다음에 */ }
+  }
+}
 async function syncPrompts() {
   const want = new Set();
   for (const s of S.sessions) {
@@ -3906,6 +3923,7 @@ async function chatAsk(b) {
       await new Promise(r => setTimeout(r, 700));
     }
   } catch (e) {
+    if (e.data && e.data.cleared) { toast(e.message); card.hidden = true; card.dataset.key = ""; return refresh(sid); }
     card.querySelector(".ask-msg").textContent = e.message;
     card.querySelectorAll("button").forEach(x => { x.disabled = false; });
   }
@@ -3969,6 +3987,12 @@ async function sendAsk(el) {
     card.dataset.key = "";   // 질문이 아직 남아 다시 보이면 새로 그린다(버튼이 「넣는 중…」으로 잠긴 채 남던 것)
     setTimeout(refresh, 600);
   } catch (e) {
+    if (e.data && e.data.cleared) {   // 터미널에 그 질문 창이 없었다 — 서버가 지웠으니 카드를 걷고 입력창을 연다
+      toast(e.message);
+      card.hidden = true;
+      card.dataset.key = "";
+      return refresh(sid);
+    }
     msg.textContent = e.message;
     el.disabled = false;
     el.textContent = "답 보내기";

@@ -156,6 +156,7 @@ const I18N_ROWS = [
   ["끄면 종료할 때 묻는 창에서 취소합니다", "オフなら終了時の確認で取り消します", "If off, the move is cancelled when exiting asks about it"],
   ["보드 터미널로 가져오는 중…", "ボードターミナルに移しています…", "Moving to the board terminal…"],
   ["지금 터미널에서 끝내고 같은 대화로 다시 엽니다", "今のターミナルで終了し、同じ会話で開き直します", "Ending it in its current terminal and reopening the same conversation"], ["보드 터미널로 가져왔습니다", "ボードターミナルに移しました", "Moved to the board terminal"],
+  ["터미널에 질문 창이 없어 보드에 남아 있던 질문을 지웠습니다 — 입력창을 쓸 수 있습니다", "ターミナルに質問ダイアログがないため、ボードに残っていた質問を消しました — 入力欄を使えます", "No question dialog in the terminal, so the board cleared the leftover question — the message box is usable again"],
   // 알림(상단 🔔)
   ["알림", "通知", "Notifications"], ["알림 — 새 응답·확인 필요·질문·오류 ( A )", "通知 — 新しい応答・要確認・質問・エラー ( A )", "Notifications — new replies, needs-you, questions, errors ( A )"],
   ["안 본 활동의 세션을 모두 본 것으로(보드의 「새 응답」도 풀림)", "未確認の活動のセッションをすべて確認済みに(ボードの「新しい応答」も解除)", "Mark every session with unseen activity as seen (also clears \"new reply\" on the board)"],

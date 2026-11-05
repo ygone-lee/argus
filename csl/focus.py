@@ -982,6 +982,16 @@ _ASK_SUBMIT = re.compile(r"^(❯)?\s+Submit\s*$")
 _ask_lock = threading.Lock()
 
 
+def ask_on_screen(t):
+    """질문 창(AskUserQuestion)이 터미널에 떠 있으면 True, 평소 입력칸만 보이면 False, 화면을 못 읽으면 None."""
+    lines = _screen(t)
+    if not lines:
+        return None
+    if _ask_view(lines):
+        return True
+    return False if _input_line_of(lines) is not None else None
+
+
 def _ask_view(lines):
     """질문 창 화면 해석. {'kind': 'question'|'review', ...} 또는 None(창이 없음)."""
     # v2.1.316 은 질문 글 앞에 세로줄(「│ 질문…」)을 그린다 — 떼고 읽는다(그대로 두면 질문 글이 달라 「창이 안 보인다」로 멈췄다)
