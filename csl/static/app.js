@@ -57,8 +57,8 @@ function save(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* 저장 불가 환경 */ }
 }
 
-async function api(method, path, body) {
-  const opt = { method, headers: {} };
+async function api(method, path, body, headers) {
+  const opt = { method, headers: Object.assign({}, headers) };
   if (body !== undefined) {
     opt.headers["Content-Type"] = "application/json";
     opt.body = JSON.stringify(body);
@@ -4084,7 +4084,9 @@ async function sendCompose(el) {
   if (th) { th._pinned = true; stickBottom(th); }
   let sent = false;
   try {
-    const r = await api("POST", `/api/sessions/${sid}/send`, { text, images });
+    // 「!」로 시작하면 Claude Code 가 셸 명령으로 바로 실행한다 — 직접 친 것임을 보드 화면의 토큰으로 알린다(브레인·예약은 막힘)
+    const direct = /^\s*!/.test(text) ? { "X-Argus-Term": await termToken(true) } : undefined;
+    const r = await api("POST", `/api/sessions/${sid}/send`, { text, images }, direct);
     sent = true;
     const g = S.sugg.get(sid);
     if (g) g.text = null;   // 보낸 뒤엔 그 제안은 지난 것

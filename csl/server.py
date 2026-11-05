@@ -2039,7 +2039,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, {"error": "보낼 내용이 없습니다"})
             if len(text) > 20000:
                 return self._send(400, {"error": "메시지가 너무 깁니다(2만 자 이하)"})
-            if focus.bang(text):
+            # 「!」(Claude Code 가 셸 명령으로 바로 실행)는 사람이 칸 입력창에서 직접 보낸 것만: 브레인·CLI(from 이 있음)는 안 되고,
+            # 보드 화면만 아는 토큰(X-Argus-Term — 터미널과 같은 것)이 있어야 한다. 예약·위임으로 나가는 글은 다른 길이라 계속 막힌다
+            direct = not body.get("from") and webterm.token_ok(self.headers.get("X-Argus-Term") or "")
+            if focus.bang(text) and not direct:
                 return self._send(400, {"error": focus.BANG_ERROR})
             handle, err = terminal_target(conn, sess)
             if not handle:
@@ -2071,10 +2074,10 @@ class Handler(BaseHTTPRequestHandler):
                                                          "터미널에서 고른 뒤 다시 보내 주세요: " + box})
             if "\n" in text or paths:
                 # 여러 줄·이미지는 타이핑 방식(붙여넣기로 보내면 <pasted_content> 태그로 감싸진다)
-                ok, err = focus.type_text(handle, text, paths)
+                ok, err = focus.type_text(handle, text, paths, allow_bang=direct)
                 stages = []
             else:
-                ok, stages, err = focus.send_prompt(handle, text)
+                ok, stages, err = focus.send_prompt(handle, text, allow_bang=direct)
             if not ok:
                 return self._send(502, {"error": "전송 실패: " + err})
             if re.match(r"/compact(\s|$)", text) and sess["state"] != "working":

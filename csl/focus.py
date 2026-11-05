@@ -332,7 +332,8 @@ def _serial(fn):
 
 
 # 빈 입력칸에 「!」가 들어가면 Claude Code 가 bash 모드로 바뀌어 Enter 에 그 줄을 셸 명령으로 바로 실행한다(권한 확인 없음,
-# 붙여넣기·타이핑 모두 — v2.1.316 실측). 브레인이 슬랙 글을 옮기거나 위임·예약으로 보내는 글이 그 통로가 되지 않게 아예 막는다
+# 붙여넣기·타이핑 모두 — v2.1.316 실측). 브레인이 슬랙 글을 옮기거나 위임·예약으로 보내는 글이 그 통로가 되지 않게 막는다.
+# 사람이 칸 입력창에 직접 쳐서 바로 보내는 것만 허용(allow_bang — 서버가 보드 화면의 직접 보내기인지 확인한 뒤)
 BANG_ERROR = "「!」로 시작하는 글은 Claude Code 가 셸 명령으로 바로 실행하므로 보드에서는 보내지 않습니다"
 
 
@@ -341,13 +342,13 @@ def bang(text):
 
 
 @_serial
-def send_prompt(t, text):
+def send_prompt(t, text, allow_bang=False):
     """한 줄 요청을 입력창에 넣고 Enter. (성공 여부, 단계 목록, 오류 문구)
 
     선택·확인 창이 떠 있으면 보내지 않는다 — 붙여넣은 글과 Enter 가 그 창의 선택이 된다."""
     if not t:
         return False, [], "터미널을 찾지 못했습니다"
-    if bang(text):
+    if bang(text) and not allow_bang:
         return False, [], BANG_ERROR
     box = dialog_text(t)
     if box:
@@ -359,7 +360,7 @@ IMAGE_TOKEN = re.compile(r"\[이미지 (\d+)\]")
 
 
 @_serial
-def type_text(t, text, image_paths):
+def type_text(t, text, image_paths, allow_bang=False):
     """여러 줄·이미지 메시지는 붙여넣기 대신 타이핑하듯 보낸다. (성공 여부, 오류 문구)
 
     붙여넣기(bracketed paste)로 넣으면 Claude Code 는 여러 줄을 [Pasted text] 덩어리로 받아
@@ -370,7 +371,7 @@ def type_text(t, text, image_paths):
     """
     if not t:
         return False, "터미널을 찾지 못했습니다"
-    if bang(text):
+    if bang(text) and not allow_bang:
         return False, BANG_ERROR
     box = dialog_text(t)
     if box:
