@@ -4,6 +4,7 @@
 """
 import base64
 import binascii
+import errno
 import json
 import os
 import re
@@ -2601,7 +2602,14 @@ def _link_teams():
 def main():
     store.connect().close()
     threading.Thread(target=_link_teams, daemon=True).start()
-    httpd = ThreadingHTTPServer(("127.0.0.1", store.PORT), Handler)
+    try:
+        httpd = ThreadingHTTPServer(("127.0.0.1", store.PORT), Handler)
+    except OSError as e:
+        if e.errno != errno.EADDRINUSE:
+            raise
+        # 이미 다른 보드 서버가 떠 있다(로그인 자동 시작·훅·ctl.sh 가 겹친 것) — 오류가 아니다. 한 줄만 남기고 끝낸다
+        print("Argus board is already running on 127.0.0.1:%d — nothing to do" % store.PORT, flush=True)
+        return
     daily.start_scheduler()
     delegate.start_watcher()   # 세션에 맡긴 인박스 카드 지켜보기
     sendqueue.start()          # 넥스트 액션 「끝나면 보내기」
