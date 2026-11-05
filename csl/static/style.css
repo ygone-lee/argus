@@ -1834,6 +1834,20 @@ select {
   background: rgba(0, 0, 0, .55); color: #fff; font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .img-view-n:empty { display: none; }
 
+/* 넥스트 액션 예약 순서 바꾸기: 손잡이(끌기) · ▲▼ */
+li.note.queued { position: relative; }
+.col-fixed li.note.queued:has(.note-grip) { padding-left: 18px; }
+.note-grip { position: absolute; left: 3px; top: 8px; width: 14px; text-align: center; color: var(--text-3); font-size: 13px; line-height: 1;
+  cursor: grab; opacity: .45; user-select: none; }
+li.note.queued:hover .note-grip, .note-grip:focus { opacity: 1; }
+.note-grip:active { cursor: grabbing; }
+li.note.q-dragging { opacity: .45; }
+li.note.q-before { box-shadow: inset 0 2px 0 var(--accent); }
+li.note.q-after { box-shadow: inset 0 -2px 0 var(--accent); }
+.note-qmove { width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--text-3);
+  font-size: 10px; line-height: 1; cursor: pointer; }
+.note-qmove:hover:not(:disabled) { background: var(--surface-hover); color: var(--accent); }
+.note-qmove:disabled { opacity: .3; cursor: default; }
 .img-view-bar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; }
 .img-view-btn { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border: 0; border-radius: 8px;
   background: rgba(255, 255, 255, .14); color: #fff; font: inherit; font-size: 12.5px; text-decoration: none; cursor: pointer; white-space: nowrap; }

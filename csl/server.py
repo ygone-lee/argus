@@ -2527,6 +2527,20 @@ class Handler(BaseHTTPRequestHandler):
                              (store.now() if body.get("pinned", True) else 0, sid))
             return self._send(200, {"ok": True})
 
+        if path == "/api/notes/queue-order" and method == "POST":
+            # 「끝나면 보내기」 예약 순서 바꾸기: order 의 순서대로 보낸다. 예약 시각(queued_at)을 가장 이른 것부터 다시 매긴다
+            sid = body.get("session_id") or ""
+            order = body.get("order") or []
+            if not isinstance(order, list) or not all(isinstance(x, int) for x in order) or len(order) > 200:
+                return self._send(400, {"error": "잘못된 순서입니다"})
+            rows = {r["id"]: r["queued_at"] for r in conn.execute(
+                "SELECT id, queued_at FROM notes WHERE session_id=? AND done=0 AND queued_at IS NOT NULL", (sid,))}
+            if set(order) != set(rows):
+                return self._send(409, {"error": "예약 목록이 바뀌었습니다 — 다시 해 주세요"})
+            base, t = min(rows.values()), store.now()
+            conn.executemany("UPDATE notes SET queued_at=?, updated_at=? WHERE id=?",
+                             [(base + i * 0.001, t, nid) for i, nid in enumerate(order)])
+            return self._send(200, {"ok": True})
         if path == "/api/notes" and method == "POST":
             text = (body.get("text") or "").strip()
             images = body.get("images") or []

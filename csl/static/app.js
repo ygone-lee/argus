@@ -1054,17 +1054,74 @@ function findNote(nid) {
 }
 // 할 일은 마크다운으로 그린다 — 고치기·입력창에 넣기는 그린 글이 아니라 원문으로
 function noteRaw(el) { const n = el && findNote(el.dataset.nid); return n ? n.text : (el ? el.innerText : ""); }
-function noteHtml(n, qNo) {
+// 예약 순서: 칸의 예약 목록(보낼 순서) 그대로 id 배열 — 바꾼 순서를 서버에 보낸다
+function queuedIds(sid) {
+  const c = S.boardCache.get(sid);
+  return ((c && c.detail && c.detail.notes) || []).filter(n => n.queued_at && !n.done).sort((p, q) => p.queued_at - q.queued_at).map(n => n.id);
+}
+async function setQueueOrder(sid, order) {
+  try { await api("POST", "/api/notes/queue-order", { session_id: sid, order }); }
+  catch (err) { toast(err.message); }
+  await refresh(sid);
+}
+function moveQueued(sid, nid, d) {
+  const order = queuedIds(sid), i = order.indexOf(nid), j = i + d;
+  if (i < 0 || j < 0 || j >= order.length) return;
+  [order[i], order[j]] = [order[j], order[i]];
+  return setQueueOrder(sid, order);
+}
+const QDRAG = { nid: null, sid: null };
+document.addEventListener("dragstart", e => {
+  const g = e.target.closest && e.target.closest(".note-grip");
+  if (!g) return;
+  const li = g.closest("li.note");
+  Object.assign(QDRAG, { nid: +g.dataset.nid, sid: li.closest(".col").dataset.col });
+  e.dataTransfer.effectAllowed = "move";
+  e.dataTransfer.setData("text/plain", "");   // Firefox 는 무언가 실어야 끈다
+  try { e.dataTransfer.setDragImage(li, 12, 12); } catch (err) { /* 그림 없이 */ }
+  li.classList.add("q-dragging");
+});
+function qDropTarget(e) {
+  const li = QDRAG.nid && e.target.closest && e.target.closest("li.note.queued");
+  return li && li.closest(".col").dataset.col === QDRAG.sid ? li : null;
+}
+document.addEventListener("dragover", e => {
+  const li = qDropTarget(e);
+  if (!li) return;
+  e.preventDefault();
+  const r = li.getBoundingClientRect(), after = e.clientY > r.top + r.height / 2;
+  document.querySelectorAll("li.note.q-before, li.note.q-after").forEach(x => x.classList.remove("q-before", "q-after"));
+  li.classList.add(after ? "q-after" : "q-before");
+});
+document.addEventListener("drop", e => {
+  const li = qDropTarget(e);
+  if (!li) return;
+  e.preventDefault();
+  const after = li.classList.contains("q-after"), target = +li.dataset.nid, { sid, nid } = QDRAG;
+  const order = queuedIds(sid).filter(x => x !== nid);
+  const at = order.indexOf(target);
+  if (at < 0) return;
+  order.splice(after ? at + 1 : at, 0, nid);
+  setQueueOrder(sid, order);
+});
+document.addEventListener("dragend", () => {
+  QDRAG.nid = null;
+  document.querySelectorAll("li.note.q-before, li.note.q-after, li.note.q-dragging").forEach(x => x.classList.remove("q-before", "q-after", "q-dragging"));
+});
+function noteHtml(n, qNo, qCount) {
   const meta = n.done && n.done_at ? `<span class="note-meta">완료 ${rel(n.done_at)}</span>`
     : `<span class="note-meta">${rel(n.created_at)}${qNo ? ` · <span class="note-q-tag">⏭ 응답 끝나면 ${qNo}번째로 보냄</span>` : ""}</span>`;
   // 응답이 끝나면 이 할 일을 그 세션에 보내도록 예약(다시 누르면 풀기)
   const q = n.session_id && !n.done ? `<button class="note-q ${qNo ? "on" : ""}" data-action="note-queue" data-nid="${n.id}" data-sid="${esc(n.session_id)}"
     title="${qNo ? "예약 풀기 ( ⌘Enter )" : "응답이 끝나면 이 할 일을 바로 보내도록 예약 ( ⌘Enter )"}">⏭</button>` : "";
+  // 예약이 둘 이상이면 순서 바꾸기: 손잡이(⠿)로 끌기 · ▲▼ · 고른 채 ⌥↑ ⌥↓
+  const move = qNo && qCount > 1 ? `<button class="note-qmove" data-action="note-qmove" data-nid="${n.id}" data-dir="-1" title="먼저 보내기 ( ⌥↑ )" ${qNo === 1 ? "disabled" : ""}>▲</button><button class="note-qmove" data-action="note-qmove" data-nid="${n.id}" data-dir="1" title="나중에 보내기 ( ⌥↓ )" ${qNo === qCount ? "disabled" : ""}>▼</button>` : "";
   // 버튼은 글 옆이 아니라 아래 시각 줄 오른쪽에 — 글 칸이 칸 너비를 다 쓰게
   return `<li class="note ${n.done ? "done" : ""} ${qNo ? "queued" : ""}" data-nid="${n.id}" tabindex="-1">
+    ${qNo && qCount > 1 ? `<span class="note-grip" draggable="true" data-nid="${n.id}" title="끌어서 보낼 순서 바꾸기">⠿</span>` : ""}
     <input type="checkbox" ${n.done ? "checked" : ""} data-action="note-done" data-nid="${n.id}">
     <div><div class="note-text md" data-action="note-edit" data-nid="${n.id}" title="더블클릭해서 고치기">${mdCached(n.text)}</div>${noteImgsHtml(n)}
-      <div class="note-foot">${meta}<span class="note-acts">${n.session_id && !n.done ? `<button class="note-use" data-action="note-use" data-nid="${n.id}" data-sid="${esc(n.session_id)}" title="이 할 일을 그 세션 입력창에 넣기(전송은 직접)">↳ 입력</button>` : ""}${q}<button class="note-del" data-action="note-del" data-nid="${n.id}" title="삭제">×</button></span></div></div>
+      <div class="note-foot">${meta}<span class="note-acts">${move}${n.session_id && !n.done ? `<button class="note-use" data-action="note-use" data-nid="${n.id}" data-sid="${esc(n.session_id)}" title="이 할 일을 그 세션 입력창에 넣기(전송은 직접)">↳ 입력</button>` : ""}${q}<button class="note-del" data-action="note-del" data-nid="${n.id}" title="삭제">×</button></span></div></div>
   </li>`;
 }
 
@@ -1370,7 +1427,8 @@ function updateCol(col, s, rank, lastPin) {
       ${queued.length ? `<span class="note-count queued" title="응답이 끝나면 차례로 보낼 할 일">⏭ 예약 ${queued.length}</span>` : ""}</button>`);
   // 고치는 중인 할 일이 있으면 목록을 갈지 않는다(갈면 편집칸이 사라지며 쓰다 만 글이 저장되거나 편집이 끊긴다)
   if (!col.querySelector('.note-text[contenteditable="true"]'))
-    setHtml(col.querySelector(".cf-notes"), notes.length ? `<ul class="notes">${notes.map(n => noteHtml(n, queuedNo.get(n.id))).join("")}</ul>` : "");
+    setHtml(col.querySelector(".cf-notes"), notes.length ? `<ul class="notes">${queued.concat(notes.filter(n => !queuedNo.has(n.id)))
+      .map(n => noteHtml(n, queuedNo.get(n.id), queued.length)).join("")}</ul>` : "");
   // 완료·삭제 뒤 목록을 다시 그리면 포커스가 사라지므로, 키보드로 고르던 할 일(또는 그다음 것)에 되돌린다
   if (S.noteFocus && (!document.activeElement || document.activeElement === document.body)) {
     const li = col.querySelector(`.note[data-nid="${S.noteFocus}"]`);
@@ -3499,6 +3557,13 @@ function noteKey(e) {
     q.click();
     return true;
   }
+  // ⌥↑ / ⌥↓: 예약한 할 일의 보낼 순서 바꾸기
+  if (li.matches && li.matches("li.note.queued") && e.altKey && !e.metaKey && !e.ctrlKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+    e.preventDefault();
+    S.noteFocus = li.dataset.nid;
+    moveQueued(li.closest(".col").dataset.col, +li.dataset.nid, e.key === "ArrowUp" ? -1 : 1);
+    return true;
+  }
   if (!li.matches || !li.matches("li.note") || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return false;
   const col = li.closest(".col"), sid = col.dataset.col, items = noteItems(col), i = items.indexOf(li);
   const nid = li.dataset.nid;
@@ -4749,6 +4814,7 @@ document.addEventListener("click", async e => {
   if (!el) return;
   const a = el.dataset.action;
   if (a === "open-diff") return openDiff(el.dataset.sid);
+  if (a === "note-qmove") { S.noteFocus = el.dataset.nid; return moveQueued(el.closest(".col").dataset.col, +el.dataset.nid, +el.dataset.dir); }
   if (a === "open-file" || a === "reveal-file") {
     e.preventDefault();
     const reveal = a === "reveal-file" || e.altKey;
