@@ -896,10 +896,23 @@ function openImgView(src, alt, list) {
         <button type="button" class="img-view-btn" data-imgv-reveal title="Finder 에서 보기">📂 Finder</button></div>
       <button type="button" class="img-view-nav prev" data-imgv="-1" title="이전 이미지 ( ← )" aria-label="이전">‹</button>
       <button type="button" class="img-view-nav next" data-imgv="1" title="다음 이미지 ( → )" aria-label="다음">›</button>
-      <span class="img-view-n"></span>`;
+      <span class="img-view-n"></span>
+      <div class="img-view-zoom"><button type="button" data-imgz="-1" title="작게 ( - )" aria-label="작게">−</button>
+        <button type="button" class="img-view-pct" data-imgz="0" title="화면에 맞추기 ( 0 )">맞춤</button>
+        <button type="button" data-imgz="1" title="크게 ( + )" aria-label="크게">+</button></div>`;
+    imgZoomInit(v);
     v.addEventListener("click", e => {
       const nav = e.target.closest("[data-imgv]");
       if (nav) return stepImgView(+nav.dataset.imgv);
+      const z = e.target.closest("[data-imgz]");
+      if (z) return +z.dataset.imgz ? imgZoomBy(+z.dataset.imgz > 0 ? 1.5 : 1 / 1.5) : imgZoomReset();
+      if (e.target.tagName === "IMG") {
+        // 이미지 누르기: 맞춘 크기면 누른 자리를 원래 크기(작은 그림이면 2.5배)로, 키운 상태면 다시 맞춤. 끌었으면 아무것도 안 한다
+        if (IMGZ.dragged) return;
+        if (IMGZ.s > 1.01) return imgZoomReset(true);
+        const img = e.target, full = img.naturalWidth / (img.offsetWidth || 1);
+        return imgZoomAt(full > 1.2 ? full : 2.5, e.clientX, e.clientY, true);
+      }
       if (e.target.closest("[data-imgv-dl]")) return;   // 내려받기는 링크 그대로(팝업은 열어 둔다)
       const op = e.target.closest("[data-imgv-open], [data-imgv-reveal]");
       if (op) {
@@ -908,7 +921,7 @@ function openImgView(src, alt, list) {
           .then(r => toast(r.how === "reveal" ? "Finder 에서 보여 줍니다" : "기본 앱으로 열었습니다")).catch(err => toast(err.message));
         return;
       }
-      v.hidden = true;   // 그 밖(이미지·바깥·×)을 누르면 닫힌다
+      v.hidden = true;   // 그 밖(바깥·×)을 누르면 닫힌다
     });
     document.body.appendChild(v);
   }
@@ -917,9 +930,63 @@ function openImgView(src, alt, list) {
   showImgView();
   v.hidden = false;
 }
+// 확대: 휠·트랙패드 핀치로 커서 자리를 기준으로, 키우면 끌어서 옮긴다. + − 0 키, 아래 오른쪽 단추. s 는 화면에 맞춘 크기의 배수
+const IMGZ = { s: 1, x: 0, y: 0, dragged: false };
+function imgZoomApply(animate) {
+  const v = $("#imgView"), img = v && v.querySelector("img");
+  if (!img) return;
+  img.style.transition = animate ? "transform .18s ease" : "none";
+  img.style.transform = IMGZ.s > 1.001 ? `translate(${IMGZ.x}px, ${IMGZ.y}px) scale(${IMGZ.s})` : "";
+  v.classList.toggle("zoomed", IMGZ.s > 1.001);
+  const pct = v.querySelector(".img-view-pct");
+  pct.textContent = IMGZ.s > 1.001 && img.naturalWidth ? Math.round(img.offsetWidth * IMGZ.s / img.naturalWidth * 100) + "%" : "맞춤";
+}
+function imgZoomReset(animate) { IMGZ.s = 1; IMGZ.x = IMGZ.y = 0; imgZoomApply(animate); }
+// (cx, cy) 화면 자리가 그대로 머물게 배율을 s 로
+function imgZoomAt(s, cx, cy, animate) {
+  const v = $("#imgView"), img = v.querySelector("img");
+  const max = Math.max(4, img.naturalWidth / (img.offsetWidth || 1) * 4);
+  s = Math.min(Math.max(s, 1), max);
+  const r = v.getBoundingClientRect(), ox = cx - (r.left + r.width / 2), oy = cy - (r.top + r.height / 2);
+  const lx = (ox - IMGZ.x) / IMGZ.s, ly = (oy - IMGZ.y) / IMGZ.s;
+  IMGZ.x = ox - lx * s;
+  IMGZ.y = oy - ly * s;
+  IMGZ.s = s;
+  if (s <= 1.001) IMGZ.x = IMGZ.y = 0;
+  imgZoomApply(animate);
+}
+function imgZoomBy(f) {
+  const r = $("#imgView").getBoundingClientRect();
+  imgZoomAt(IMGZ.s * f, r.left + r.width / 2, r.top + r.height / 2, true);
+}
+function imgZoomInit(v) {
+  v.addEventListener("wheel", e => {
+    e.preventDefault();
+    // 트랙패드 핀치는 ctrlKey 가 붙은 wheel — 더 세게
+    imgZoomAt(IMGZ.s * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0025)), e.clientX, e.clientY, false);
+  }, { passive: false });
+  v.addEventListener("pointerdown", e => {
+    IMGZ.dragged = false;
+    if (e.target.tagName !== "IMG" || IMGZ.s <= 1.001 || e.button !== 0) return;
+    e.preventDefault();
+    const sx = e.clientX, sy = e.clientY, bx = IMGZ.x, by = IMGZ.y;
+    v.classList.add("panning");
+    const move = ev => {
+      if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 3) IMGZ.dragged = true;
+      IMGZ.x = bx + ev.clientX - sx;
+      IMGZ.y = by + ev.clientY - sy;
+      imgZoomApply(false);
+    };
+    const up = () => { v.classList.remove("panning"); removeEventListener("pointermove", move); removeEventListener("pointerup", up); };
+    addEventListener("pointermove", move);
+    addEventListener("pointerup", up);
+  });
+  v.querySelector("img").addEventListener("dragstart", e => e.preventDefault());
+}
 function showImgView() {
   const v = $("#imgView"), x = IMGV.list[IMGV.i], many = IMGV.list.length > 1;
   const img = v.querySelector("img");
+  imgZoomReset(false);
   img.src = x.src;
   img.alt = x.alt || "";
   v.querySelectorAll(".img-view-nav").forEach(b => { b.hidden = !many; });
@@ -958,6 +1025,9 @@ for (const type of ["keydown", "keyup"]) {
     e.stopImmediatePropagation();
     if (type === "keyup") return;
     if (e.key === "Escape") { e.preventDefault(); v.hidden = true; }
+    else if ((e.key === "+" || e.key === "=") && !e.metaKey && !e.ctrlKey) { e.preventDefault(); imgZoomBy(1.5); }
+    else if (e.key === "-" && !e.metaKey && !e.ctrlKey) { e.preventDefault(); imgZoomBy(1 / 1.5); }
+    else if (e.key === "0" && !e.metaKey && !e.ctrlKey) { e.preventDefault(); imgZoomReset(true); }
     else if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); stepImgView(-1); }
     else if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === " ") { e.preventDefault(); stepImgView(1); }
     else if (!e.metaKey && !e.ctrlKey) e.preventDefault();   // 입력창에 글자가 들어가지 않게

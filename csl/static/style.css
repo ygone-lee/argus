@@ -347,7 +347,19 @@ body.view-board .board {
   padding: 40px; background: rgba(20, 18, 15, .78); cursor: zoom-out;
 }
 .img-view[hidden] { display: none; }
-.img-view img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; box-shadow: 0 20px 60px rgba(0, 0, 0, .45); }
+.img-view img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; box-shadow: 0 20px 60px rgba(0, 0, 0, .45);
+  cursor: zoom-in; transform-origin: center; user-select: none; }
+.img-view { overflow: hidden; }
+.img-view.zoomed img { cursor: grab; }
+.img-view.panning img { cursor: grabbing; }
+.img-view-zoom { position: absolute; right: 18px; bottom: 16px; display: flex; gap: 2px; padding: 3px; border-radius: 10px; background: rgba(0, 0, 0, .45); }
+.img-view-zoom button { min-width: 32px; height: 30px; padding: 0 8px; border: 0; border-radius: 7px; background: transparent; color: #fff;
+  font: inherit; font-size: 15px; cursor: pointer; }
+.img-view-zoom .img-view-pct { min-width: 56px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.img-view-zoom button:hover { background: rgba(255, 255, 255, .2); }
+/* 키우면 밝은 그림이 단추 뒤를 덮는다 — 단추에 어두운 바탕 */
+.img-view.zoomed .img-view-btn, .img-view.zoomed .img-view-x, .img-view.zoomed .img-view-nav, .img-view.zoomed .img-view-n { background: rgba(0, 0, 0, .55); }
+.img-view-x, .img-view-bar, .img-view-nav, .img-view-n, .img-view-zoom { z-index: 1; }
 .img-view-x {
   position: absolute; top: 12px; right: 16px; width: 36px; height: 36px; border: 0; border-radius: 50%;
   background: rgba(255, 255, 255, .14); color: #fff; font-size: calc(22px * var(--fs, 1)); line-height: 1; cursor: pointer;
