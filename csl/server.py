@@ -2032,6 +2032,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/agents" and method == "GET":
             # 백그라운드 세션(claude agents --json): 상태·이름·폴더. 보드에 기록된 세션이면 그 제목·최근 요청·응답을 붙인다
             items = [x for x in agents_list() if x.get("kind") == "background"]
+            # 「목록에서 지우기」가 claude rm 으로 안 지워진 꺼진 기록(백그라운드 서비스가 꺼져 있을 때)은 보드에서만 숨긴다.
+            # 다시 살아나면(pid) 보이고, Claude 쪽 기록이 사라지면 숨김 목록에서도 뺀다
+            hidden = store.get_setting(conn, "agents_hidden", [])
+            if hidden:
+                ids = {x.get("id") for x in items}
+                if any(h not in ids for h in hidden):
+                    hidden = [h for h in hidden if h in ids]
+                    store.set_setting(conn, "agents_hidden", hidden)
+                items = [x for x in items if x.get("pid") or x.get("id") not in hidden]
             sync_agents(conn, items)
             known = {r["session_id"]: dict(r) for r in conn.execute(
                 "SELECT s.session_id, s.title, s.state, s.archived," + LAST_TURN_COLUMNS +
@@ -2084,6 +2093,13 @@ class Handler(BaseHTTPRequestHandler):
                 except (OSError, subprocess.SubprocessError) as e:
                     return self._send(502, {"error": str(e)[:200]})
                 AGENTS["at"] = 0
+                if r.returncode != 0 and act == "rm":
+                    # 꺼진 기록을 claude rm 이 못 지우는 경우(Claude 백그라운드 서비스가 안 떠 있으면 「service may be restarting」) —
+                    # 보드 목록에서만 숨긴다. 기록은 ~/.claude/jobs 에 남고 `claude agents` 에서는 계속 보인다
+                    hidden = store.get_setting(conn, "agents_hidden", [])
+                    store.set_setting(conn, "agents_hidden", sorted(set(hidden) | {aid}))
+                    return self._send(200, {"ok": True, "message": "보드 목록에서 숨겼습니다 — Claude 백그라운드 서비스가 꺼져 있어 "
+                                            "Claude 쪽 기록은 남았습니다(`claude rm " + aid + "` 로 지울 수 있음)"})
                 if r.returncode != 0:
                     return self._send(502, {"error": (r.stderr or r.stdout or "실패").strip()[:300]})
                 return self._send(200, {"ok": True, "message": "멈췄습니다(대화는 남아 있어 다시 열 수 있습니다)" if act == "stop"
