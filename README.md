@@ -104,12 +104,11 @@ curl -fsSL https://raw.githubusercontent.com/ygone-lee/argus/main/install.sh | s
 ```
 
 It downloads Argus into **`~/.argus`** and runs the installer. The installer backs up your Claude Code settings
-(`~/.claude/settings.json`) and then adds Argus's hooks; your other hooks and settings are kept. It asks three questions:
+(`~/.claude/settings.json`) and then adds Argus's hooks; your other hooks and settings are kept. It asks two questions:
 
 | Question | If you say yes |
 |---|---|
 | tmux is missing — install it with Homebrew? | Runs `brew install tmux`. Say no and install it yourself later |
-| Start the board when you log in? | The board starts by itself after you turn on the Mac and log in — see [3. After you restart your Mac](#3-after-you-restart-your-mac) |
 | Open the board now? | Opens http://127.0.0.1:7799 in your browser |
 
 That's it. Keep working in Claude Code as usual — every open session shows up on the board from its next prompt, and new sessions appear as soon as they start.
@@ -125,26 +124,22 @@ cd argus
 
 > `~/.argus` in the commands below is the Argus folder of a curl install. If you cloned it, use your clone's path instead.
 
-The installer (`ctl.sh install`) can also be answered up front: `--tmux install|skip`, `--autostart on|off`, `--open` / `--no-open`. It stops without
+The installer (`ctl.sh install`) can also be answered up front: `--tmux install|skip`, `--open` / `--no-open`. It stops without
 changing anything if `~/.claude/settings.json` isn't valid JSON, and creates the file if you don't have one yet.
 
 ### 3. After you restart your Mac
 
-The board is a small server running on your Mac (http://127.0.0.1:7799). After a restart:
+The board is a small server that runs in the background on your Mac (http://127.0.0.1:7799); closing the terminal
+doesn't stop it. After a restart it isn't running until either of these:
 
-- **With autostart on** — the server starts as soon as you log in. Just open http://127.0.0.1:7799 (a bookmark helps).
-- **With autostart off** — the hooks start the server as soon as any Claude Code session starts. To open the board before that, run `~/.argus/ctl.sh open`.
+- **You start any Claude Code session.** The hooks start the board in the background.
+- **You run `~/.argus/ctl.sh open`.** It starts the board and opens it in your browser (`start` only starts it).
 
-Change it any time:
-
-```sh
-~/.argus/ctl.sh autostart on      # start the board when you log in
-~/.argus/ctl.sh autostart off     # don't
-~/.argus/ctl.sh autostart status  # show the current setting
-```
-
-Autostart is a macOS login item (a LaunchAgent, `~/Library/LaunchAgents/com.argus.board.plist`). It starts the board once at login
-and doesn't restart a server you stopped yourself.
+> **Earlier versions could start the board at login. That's gone for now.** A server that macOS starts at login can't read
+> your Downloads, Desktop or Documents folders (macOS privacy protection), so finding files you drag onto the board failed.
+> Started from a terminal or from Claude Code, the board has the same access as that app. If you turned it on before,
+> the next update removes the login item by itself; to do it now, run `~/.argus/ctl.sh install`. Starting at login will
+> come back once Argus ships as a Mac app.
 
 ### 4. Everyday commands
 
@@ -153,7 +148,6 @@ and doesn't restart a server you stopped yourself.
 | Open the board (starting it first if needed) | `~/.argus/ctl.sh open` |
 | Check whether it's running | `~/.argus/ctl.sh status` |
 | Stop · restart it | `~/.argus/ctl.sh stop` · `~/.argus/ctl.sh restart` |
-| Turn autostart at login on · off · show it | `~/.argus/ctl.sh autostart on` · `off` · `status` |
 | Check the installation (changes nothing) | `~/.argus/ctl.sh check` |
 | Bring in conversations from before the install (last 7 days by default) | `~/.argus/ctl.sh backfill 7` |
 | Open a demo board (made-up sessions, leaves your setup alone) | `~/.argus/ctl.sh demo` |
@@ -214,7 +208,7 @@ Sessions you already run in another terminal show up as they are. To reply to th
 - **Argus Brain** — click the 브레인 (Brain) icon next to the Argus logo, or press `B`, and start it. See [Argus Brain](#feature-reference) in the feature reference.
 - **Connectors** — ⋮ → 🔌 커넥터 (Connectors) to collect Slack mentions/DMs and Gmail into the Brain's inbox. Secrets go into the macOS Keychain. For Slack, "Create the Slack app" opens Slack with a read-only app manifest prefilled: pick the workspace → Create → Install → copy the User OAuth Token (xoxp-…) and paste it — Argus saves it, checks the connection and names the connector after the workspace.
 
-**To remove Argus:** `~/.argus/ctl.sh uninstall` (or `./ctl.sh uninstall` in your clone) removes the hooks, restores your original status line and turns autostart off; then delete the Argus folder. Your data stays in `~/.claude/session-log` until you delete that folder.
+**To remove Argus:** `~/.argus/ctl.sh uninstall` (or `./ctl.sh uninstall` in your clone) removes the hooks and restores your original status line; then delete the Argus folder. Your data stays in `~/.claude/session-log` until you delete that folder.
 
 ## A tour of the board
 
@@ -445,7 +439,7 @@ Every hook also records the effort level (`effort.level`) and Remote Control sta
 ./ctl.sh check        # what is installed and running (changes nothing)
 ./ctl.sh backfill 7   # import conversations from before the hooks were installed (optional)
 ./ctl.sh open         # start the server and open the browser
-./ctl.sh uninstall    # remove the hooks and the login autostart, restore the status line (your data is kept)
+./ctl.sh uninstall    # remove the hooks, restore the status line (your data is kept)
 ```
 
 Every `ctl.sh` command runs the system `/usr/bin/python3` underneath, so a pyenv, conda or virtualenv `python3` never ends up in Claude Code's hooks. `ctl.sh install` passes its options to `install.py`, which also takes `--open` / `--no-open` (open the board when done without asking / don't offer) and `--force`
@@ -454,7 +448,7 @@ it keeps exactly one set of Argus hooks, and updates paths if you moved the fold
 
 Sessions that are already open pick up the new hooks right away and are recorded from their next prompt (verified on Claude Code 2.1.312).
 
-`ctl.sh start|stop|restart|status|open|autostart on|off|status` manages the server and the login autostart — see [Everyday commands](#4-everyday-commands). You rarely need it, because the hooks start the server when it is down and autostart starts it at login.
+`ctl.sh start|stop|restart|status|open` manages the server, which runs in the background — see [Everyday commands](#4-everyday-commands). You rarely need it, because the hooks start the server when it is down.
 
 Environment variables: `CSL_PORT` (default 7799), `CSL_DATA_DIR` (default `~/.claude/session-log`), `CSL_SKIP=1` (ignore hooks in that process), `CSL_DAILY_MODEL` (default `sonnet`), `CSL_RETENTION_DAYS` (default 90).
 

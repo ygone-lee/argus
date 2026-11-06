@@ -2737,7 +2737,7 @@ def main():
     except OSError as e:
         if e.errno != errno.EADDRINUSE:
             raise
-        # 이미 다른 보드 서버가 떠 있다(로그인 자동 시작·훅·ctl.sh 가 겹친 것) — 오류가 아니다. 한 줄만 남기고 끝낸다
+        # 이미 다른 보드 서버가 떠 있다(훅·ctl.sh 가 겹친 것) — 오류가 아니다. 한 줄만 남기고 끝낸다
         print("Argus board is already running on 127.0.0.1:%d — nothing to do" % store.PORT, flush=True)
         return
     daily.start_scheduler()

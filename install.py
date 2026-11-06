@@ -39,7 +39,9 @@ SKILLS_DIR = os.path.expanduser("~/.claude/skills")
 MARK = "/csl/hook.py"   # 저장소 폴더 이름이 바뀌어도(예전 claude-session-log) 이 도구의 훅으로 알아본다
 PORT = int(os.environ.get("CSL_PORT", "7799"))
 DATA_DIR = os.path.expanduser(os.environ.get("CSL_DATA_DIR", "~/.claude/session-log"))
-# 로그인할 때 보드 서버를 띄우는 macOS LaunchAgent(선택 — 설치 때 묻는다. ./ctl.sh autostart on|off 로 나중에 바꾼다)
+# 예전 버전이 쓰던 「로그인할 때 보드 띄우기」 macOS LaunchAgent. 이제 쓰지 않는다 — launchd 가 띄운 서버는 macOS 개인정보
+# 보호(TCC)에 걸려 다운로드·문서 폴더를 못 읽어서(끌어 놓은 파일 찾기 등). 보드는 Claude Code 훅이나 ctl.sh 가 터미널에서
+# 띄우고(터미널 앱의 권한을 물려받는다), 설치·업데이트 때 남아 있는 이 항목을 지운다. 앱으로 감싼 뒤 다시 들인다
 AGENT_LABEL = "com.argus.board"
 AGENT_PLIST = os.path.expanduser("~/Library/LaunchAgents/%s.plist" % AGENT_LABEL)
 
@@ -268,43 +270,21 @@ def ensure_tmux(want=None):
     return "installed (%s)" % home(t) if r.returncode == 0 and t else "install failed — run it yourself: brew install tmux"
 
 
-def autostart_state():
-    """로그인 자동 시작: (켜졌는지, 설명)."""
-    if not os.path.exists(AGENT_PLIST):
-        return False, "off — start the board yourself after a restart: %s open" % ctl()
-    loaded = subprocess.run(["launchctl", "print", "gui/%d/%s" % (os.getuid(), AGENT_LABEL)],
-                            capture_output=True, text=True).returncode == 0
-    return True, "on — starts at login (%s%s)" % (home(AGENT_PLIST), "" if loaded else ", not loaded yet")
+def legacy_autostart():
+    """예전 로그인 자동 시작 항목이 남아 있는지."""
+    return os.path.exists(AGENT_PLIST)
 
 
-def autostart_on():
-    """로그인할 때 보드 서버를 띄우는 LaunchAgent 를 쓰고 바로 등록한다. 결과 한 줄."""
-    import plistlib
-    os.makedirs(os.path.dirname(AGENT_PLIST), exist_ok=True)
-    os.makedirs(DATA_DIR, exist_ok=True)
-    env = {"PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", "CSL_SKIP": "1"}
-    for k in ("CSL_PORT", "CSL_DATA_DIR"):
-        if os.environ.get(k):
-            env[k] = os.environ[k]
-    log = os.path.join(DATA_DIR, "server.log")
-    plist = {"Label": AGENT_LABEL, "ProgramArguments": [PYTHON, os.path.join(HERE, "csl", "server.py")],
-             "RunAtLoad": True, "KeepAlive": False, "WorkingDirectory": HERE, "ProcessType": "Background",
-             "EnvironmentVariables": env, "StandardOutPath": log, "StandardErrorPath": log}
-    with open(AGENT_PLIST, "wb") as f:
-        plistlib.dump(plist, f)
-    domain = "gui/%d" % os.getuid()
-    subprocess.run(["launchctl", "bootout", "%s/%s" % (domain, AGENT_LABEL)], capture_output=True)
-    r = subprocess.run(["launchctl", "bootstrap", domain, AGENT_PLIST], capture_output=True, text=True)
-    if r.returncode != 0:
-        return "written to %s, but launchctl couldn't load it (%s) — it loads at your next login" % (
-            home(AGENT_PLIST), (r.stderr or "").strip()[:120])
-    return "on — the board starts when you log in (%s)" % home(AGENT_PLIST)
-
-
-def autostart_off():
-    """LaunchAgent 를 내리고 지운다. 그 에이전트가 띄운 서버가 같이 꺼지면 다시 띄워 둔다(지금 쓰는 보드가 끊기지 않게)."""
-    if not os.path.exists(AGENT_PLIST):
-        return "off"
+def remove_autostart():
+    """예전 로그인 자동 시작 항목을 지운다. 결과 한 줄(없었으면 "").
+    터미널에서 부르면 launchd 에서도 내리고, 그 바람에 서버가 꺼지면 여기서(터미널의 자식으로) 다시 띄운다 — 다운로드 폴더
+    등을 읽을 수 있게. 보드 서버가 업데이트하며 부른 때(ARGUS_FROM_SERVER)는 파일만 지운다: 내리면 launchd 가 그 서버를 —
+    지금 이 설치를 돌리는 부모를 — 끈다. 그때 등록은 다음 로그인까지 남지만 다시 띄우지 않는다(KeepAlive 꺼짐)."""
+    if not legacy_autostart():
+        return ""
+    if os.environ.get("ARGUS_FROM_SERVER"):
+        os.remove(AGENT_PLIST)
+        return "removed the old start-at-login item (%s)" % home(AGENT_PLIST)
     was_up = server_up()
     subprocess.run(["launchctl", "bootout", "gui/%d/%s" % (os.getuid(), AGENT_LABEL)], capture_output=True)
     os.remove(AGENT_PLIST)
@@ -312,7 +292,8 @@ def autostart_off():
         time.sleep(0.5)
         if not server_up():
             subprocess.run([os.path.join(HERE, "ctl.sh"), "start"], capture_output=True)
-    return "off — start the board yourself after a restart: %s open" % ctl()
+    return "removed the old start-at-login item (%s)%s" % (
+        home(AGENT_PLIST), " and restarted the board from this terminal" if was_up else "")
 
 
 def server_up():
@@ -352,7 +333,8 @@ def check():
          else "not connected — context % and usage bars will be estimated or hidden"),
         ("tmux", bool(tmux_bin()), home(tmux_bin() or "") or "not installed — brew install tmux (needed for the board terminal)"),
         ("Board server", server_up(), "http://127.0.0.1:%d" % PORT if server_up() else "not running — %s open" % ctl()),
-        ("Start at login", autostart_state()[0], autostart_state()[1]),
+    ] + ([("Old login item", False, "%s is still there — %s install removes it" % (home(AGENT_PLIST), ctl()))]
+         if legacy_autostart() else []) + [
         ("Recorded sessions", bool(sessions), str(sessions) if sessions is not None else "none yet — send a prompt in Claude Code"),
     ]
     say("Argus install check\n")
@@ -376,17 +358,17 @@ def main():
     ap.add_argument("--open", action="store_true", help="start the board and open it in the browser when done, without asking")
     ap.add_argument("--no-open", action="store_true", help="don't offer to open the board")
     ap.add_argument("--force", action="store_true", help="install even if this isn't macOS")
-    ap.add_argument("--autostart", choices=("on", "off"), help="start the board at login (macOS LaunchAgent) — asked if not given")
+    ap.add_argument("--autostart", choices=("on", "off"), help=argparse.SUPPRESS)   # 예전 옵션 — 받기만 하고 쓰지 않는다
     ap.add_argument("--tmux", choices=("install", "skip"), help="install tmux with Homebrew if it's missing, or don't — asked if not given")
-    ap.add_argument("--set-autostart", choices=("on", "off", "status"), metavar="on|off|status",
-                    help="only turn starting the board at login on or off (or show it), then exit — same as ./ctl.sh autostart")
+    ap.add_argument("--remove-autostart", action="store_true",
+                    help="only remove the old start-at-login item left by earlier versions, then exit")
     args = ap.parse_args()
 
     if args.check:
         return check()
-    if args.set_autostart:
-        say("Start at login: " + (autostart_state()[1] if args.set_autostart == "status"
-                                  else autostart_on() if args.set_autostart == "on" else autostart_off()))
+    if args.remove_autostart:
+        msg = remove_autostart()
+        say(msg[0].upper() + msg[1:] if msg else "No start-at-login item — nothing to remove.")
         return
 
     warnings = [] if args.uninstall else preflight(args.force)
@@ -419,12 +401,13 @@ def main():
     save_settings(settings)
 
     if args.uninstall:
-        login = autostart_off()
+        login = remove_autostart()
         say("Argus removed ✓\n")
         say("  Hooks        removed from %s (your other hooks are untouched)" % home(SETTINGS))
         say("  Status line  %s" % statusline)
         say("  Skill links  removed: %s" % skills)
-        say("  Start at login  %s" % ("removed" if login.startswith("off —") else "was off"))
+        if login:
+            say("  Login item   %s" % login)
         if backup:
             say("  Backup       %s" % home(backup))
         say("\nYour recorded data is still in %s — delete that folder to remove it too." % home(DATA_DIR))
@@ -440,15 +423,10 @@ def main():
     if backup:
         say("  Backup       %s" % home(backup))
     tmux = ensure_tmux({"install": True, "skip": False}.get(args.tmux))
-    if args.autostart:
-        login = autostart_on() if args.autostart == "on" else autostart_off()
-    elif autostart_state()[0]:
-        login = autostart_on()   # 이미 켜 두었으면 경로가 바뀌었을 수 있으니 다시 쓴다
-    else:
-        want = ask("\nStart the board automatically when you log in? (otherwise run %s open after a restart)" % ctl())
-        login = autostart_on() if want else "off — start the board yourself after a restart: %s open" % ctl()
-    say("\n  tmux            %s" % tmux)
-    say("  Start at login  %s" % login)
+    login = remove_autostart()
+    say("\n  tmux         %s" % tmux)
+    if login:
+        say("  Login item   %s" % login)
     for w in warnings:
         say("\n! " + w)
     # 명령은 ctl.sh 의 전체 경로로 적는다 — 어느 폴더에서든 그대로 붙여 넣어 쓸 수 있게
@@ -458,8 +436,8 @@ Next
   2. Send any prompt in Claude Code — its session shows up on the board.
      Sessions that are already open appear from their next prompt; no restart needed.
   3. Optional: import the last week of conversations:   %(ctl)s backfill 7
-  4. After a restart the board is started at login if you turned that on; otherwise run %(ctl)s open
-     (turn it on or off any time: %(ctl)s autostart on|off).
+  4. After a restart the board starts in the background with your first Claude Code session,
+     or run %(ctl)s open to start it yourself.
 
 Check the install any time:  %(ctl)s check
 Remove it:                   %(ctl)s uninstall

@@ -143,8 +143,9 @@ def apply():
         return False, "받지 못했습니다: " + (err.splitlines() or [""])[-1][:200], 0
     # 새 훅이 생겼을 수 있다 — 설치 프로그램을 묻지 않고 다시 돌린다(설정 백업·자동 시작 여부는 그대로)
     py = "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else "python3"
+    # ARGUS_FROM_SERVER: 예전 로그인 자동 시작 항목을 launchd 에서 내리지 않고 파일만 지우게(내리면 이 서버가 꺼진다)
     subprocess.run([py, os.path.join(REPO, "install.py"), "--no-open"], capture_output=True, text=True, timeout=120,
-                   stdin=subprocess.DEVNULL, env=_ENV)
+                   stdin=subprocess.DEVNULL, env=dict(_ENV, ARGUS_FROM_SERVER="1"))
     _record_applied(before, c)
     label = c["target_label"] if c["channel"] == "stable" else "최신(%s)" % _git("rev-parse", "--short", "HEAD")[1]
     return True, "%s 로 업데이트했습니다(커밋 %d개) — 보드를 다시 띄웁니다" % (label, c["behind"]), c["behind"]
