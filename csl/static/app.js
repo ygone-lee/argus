@@ -273,7 +273,10 @@ function inline(t) {
   const hold = html => { keep.push(html); return "\u0000" + (keep.length - 1) + "\u0000"; };
   const put = x => x.replace(/\u0000(\d+)\u0000/g, (_, i) => put(keep[+i] ?? ""));
   t = esc(t).replace(/`([^`]+)`/g, (_, c) => hold("<code>" + linkifyUrls(linkifyPaths(c)) + "</code>"));
-  t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+  // 기울임 *글*: 별표 바로 안쪽이 띄어쓰기가 아니고 바깥이 영문·숫자가 아닐 때만(*.py, 2*3*4, a * b 는 그대로)
+  // 기울임을 먼저 — **굵게 *기울임* 안**처럼 굵게 안의 기울임도
+  t = t.replace(/(?<![A-Za-z0-9*\\])\*(?![\s*])([^*\n]*?[^\s*])\*(?![A-Za-z0-9*])/g, "<em>$1</em>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (m, label, url) => url.includes("\u0000") ? m
       : hold(`<a class="ext" href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`));
   t = linkifyUrls(t, hold);   // [이름](주소) 를 뺀 나머지 맨 주소
@@ -322,7 +325,7 @@ function md(src, opts) {
     }
     if (!l.trim()) { i++; continue; }
     const h = l.match(/^(#{1,6})\s+(.*)$/);
-    if (h) { const n = Math.min(h[1].length + 1, 4); out.push(`<h${n}>${inline(h[2])}</h${n}>`); i++; continue; }
+    if (h) { const n = tasks ? h[1].length : Math.min(h[1].length + 1, 4); out.push(`<h${n}>${inline(h[2])}</h${n}>`); i++; continue; }   // 문서 칸은 원문 수준 그대로(되돌려 쓸 때 맞게)
     if (/^\s*(-{3,}|\*{3,})\s*$/.test(l)) { out.push("<hr>"); i++; continue; }
     if (/^\s*\|/.test(l) && i + 1 < L.length && /^\s*\|?\s*:?-{2,}/.test(L[i + 1])) {
       // 칸 구분은 이스케이프하지 않은 | 만 — 칸 안의 \| (코드 속 파이프 등)는 글자 | 로
@@ -1134,6 +1137,36 @@ document.addEventListener("dragend", () => {
   QDRAG.nid = null;
   document.querySelectorAll("li.note.q-before, li.note.q-after, li.note.q-dragging").forEach(x => x.classList.remove("q-before", "q-after", "q-dragging"));
 });
+// 할 일 목록을 다시 그릴 때 자리가 바뀐 할 일은 원래 자리에서 새 자리로 미끄러져 가게(FLIP) — 예약을 걸면 맨 위 예약
+// 묶음으로 갑자기 튀어 올라가 어디 갔는지 헷갈렸다. 위로 올라갔거나 새로 예약된 할 일은 잠깐 강조하고, 목록이
+// 스크롤돼 있으면 그 할 일이 보이게 맞춘다. 움직임 줄이기 설정이면 미끄러지지 않고 강조만
+function flipNotes(box, render) {
+  const before = new Map([...box.querySelectorAll("li.note[data-nid]")].map(li =>
+    [li.dataset.nid, { top: li.getBoundingClientRect().top, q: li.classList.contains("queued") }]));
+  if (!render() || !before.size || !box.offsetParent) return;
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let focusLi = null;
+  for (const li of box.querySelectorAll("li.note[data-nid]")) {
+    const b = before.get(li.dataset.nid);
+    if (!b) continue;
+    const dy = b.top - li.getBoundingClientRect().top, nowQ = li.classList.contains("queued");
+    if (!reduce && Math.abs(dy) >= 4) {
+      li.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }], { duration: 450, easing: "cubic-bezier(.2, .8, .2, 1)" });
+    }
+    if (dy >= 4 || (nowQ && !b.q)) {
+      li.classList.remove("note-moved");
+      void li.offsetWidth;   // 같은 할 일을 연달아 옮겨도 강조가 다시 돈다
+      li.classList.add("note-moved");
+      setTimeout(() => li.classList.remove("note-moved"), 1800);
+      focusLi = focusLi || li;
+    }
+  }
+  const sc = focusLi && focusLi.closest(".col-fixed");
+  if (sc) {
+    const r = focusLi.getBoundingClientRect(), v = sc.getBoundingClientRect();
+    if (r.top < v.top || r.bottom > v.bottom) sc.scrollTo({ top: sc.scrollTop + r.top - v.top - 40, behavior: reduce ? "auto" : "smooth" });
+  }
+}
 function noteHtml(n, qNo, qCount) {
   const meta = n.done && n.done_at ? `<span class="note-meta">완료 ${rel(n.done_at)}</span>`
     : `<span class="note-meta">${rel(n.created_at)}${qNo ? ` · <span class="note-q-tag">⏭ 응답 끝나면 ${qNo}번째로 보냄</span>` : ""}</span>`;
@@ -1456,9 +1489,11 @@ function updateCol(col, s, rank, lastPin) {
       ${notes.length - open ? `<span class="note-count done" title="완료한 할 일">✓ 완료 ${notes.length - open}</span>` : ""}
       ${queued.length ? `<span class="note-count queued" title="응답이 끝나면 차례로 보낼 할 일">⏭ 예약 ${queued.length}</span>` : ""}</button>`);
   // 고치는 중인 할 일이 있으면 목록을 갈지 않는다(갈면 편집칸이 사라지며 쓰다 만 글이 저장되거나 편집이 끊긴다)
-  if (!col.querySelector('.note-text[contenteditable="true"]'))
-    setHtml(col.querySelector(".cf-notes"), notes.length ? `<ul class="notes">${queued.concat(notes.filter(n => !queuedNo.has(n.id)))
-      .map(n => noteHtml(n, queuedNo.get(n.id), queued.length)).join("")}</ul>` : "");
+  if (!col.querySelector('.note-text[contenteditable="true"]')) {
+    const box = col.querySelector(".cf-notes");
+    flipNotes(box, () => setHtml(box, notes.length ? `<ul class="notes">${queued.concat(notes.filter(n => !queuedNo.has(n.id)))
+      .map(n => noteHtml(n, queuedNo.get(n.id), queued.length)).join("")}</ul>` : ""));
+  }
   // 완료·삭제 뒤 목록을 다시 그리면 포커스가 사라지므로, 키보드로 고르던 할 일(또는 그다음 것)에 되돌린다
   if (S.noteFocus && (!document.activeElement || document.activeElement === document.body)) {
     const li = col.querySelector(`.note[data-nid="${S.noteFocus}"]`);
@@ -3841,6 +3876,7 @@ function openModelMenu(btn) {
   const menu = $("#modelMenu");
   const cur = modelName(s.model);
   menu.dataset.sid = sid;
+  menu._onPick = null;
   menu._pick = { model: MODEL_CHOICES.includes(cur) ? cur : null, effort: EFFORTS.includes(s.effort) ? s.effort : null };
   const busy = !["idle", "done", "error"].includes(s.state);
   const draw = () => {
@@ -3864,8 +3900,9 @@ function openModelMenu(btn) {
 $("#modelMenu").addEventListener("click", async e => {
   const menu = $("#modelMenu");
   const m = e.target.closest("[data-mm-model]"), ef = e.target.closest("[data-mm-effort]");
-  if (m) { menu._pick.model = m.dataset.mmModel; return menu._draw(); }
-  if (ef) { menu._pick.effort = ef.dataset.mmEffort; return menu._draw(); }
+  if (m) menu._pick.model = m.dataset.mmModel;
+  if (ef) menu._pick.effort = ef.dataset.mmEffort;
+  if (m || ef) { if (menu._onPick) menu._onPick(menu._pick); return menu._draw(); }
   const apply = e.target.closest("[data-mm-apply]");
   if (!apply) return;
   const sid = menu.dataset.sid;
@@ -4691,7 +4728,7 @@ function preText(n) {
   let out = "";
   const go = x => {
     for (const c of x.childNodes) {
-      if (c.nodeType === 3) out += c.nodeValue;
+      if (c.nodeType === 3) out += c.nodeValue.replace(/\u200b/g, "");
       else if (c.nodeName === "BR") out += "\n";
       else if (c.nodeType === 1) {
         const line = /^(DIV|P)$/.test(c.nodeName);
@@ -4728,14 +4765,15 @@ function htmlToMd(html) {
     return [line(rows[0]), "|" + " --- |".repeat(w), ...rows.slice(1).map(line)].join("\n");
   }
   function walk(n) {
-    if (n.nodeType === 3) return n.nodeValue.replace(/\s+/g, " ");
+    if (n.nodeType === 3) return n.nodeValue.replace(/\u200b/g, "").replace(/\s+/g, " ");   // \u200b: 서식 바로 바꾸기가 남긴 자리
     if (n.nodeType !== 1) return "";
     const t = n.tagName;
     if (/^H[1-6]$/.test(t)) return "\n\n" + "#".repeat(+t[1]) + " " + inline(n).trim() + "\n\n";
     if (t === "STRONG" || t === "B") { const x = inline(n); return x.trim() ? "**" + x.trim() + "**" : x; }
     if (t === "EM" || t === "I") { const x = inline(n); return x.trim() ? "*" + x.trim() + "*" : x; }
     if (t === "CODE") return n.closest("pre") ? n.textContent : "`" + n.textContent + "`";
-    if (t === "PRE") return "\n\n```\n" + preText(n) + "\n```\n\n";
+    if (t === "PRE") return "\n\n```" + (n.getAttribute("data-lang") || "") + "\n" + preText(n) + "\n```\n\n";
+    if (t === "INPUT" && n.getAttribute("type") === "checkbox") return n.checked || n.hasAttribute("checked") ? "[x]" : "[ ]";   // 체크리스트
     if (t === "A") { const x = inline(n).trim(), h = n.getAttribute("href") || ""; return /^https?:/.test(h) && h !== x ? `[${x}](${h})` : x; }
     if (t === "BR") return "\n";
     if (t === "UL" || t === "OL") return "\n\n" + list(n, t === "OL", 0) + "\n\n";
@@ -5061,6 +5099,7 @@ document.addEventListener("click", async e => {
   if (a === "toggle-trail") return toggleTrail(+el.dataset.tid, el.dataset.sid);
   if (a === "rename") { e.preventDefault(); return startRename(el); }
   if (a === "model-menu") return openModelMenu(el);
+  if (a === "md-model-menu") return openMdModelMenu(el);
   if (a === "note-queue") {
     const on = !el.classList.contains("on");
     try {
@@ -5283,7 +5322,7 @@ document.addEventListener("keydown", e => {
     if (document.activeElement === $("#search") || !$("#searchPanel").hidden) { closeSearch(); e.stopImmediatePropagation(); return; }
     // 입력창에서 빠져나오기(쓰던 글은 그대로). 메모 고치기·이름 바꾸기는 각자 Esc 를 처리한다
     const a = document.activeElement;
-    if (a && (a.classList.contains("cmp-text") || a.classList.contains("cmp-rich") || a.classList.contains("md-edit") || a.classList.contains("md-ask-text") || (a.form && a.form.dataset.form === "col-note"))) {
+    if (a && (a.classList.contains("cmp-text") || a.classList.contains("cmp-rich") || a.classList.contains("md-edit") || a.classList.contains("md-view") || a.classList.contains("md-ask-text") || (a.form && a.form.dataset.form === "col-note"))) {
       const col = a.closest(".col");
       if (col && col.dataset.col) { toColumnState(col.dataset.col); if (S.expandedCard === col.dataset.col) setCardSel(col.dataset.col); }
       else a.blur();
@@ -7270,20 +7309,60 @@ setBoardMode(S.boardMode);
 // 마크다운 칸: 위는 문서(편집 ↔ 보기, 고치면 0.7초 뒤 저장), 아래는 AI 대화(보낼 때마다 claude -p 가 그 파일만 고친다)
 const BD = { docs: new Map() };   // 칸 id → { text, mtime, msgs, msgSig, loaded, loading, dirty, saving, timer, err, conflict, mode }
 const BOARD_KIND = { md: ["📝", "문서"], term: ["⌨", "터미널"] };
+// AI 대화창의 모델·effort: 칸 머리의 칩에서 고르고(칸마다 브라우저에 기억) 보낼 때마다 claude -p --model --effort 로.
+// 고른 적 없으면 모델은 설정 board_ai_model, effort 는 모델 기본값
+const MD_ALIAS = { sonnet: "Sonnet 5.5", opus: "Opus 5.5", haiku: "Haiku 5.5", fable: "Fable 5.1" };
+function mdAi(s) {
+  const v = load("csl.mdAi." + s.board_id, null) || {};
+  const def = MD_ALIAS[(S.settings || {}).board_ai_model] || "Sonnet 5.5";
+  return { model: MODEL_CHOICES.includes(v.model) ? v.model : def, effort: EFFORTS.includes(v.effort) ? v.effort : "" };
+}
+function mdAiChip(s) {
+  const a = mdAi(s);
+  return `<button class="model-chip" data-action="md-model-menu" data-sid="${esc(s.session_id)}"
+    title="이 문서를 고치는 AI 의 모델·effort — 눌러서 바꾸기(이 칸만, 다음 요청부터)">${esc(a.model + " · " + (a.effort || "기본"))} ▾</button>`;
+}
+function openMdModelMenu(btn) {
+  const s = sessionById(btn.dataset.sid);
+  if (!s) return;
+  const menu = $("#modelMenu");
+  menu.dataset.sid = s.session_id;
+  menu._pick = mdAi(s);
+  const draw = () => {
+    const p = menu._pick;
+    menu.innerHTML = `<div class="mm-title">모델</div>
+      <div class="mm-row">${MODEL_CHOICES.map(m => `<button class="mm-opt ${p.model === m ? "on" : ""}" data-mm-model="${m}">${m}</button>`).join("")}</div>
+      <div class="mm-title">effort</div>
+      <div class="mm-row">${["", ...EFFORTS].map(e => `<button class="mm-opt ${p.effort === e ? "on" : ""}" data-mm-effort="${e}">${e || "기본"}</button>`).join("")}</div>
+      <div class="mm-foot"><span class="muted">고르면 바로 적용 — 이 문서의 다음 AI 요청부터</span></div>`;
+  };
+  // 세션과 달리 떠 있는 Claude 가 없으니 적용 단계 없이 고르는 즉시 기억한다
+  menu._onPick = p => {
+    save("csl.mdAi." + s.board_id, p);
+    const col = colEl(s.session_id);
+    if (col) { col._key = ""; updateBoardCol(col, s, +col.style.order || 1, col.classList.contains("pin-last")); }
+  };
+  draw();
+  menu._draw = draw;
+  const r = btn.getBoundingClientRect();
+  menu.style.left = Math.max(8, Math.min(r.left, innerWidth - 380)) + "px";
+  menu.style.top = (r.bottom + 6) + "px";
+  menu.hidden = false;
+}
 function isBoard(sid) { return /^bd-\d+$/.test(sid || ""); }
 function boardColSkeleton(s) {
   const sid = esc(s.session_id);
   const body = s.board === "term"
     ? `<div class="col-term bd-term"></div><div class="bd-closed" hidden></div>`
     : `<div class="md-doc">
-        <div class="md-bar"><div class="md-mode"><button type="button" data-md-mode="edit">✎ 편집</button><button type="button" data-md-mode="view">👁 보기</button></div>
+        <div class="md-bar"><div class="md-mode"><button type="button" data-md-mode="view" title="서식이 적용된 모양 그대로 고칩니다">Aa 서식</button><button type="button" data-md-mode="edit" title="마크다운 문법(원문)을 그대로 고칩니다"># 문법</button></div>
           <span class="md-status muted"></span></div>
         <textarea class="md-edit" spellcheck="false" placeholder="마크다운으로 적으세요 — 고치면 바로 저장됩니다"></textarea>
-        <div class="md-view md" hidden></div>
+        <div class="md-view md" contenteditable="true" spellcheck="false" data-placeholder="여기에 바로 적으세요 — 제목·목록·굵게가 서식으로 보이고, 고치면 바로 저장됩니다" hidden></div>
       </div>
       <div class="md-split" title="끌어서 문서·대화 크기 조절 · 더블클릭: 원래대로"></div>
       <div class="md-chat"></div>
-      <form class="md-ask" data-sid="${sid}"><textarea class="md-ask-text" rows="1" placeholder="AI 에게 문서 고치기 요청  Enter 보내기 · Shift+Enter 줄바꿈"></textarea>
+      <form class="md-ask" data-sid="${sid}"><textarea class="md-ask-text" rows="1" placeholder="AI 에게 고칠 내용 요청 · Enter 보내기" title="Enter 보내기 · Shift+Enter 줄바꿈"></textarea>
         <button class="btn primary md-ask-send" type="submit">보내기</button></form>`;
   return `<div class="col board-col ${s.board}-col" data-col="${sid}" data-drop-sid="${sid}">
     <div class="col-head"></div>${body}
@@ -7299,7 +7378,7 @@ function updateBoardCol(col, s, rank, lastPin) {
   col.style.order = rank;
   col.style.setProperty("--proj", projColor(s.project_root || s.cwd));
   applyColWidth(col, sid);
-  const key = [s.title, pinOf(s), s.archived, rank, lastPin, S.activeCol === sid, s.mtime, s.msg_sig, s.ai_running, s.alive, s.shell, S.uiVer].join("|");
+  const key = [s.title, pinOf(s), s.archived, rank, lastPin, S.activeCol === sid, s.mtime, s.msg_sig, s.ai_running, s.alive, s.shell, S.uiVer, s.board === "md" ? JSON.stringify(mdAi(s)) : ""].join("|");
   if (col._key === key) return;
   col._key = key;
   const pinned = !!pinOf(s), [icon, label] = BOARD_KIND[s.board] || ["", ""];
@@ -7320,7 +7399,7 @@ function updateBoardCol(col, s, rank, lastPin) {
     </div>
     <div class="title-line col-title-line"><span class="col-title title-text" title="${esc(s.title)}">${esc(s.title)}</span></div>
     <div class="col-meta"><span class="chip proj" title="${esc(s.project_root || "")}">${esc(s.project_name || base(s.project_root))}</span>${
-      s.board === "md" ? `<span class="chip bd-path" title="${esc(s.path || "")}">${esc(boardRelPath(s))}</span>`
+      s.board === "md" ? `<span class="chip bd-path" title="${esc(s.path || "")}">${esc(boardRelPath(s))}</span>${mdAiChip(s)}`
       : `<span class="chip bd-path" title="${esc(s.cwd)}">${esc(s.cwd.replace(/^\/Users\/[^/]+/, "~"))}</span>`}</div>`);
   if (s.board === "md") syncMd(col, s); else syncBoardTerm(col, s);
 }
@@ -7349,7 +7428,7 @@ function mdState(s) {
   let st = BD.docs.get(s.session_id);
   if (!st) {
     st = { text: "", mtime: 0, msgs: [], msgSig: null, loaded: false, loading: false, dirty: false, saving: false, timer: 0,
-      err: "", conflict: false, mode: load("csl.mdMode." + s.board_id, "edit") === "view" ? "view" : "edit" };
+      err: "", conflict: false, viewDirty: false, mode: load("csl.mdMode." + s.board_id, "view") === "edit" ? "edit" : "view" };
     BD.docs.set(s.session_id, st);
   }
   return st;
@@ -7359,6 +7438,7 @@ function syncMd(col, s) {
   const st = mdState(s);
   const ta = col.querySelector(".md-edit");
   ta.readOnly = !!s.ai_running;
+  col.querySelector(".md-view").contentEditable = s.ai_running ? "false" : "true";
   col.querySelector(".md-ask-send").disabled = !!s.ai_running;
   applyMdMode(col, st);
   const stale = s.mtime && s.mtime > st.mtime + 0.001 && !st.dirty && !st.saving;   // 서버 쪽이 더 새것일 때만(AI·다른 곳에서 고침)
@@ -7366,12 +7446,13 @@ function syncMd(col, s) {
   renderMdChat(col, st, s);
   mdStatus(col, st, s);
 }
-function applyMdMode(col, st) {
+function applyMdMode(col, st, force) {
   const ta = col.querySelector(".md-edit"), view = col.querySelector(".md-view");
   ta.hidden = st.mode !== "edit";
   view.hidden = st.mode !== "view";
   col.querySelectorAll("[data-md-mode]").forEach(b => b.classList.toggle("on", b.dataset.mdMode === st.mode));
-  if (st.mode === "view") setHtml(view, st.text.trim() ? md(st.text, { tasks: true }) : '<p class="muted">빈 문서입니다 — 「✎ 편집」에서 적거나 아래 AI 에게 맡기세요</p>');
+  // 서식 화면에서 고치는 중이면(포커스·아직 원문으로 안 바꾼 글) 다시 그리지 않는다 — 커서가 날아간다
+  if (st.mode === "view" && (force || (!st.viewDirty && !view.contains(document.activeElement)))) setHtml(view, st.text.trim() ? md(st.text, { tasks: true }) : "");
 }
 async function loadMd(s, force) {
   const st = mdState(s), sid = s.session_id;
@@ -7392,6 +7473,8 @@ async function loadMd(s, force) {
         const focused = document.activeElement === ta, a = ta.selectionStart, b = ta.selectionEnd;
         ta.value = d.text;
         if (focused) ta.setSelectionRange(Math.min(a, d.text.length), Math.min(b, d.text.length));
+        st.viewDirty = false;
+        applyMdMode(col, st, true);   // 서식 화면에 커서가 있어도 새 내용(AI·다른 곳에서 고친 것)으로
       }
     }
   } catch (e) {
@@ -7426,12 +7509,21 @@ function renderMdChat(col, st, s) {
   setHtml(box, html);
   box.scrollTop = box.scrollHeight;
 }
+// 서식 화면에서 고친 것을 원문(마크다운)으로 바꿔 편집칸에 넣는다 — 저장·문법 화면 전환·AI 요청 전에
+function flushMdView(col, st) {
+  if (!st.viewDirty) return;
+  const view = col.querySelector(".md-view"), ta = col.querySelector(".md-edit");
+  const md0 = htmlToMd(view.innerHTML);
+  ta.value = st.text = md0 ? md0 + "\n" : "";
+  st.viewDirty = false;
+}
 async function saveMd(sid) {
   const st = BD.docs.get(sid), s = sessionById(sid), col = colEl(sid);
   if (!st || !s || !col) return;
   clearTimeout(st.timer);
   if (st.saving) { st.timer = setTimeout(() => saveMd(sid), 400); return; }
   if (!st.dirty || st.conflict) return;
+  flushMdView(col, st);
   const text = col.querySelector(".md-edit").value;
   st.saving = true;
   st.dirty = false;
@@ -7451,17 +7543,14 @@ async function saveMd(sid) {
   const c = colEl(sid);
   if (c) mdStatus(c, st, sessionById(sid) || s);
 }
-// 보기 화면의 체크박스: 원문의 그 줄 [ ] ↔ [x] 를 바꿔 편집칸에 넣고 저장한다(편집에서 친 것과 같은 길)
+// 서식 화면의 체크박스: 체크 상태를 속성에 적어 두고(원문으로 바꿀 때 읽는다) 고친 것으로 쳐서 저장한다
 function toggleMdTask(box) {
   const col = box.closest(".col"), s = col && sessionById(col.dataset.col);
   if (!s) return;
-  const st = mdState(s), ta = col.querySelector(".md-edit");
+  const st = mdState(s);
   if (s.ai_running || st.conflict) { box.checked = !box.checked; return toast(s.ai_running ? "AI 가 고치는 중입니다" : "문서가 바뀐 것부터 정리해 주세요"); }
-  const lines = ta.value.replace(/\r/g, "").split("\n"), n = +box.dataset.line;
-  const m = lines[n] && lines[n].match(/^(\s*(?:[-*+]|\d+[.)])\s+\[)([ xX])(\].*)$/);
-  if (!m) { box.checked = !box.checked; return toast("그 항목을 원문에서 찾지 못했습니다 — 새로 불러온 뒤 다시"); }
-  lines[n] = m[1] + (box.checked ? "x" : " ") + m[3];
-  ta.value = st.text = lines.join("\n");
+  box.toggleAttribute("checked", box.checked);
+  st.viewDirty = true;
   st.dirty = true;
   clearTimeout(st.timer);
   st.timer = setTimeout(() => saveMd(s.session_id), 300);
@@ -7476,7 +7565,7 @@ async function sendMdAsk(sid) {
   if (st.conflict) return toast("문서가 바뀐 것부터 정리해 주세요(새로 불러오기)");
   if (st.dirty || st.saving) { st.dirty = true; await saveMd(sid); }   // 고치던 글을 먼저 저장해야 AI 가 그 글을 읽는다
   try {
-    await api("POST", `/api/boards/${s.board_id}/ai`, { text });
+    await api("POST", `/api/boards/${s.board_id}/ai`, { text, ...mdAi(s) });
     ta.value = "";
     s.ai_running = true;
     col._key = "";
@@ -7485,9 +7574,18 @@ async function sendMdAsk(sid) {
   } catch (e) { toast(e.message); }
 }
 document.addEventListener("input", e => {
-  if (!e.target.matches || !e.target.matches(".md-edit")) return;
+  const view = e.target.closest && e.target.closest(".md-view");
+  if (!view && !(e.target.matches && e.target.matches(".md-edit"))) return;
   const col = e.target.closest(".col"), sid = col && col.dataset.col, st = sid && BD.docs.get(sid);
   if (!st) return;
+  if (view) {
+    st.viewDirty = true;
+    if ((e.inputType === "insertText" || e.inputType === "insertCompositionText") && !e.isComposing && e.data) {
+      const ch = e.data.slice(-1);
+      if (ch === " ") mdAutoBlock(view);
+      else if (ch === "*" || ch === "`") mdAutoInline(view);
+    }
+  }
   st.dirty = true;
   clearTimeout(st.timer);
   st.timer = setTimeout(() => saveMd(sid), 700);
@@ -7511,10 +7609,11 @@ document.addEventListener("click", async e => {
     if (!s) return;
     const st = mdState(s);
     if (st.mode === "edit") st.text = col.querySelector(".md-edit").value;
+    else flushMdView(col, st);
     st.mode = mode.dataset.mdMode;
     save("csl.mdMode." + s.board_id, st.mode);
     applyMdMode(col, st);
-    if (st.mode === "edit") col.querySelector(".md-edit").focus();
+    col.querySelector(st.mode === "edit" ? ".md-edit" : ".md-view").focus();
     return;
   }
   const task = e.target.closest(".md-view .md-task");
@@ -7539,9 +7638,207 @@ document.addEventListener("click", async e => {
     return refresh();
   }
 });
-document.addEventListener("dblclick", e => {   // 보기에서 두 번 누르면 편집으로
-  const v = e.target.closest && e.target.closest(".md-col .md-view");
-  if (v) v.closest(".col").querySelector('[data-md-mode="edit"]').click();
+// 서식 화면에 붙여넣기: 서식은 살리되 정리해서(스크립트·스타일·이미지 등은 빼고), 글만 있으면 글로
+document.addEventListener("paste", e => {
+  const view = e.target.closest && e.target.closest(".md-view");
+  if (!view) return;
+  const html = e.clipboardData && e.clipboardData.getData("text/html"), text = e.clipboardData && e.clipboardData.getData("text/plain");
+  e.preventDefault();
+  if (html && !PLAIN_PASTE.on) document.execCommand("insertHTML", false, sanitizeRich(html));
+  else if (text) document.execCommand("insertText", false, text);
+});
+
+// ---- 서식 화면에서 마크다운 기호를 치면 바로 서식으로(Typora·Notion 처럼)
+// 줄 맨 앞 「### 」「- 」「1. 」「> 」「[ ] 」는 띄어쓰기 순간 제목·목록·인용·체크리스트로, 「```」「---」만 있는 줄에서 Enter 는
+// 코드 블록·구분선으로, **굵게**·*기울임*·`코드`는 닫는 기호를 치는 순간. 모두 execCommand 라 Ctrl+Z 로 되돌릴 수 있다
+// 캐럿 앞·뒤로 같은 줄(블록·<br> 경계까지)의 글. select() 는 캐럿 앞 그 글을 선택한다(같은 글 마디 안일 때만 — 아니면 false)
+const MD_BLOCK = /^(P|DIV|LI|H[1-6]|BLOCKQUOTE|PRE|UL|OL|TABLE|HR)$/;
+function mdAround() {
+  const sel = getSelection(), r0 = sel.getRangeAt(0), node = r0.startContainer, off = r0.startOffset;
+  let blk = node.nodeType === 1 ? node : node.parentElement;
+  while (!blk.classList.contains("md-view") && !MD_BLOCK.test(blk.tagName)) blk = blk.parentElement;
+  const seg = (range, last) => {
+    const parts = [""];
+    const walk = n => {
+      for (const c of n.childNodes) {
+        if (c.nodeType === 3) parts[parts.length - 1] += c.data;
+        else if (c.nodeName === "BR" || MD_BLOCK.test(c.nodeName)) parts.push("");
+        else walk(c);
+      }
+    };
+    walk(range.cloneContents());
+    return (last ? parts[parts.length - 1] : parts[0]).replace(/\u00a0/g, " ").replace(/\u200b/g, "");
+  };
+  const b = document.createRange(), a = document.createRange();
+  b.selectNodeContents(blk);
+  b.setEnd(node, off);
+  a.selectNodeContents(blk);
+  a.setStart(node, off);
+  const before = seg(b, true), after = seg(a, false);
+  return { before, after, select: () => {
+    if (node.nodeType !== 3 || off < before.length) return false;
+    const r = document.createRange();
+    r.setStart(node, off - before.length);
+    r.setEnd(node, off);
+    sel.removeAllRanges();
+    sel.addRange(r);
+    return true;
+  } };
+}
+function mdCaretEl(view) {
+  const sel = getSelection();
+  if (!sel.rangeCount || !sel.isCollapsed) return null;
+  const n = sel.anchorNode, el = n && (n.nodeType === 1 ? n : n.parentElement);
+  return el && view.contains(el) && !el.closest("pre, code") ? el : null;
+}
+function mdAutoBlock(view) {
+  const el = mdCaretEl(view);
+  if (!el) return;
+  const { before, select } = mdAround();
+  if (before.length > 8) return;
+  const li = el.closest("li"), head = el.closest("h1, h2, h3, h4, h5, h6"), cmd = (c, v) => document.execCommand(c, false, v);
+  const cut = () => select() && cmd("delete");
+  let m;
+  if ((m = before.match(/^(#{1,6}) $/)) && !li) { if (cut()) cmd("formatBlock", "h" + m[1].length); }
+  else if (head || el.closest("blockquote") && before !== "> ") return;
+  else if (!li && /^[-*+] $/.test(before)) { if (cut()) cmd("insertUnorderedList"); }
+  else if (!li && /^\d{1,3}[.)] $/.test(before)) { if (cut()) cmd("insertOrderedList"); }
+  else if (!li && before === "> ") { if (cut()) cmd("formatBlock", "blockquote"); }
+  else if ((m = before.match(/^(?:[-*+] )?\[([ xX]?)\] $/)) && !(li && li.querySelector(".md-task"))) {
+    if (!cut()) return;
+    if (!li) cmd("insertUnorderedList");
+    cmd("insertHTML", `<input type="checkbox" class="md-task"${m[1].trim() ? " checked" : ""}> `);
+  }
+}
+function mdAutoInline(view) {
+  if (!mdCaretEl(view)) return;
+  const sel = getSelection(), n = sel.anchorNode, off = sel.anchorOffset;
+  if (n.nodeType !== 3) return;
+  const s = n.data.slice(0, off);
+  // 굵게는 한글에 붙여 써도(이건**굵게**다), 기울임은 여는 * 앞이 영문·숫자면 그대로(2*3*4 같은 식)
+  const rules = [[/(?<![*\\])\*\*([^*\s](?:[^*]*[^*\s])?)\*\*$/, "strong"], [/(?<![A-Za-z0-9*\\])\*([^*\s](?:[^*]*[^*\s])?)\*$/, "em"],
+    [/(?<![`\\])`([^`]+)`$/, "code"]];
+  for (const [re, tag] of rules) {
+    const m = s.match(re);
+    if (!m) continue;
+    const r = document.createRange();
+    r.setStart(n, m.index);
+    r.setEnd(n, off);
+    sel.removeAllRanges();
+    sel.addRange(r);
+    // 뒤의 ​: 이어 치는 글이 굵게·코드 밖으로 나가게(원문으로 바꿀 때 지운다)
+    document.execCommand("insertHTML", false, `<${tag}>${esc(m[1])}</${tag}>​`);
+    return;
+  }
+}
+// 목록 항목 안: Tab 들여쓰기 · ⇧Tab 내어쓰기, 맨 앞에서 Backspace 는 체크박스 → 한 단계 밖으로(맨 바깥이면 보통 문단),
+// 빈 항목에서 Enter 도 한 단계 밖으로, 체크리스트 항목에서 Enter 는 새 체크 항목. 처리했으면 true
+// 체크 항목 → 보통 항목: 체크박스와 그 뒤 띄어쓰기를 지우고 캐럿은 항목 맨 앞
+function mdDropTask(box) {
+  const li = box.parentElement, t = box.nextSibling;
+  if (t && t.nodeType === 3) t.data = t.data.replace(/^[ \u00a0]+/, "");
+  box.remove();
+  if (!li.firstChild) li.appendChild(document.createElement("br"));
+  caretTo(li, false);
+}
+function mdListKey(e, view, cmd) {
+  if (!["Tab", "Backspace", "Enter"].includes(e.key)) return false;
+  const sel = getSelection(), n = sel.rangeCount && sel.anchorNode, el = n && (n.nodeType === 1 ? n : n.parentElement);
+  const li = el && el.closest("li");
+  if (!li || !view.contains(li) || el.closest("pre")) return false;
+  const box = li.querySelector(":scope > .md-task");
+  if (e.key === "Tab") {
+    e.preventDefault();
+    // 첫 항목은 붙을 앞 항목이 없어 들여쓰면 목록 안에 목록이 바로 생긴다 — 막는다
+    if (e.shiftKey) cmd("outdent");
+    else if (li.previousElementSibling) cmd("indent");
+  } else if (e.key === "Backspace") {
+    if (e.shiftKey || !sel.isCollapsed) return false;
+    // 항목 맨 앞인지 — 체크박스 뒤 띄어쓰기는 글로 치지 않는다
+    const r = document.createRange();
+    r.selectNodeContents(li);
+    r.setEnd(sel.anchorNode, sel.anchorOffset);
+    if (r.toString().replace(/[ \u00a0\u200b]/g, "") || r.cloneContents().querySelector("br, img, hr")) return false;
+    e.preventDefault();
+    if (box) { mdDropTask(box); view.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward" })); }
+    else cmd("outdent");
+  } else {
+    if (e.shiftKey) return false;
+    if (blockEmpty(li) && !li.querySelector("ul, ol")) { e.preventDefault(); if (box) mdDropTask(box); cmd("outdent"); }
+    else if (box) { e.preventDefault(); cmd("insertParagraph"); cmd("insertHTML", '<input type="checkbox" class="md-task">\u00a0'); }
+    else return false;
+  }
+  return true;
+}
+document.addEventListener("keydown", e => {
+  const view = e.target.closest && e.target.closest(".md-view");
+  if (!view || imeBusy(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+  const cmd = (c, v) => document.execCommand(c, false, v);
+  if (mdListKey(e, view, cmd)) return;
+  if (e.key === "Enter" && !e.shiftKey) {
+    const sel = getSelection(), n = sel.rangeCount && sel.anchorNode, el = n && (n.nodeType === 1 ? n : n.parentElement);
+    const pre = el && el.closest("pre");
+    if (pre && view.contains(pre)) {
+      // 코드 블록 안 Enter 는 줄바꿈. 마지막 빈 줄에서 한 번 더 누르면 블록 밖 새 문단으로
+      e.preventDefault();
+      const r = document.createRange();
+      r.selectNodeContents(pre);
+      r.setStart(sel.anchorNode, sel.anchorOffset);
+      const rest = r.toString(), text = preText(pre);
+      if (!rest.replace(/\n/g, "") && /\n\s*$/.test(text)) {
+        cmd("delete");
+        const p = document.createElement("p");
+        p.appendChild(document.createElement("br"));
+        pre.after(p);
+        const c = document.createRange();
+        c.setStart(p, 0);
+        sel.removeAllRanges();
+        sel.addRange(c);
+        view.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertParagraph" }));
+      } else cmd("insertLineBreak");
+      return;
+    }
+    if (!mdCaretEl(view) || el.closest("li")) return;
+    const { before, after, select } = mdAround();
+    const head = el.closest("h1, h2, h3, h4, h5, h6"), quote = el.closest("blockquote");
+    if (head) {
+      // 제목 끝에서 Enter: 다음 줄은 보통 문단(중간이면 브라우저대로 제목을 둘로 나눈다)
+      if (after.trim()) return;
+      e.preventDefault();
+      cmd("insertParagraph");
+      cmd("formatBlock", "p");
+      return;
+    }
+    if (quote) {
+      // 인용 안 Enter 는 같은 인용의 다음 줄, 빈 줄에서 한 번 더 누르면 인용 밖 새 문단
+      e.preventDefault();
+      if (!before.trim() && !after.trim()) exitBlockBelow(quote);
+      else cmd("insertLineBreak");
+      view.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertParagraph" }));
+      return;
+    }
+    if (after.trim()) return;
+    let m;
+    if ((m = before.trim().match(/^```([\w+#.-]*)$/))) {
+      e.preventDefault();
+      if (select()) cmd("delete");
+      cmd("formatBlock", "pre");
+      const a = getSelection().anchorNode, pr = a && (a.nodeType === 1 ? a : a.parentElement).closest("pre");
+      if (pr && m[1]) pr.setAttribute("data-lang", m[1]);
+    } else if (/^(-{3,}|\*{3,}|_{3,})$/.test(before.trim())) {
+      e.preventDefault();
+      if (select()) cmd("delete");
+      cmd("insertHorizontalRule");
+    }
+    return;
+  }
+  if (e.key === "Backspace" && !e.shiftKey) {
+    // 제목·인용 맨 앞에서 지우면 먼저 보통 문단으로(기호를 지운 것처럼)
+    const el = mdCaretEl(view), blk = el && el.closest("h1, h2, h3, h4, h5, h6, blockquote");
+    if (!blk || !view.contains(blk) || !caretAtStart(blk)) return;
+    e.preventDefault();
+    if (blk.tagName === "BLOCKQUOTE") cmd("outdent"); else cmd("formatBlock", "p");
+  }
 });
 
 // ---- 문서·대화 나누는 선: 끌어서 크기 조절, 더블클릭이면 원래대로. 보드 가득 크게 보기(Z 두 번)일 때는 대화가 오른쪽에 서고
@@ -7605,7 +7902,7 @@ function boardMenuHtml(s) {
     ${s.board === "md" ? `<button class="cm-item" data-cm="bd-copy">📋 파일 경로 복사 <span class="muted">${esc(boardRelPath(s))}</span></button>` : ""}
     ${s.board === "term" && !s.alive ? `<button class="cm-item" data-cm="bd-reopen">↻ 셸 다시 열기</button>` : ""}
     <button class="cm-item" data-cm="archive">🗄 ${s.archived ? "보관 해제" : "보관"} <span class="muted">${s.archived ? "" : "보드에서 숨기기"}</span></button>
-    <button class="cm-item danger" data-cm="bd-delete">🗑 칸 지우기 <span class="muted">${s.board === "md" ? "문서 파일은 남김" : "셸도 닫음"}</span></button>
+    <button class="cm-item danger" data-cm="bd-delete">🗑 칸 지우기 <span class="muted">${s.board === "md" ? "문서 파일은 고를 수 있음" : "셸도 닫음"}</span></button>
     ${colWidthOf(s.session_id) ? `<button class="cm-item" data-cm="width-reset">↔ 기본 너비로 <span class="muted">${colWidthOf(s.session_id)}px</span></button>` : ""}`;
 }
 // 처리했으면 true(메뉴 클릭 처리기의 앞부분에서 부른다)
@@ -7622,8 +7919,10 @@ async function boardMenuAction(item, menu, s) {
   }
   if (act === "bd-delete") {
     item.outerHTML = `<div class="cm-confirm"><div>이 칸을 지울까요?<br><span class="muted">${s.board === "md"
-      ? `AI 대화 기록은 지워지고, 문서 파일(${esc(boardRelPath(s))})은 폴더에 그대로 남습니다`
-      : "그 터미널의 셸도 닫습니다 — 돌던 명령이 있으면 끊깁니다"}</span></div>
+      ? "AI 대화 기록은 지워집니다"
+      : "그 터미널의 셸도 닫습니다 — 돌던 명령이 있으면 끊깁니다"}</span></div>${s.board === "md" ? `
+      <label class="cm-wt-opt"><input type="checkbox" class="bd-trash"> <span class="cm-wt-name">문서 파일도 지우기</span>
+        <span class="muted">${esc(boardRelPath(s))} 를 휴지통으로 — 끄면 폴더에 그대로 남습니다</span></label>` : ""}
       <div class="cm-confirm-btns"><button class="btn" data-cm="cancel">취소</button><button class="btn danger" data-cm="bd-delete-yes">지우기</button></div></div>`;
     menu.querySelector('[data-cm="bd-delete-yes"]').focus();
     return true;
@@ -7637,7 +7936,12 @@ async function boardMenuAction(item, menu, s) {
     return true;
   }
   if (act === "bd-delete-yes") {
-    try { await api("DELETE", `/api/boards/${s.board_id}`); toast("칸을 지웠습니다"); } catch (err) { toast(err.message); }
+    const trash = !!(menu.querySelector(".bd-trash") || {}).checked;
+    try {
+      const r = await api("DELETE", `/api/boards/${s.board_id}` + (trash ? "?file=trash" : ""));
+      toast(trash ? (r.trashed ? "칸을 지우고 문서 파일을 휴지통으로 옮겼습니다" : "칸은 지웠지만 문서 파일은 옮기지 못했습니다(이미 없거나 옮길 수 없음)")
+        : "칸을 지웠습니다 · 문서 파일은 폴더에 남아 있습니다");
+    } catch (err) { toast(err.message); }
     BD.docs.delete(sid);
     refresh();
     return true;

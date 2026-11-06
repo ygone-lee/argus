@@ -187,18 +187,38 @@ def rename(conn, bid, title):
     return bool(title)
 
 
-def remove(conn, bid):
-    """칸을 지운다. 터미널 칸은 그 셸도 닫는다. 마크다운 파일은 지우지 않고 그대로 둔다."""
+def _trash(path):
+    """파일을 macOS 휴지통(~/.Trash)으로 옮긴다 — 되살릴 수 있게. 이름이 겹치면 뒤에 시각을 붙인다. 옮긴 곳 또는 None."""
+    trash = os.path.expanduser("~/.Trash")
+    if not os.path.isfile(path) or not os.path.isdir(trash):
+        return None
+    base, ext = os.path.splitext(os.path.basename(path))
+    dest = os.path.join(trash, base + ext)
+    if os.path.exists(dest):
+        dest = os.path.join(trash, "%s %s%s" % (base, time.strftime("%H.%M.%S"), ext))
+    try:
+        os.rename(path, dest)
+    except OSError:
+        return None
+    return dest
+
+
+def remove(conn, bid, trash_file=False):
+    """칸을 지운다. 터미널 칸은 그 셸도 닫는다. 마크다운 파일은 그대로 두고, trash_file 이면 휴지통으로 옮긴다
+    (그 칸이 만든 .argus/boards/ 안의 파일만). (성공, 휴지통으로 옮긴 곳 또는 None)."""
     r = _row(conn, bid)
     if not r:
-        return False
+        return False, None
+    moved = None
+    if trash_file and r["kind"] == "md" and r["path"] and os.sep + os.path.join(".argus", "boards") + os.sep in r["path"]:
+        moved = _trash(r["path"])
     if r["kind"] == "term" and r["shell"]:
         web = _web()
         if web:
             web.kill_board_shell(r["shell"])
     conn.execute("DELETE FROM board_msgs WHERE board_id=?", (bid,))
     conn.execute("DELETE FROM boards WHERE id=?", (bid,))
-    return True
+    return True, moved
 
 
 def reopen_shell(conn, bid):
@@ -271,8 +291,9 @@ def undo(conn, bid, mid):
     return True, None
 
 
-def ask(conn, bid, text):
-    """AI 에게 문서 고치기를 맡긴다(따로 돈다). (성공, 오류)."""
+def ask(conn, bid, text, model=None, effort=None):
+    """AI 에게 문서 고치기를 맡긴다(따로 돈다). model·effort 는 칸에서 고른 것 — 모델은 화면 이름(Sonnet 5.5 등)이고
+    없으면 설정 board_ai_model, effort 는 비우면 모델 기본값. 답 줄의 model 칸에 「Opus 5.5 · high」처럼 남긴다. (성공, 오류)."""
     r = _row(conn, bid)
     if not r or r["kind"] != "md":
         return False, "문서 칸이 아닙니다"
@@ -286,11 +307,24 @@ def ask(conn, bid, text):
     t = store.now()
     conn.execute("INSERT INTO board_msgs (board_id, role, text, status, at) VALUES (?,?,?,?,?)", (bid, "user", text, "done", t))
     mid = conn.execute("INSERT INTO board_msgs (board_id, role, text, status, model, at) VALUES (?,?,?,?,?,?)",
-                       (bid, "ai", "", "running", config.get(conn, "board_ai_model") or "sonnet", t)).lastrowid
+                       (bid, "ai", "", "running", _label(conn, model, effort), t)).lastrowid
     conn.execute("UPDATE boards SET updated_at=? WHERE id=?", (t, bid))
     conn.commit()
     threading.Thread(target=_run, args=(bid, mid), daemon=True).start()
     return True, None
+
+
+def _label(conn, model, effort):
+    if model not in config.CARDCHAT_MODELS and model not in config.MODELS:
+        model = config.get(conn, "board_ai_model") or "sonnet"
+    return model + (" · " + effort if effort in config.EFFORTS else "")
+
+
+def _model_args(label):
+    """답 줄에 남긴 「Opus 5.5 · high」 → claude 인자. 예전 줄(sonnet 등 별칭만)도 그대로 된다."""
+    name, _, effort = (label or "sonnet").partition(" · ")
+    args = ["--model", config.CARDCHAT_MODELS.get(name, name)]
+    return args + ["--effort", effort] if effort in config.EFFORTS else args
 
 
 def _run(bid, mid):
@@ -314,7 +348,7 @@ def _run(bid, mid):
                                                for h in before) + "\n\n" if before else "") +
                   "이번 요청:\n" + request)
         allow = ["Read(./%s)" % name, "Edit(./%s)" % name, "Write(./%s)" % name]
-        cmd = [_claude_bin(), "-p", prompt, "--model", model, "--session-id", str(uuid.uuid4()), "--no-session-persistence",
+        cmd = [_claude_bin(), "-p", prompt, *_model_args(model), "--session-id", str(uuid.uuid4()), "--no-session-persistence",
                "--output-format", "json", "--permission-mode", "dontAsk", "--append-system-prompt", SYSTEM,
                "--allowedTools", *allow, "--disallowedTools", "Bash", "WebFetch", "WebSearch", "NotebookEdit", "Task"]
         try:

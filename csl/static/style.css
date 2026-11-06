@@ -1936,6 +1936,7 @@ li.note.q-after { box-shadow: inset 0 -2px 0 var(--accent); }
   border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: calc(13px * var(--fs, 1)); line-height: 1.4;
 }
 .md-ask-text:focus { outline: none; border-color: var(--accent); }
+.md-ask .md-ask-send { height: 34px; }
 .mdc-ai .spin { width: 12px; height: 12px; border: 2px solid var(--accent-soft); border-top-color: var(--accent); border-radius: 50%; animation: col-imp-spin .8s linear infinite; }
 /* 체크리스트(- [ ] / - [x]): 글머리표 대신 체크박스. 마크다운 칸의 보기에서는 눌러서 바꾼다 */
 .md li:has(> .md-task) { list-style: none; margin-left: -1.25em; }
@@ -1971,3 +1972,22 @@ body.col-zoom-full .board > .md-col.active > .md-split:hover::after,
 body.col-zoom-full .board > .md-col.active > .md-split.dragging::after { left: 2px; width: 3px; }
 body.col-zoom-full .board > .md-col.active > .md-chat { grid-column: 3; grid-row: 2; max-height: none !important; min-height: 0; }
 body.col-zoom-full .board > .md-col.active > .md-ask { grid-column: 3; grid-row: 3; }
+/* 마크다운 칸의 서식 화면: 바로 고친다. 제목은 원문 수준(#~######) 그대로 */
+.md-view { outline: none; cursor: text; }
+.md-view:empty::before { content: attr(data-placeholder); color: var(--text-3); pointer-events: none; }
+.md-view[contenteditable="false"] { color: var(--text-2); background: var(--surface-2); cursor: default; }
+.md-view h1 { font-size: calc(20px * var(--fs, 1)); margin: 6px 0 10px; }
+.md-view h2 { font-size: calc(17px * var(--fs, 1)); }
+.md-view h3 { font-size: calc(15px * var(--fs, 1)); }
+.md-view h4, .md-view h5, .md-view h6 { font-size: calc(13.5px * var(--fs, 1)); }
+.md-view .code-copy { display: none; }
+
+/* 브레인 패널: 색은 보드와 같게 두고, 오른쪽 가장자리에 그림자를 드리워 보드 위에 떠 있는 서랍처럼 — 세션 칸과 갈리게 */
+.brain-panel:not([hidden]) { z-index: 3; box-shadow: 6px 0 18px -8px rgba(34, 32, 28, .28); }
+:root[data-theme="dark"] .brain-panel:not([hidden]) { box-shadow: 6px 0 20px -6px rgba(0, 0, 0, .7); }
+/* 자리를 옮긴(위로 올라간·새로 예약된) 할 일: 잠깐 강조 — 어디로 갔는지 눈에 들어오게 */
+@keyframes note-moved {
+  0%, 35% { background: var(--accent-soft); outline-color: var(--accent); }
+  100% { background: transparent; outline-color: transparent; }
+}
+li.note.note-moved { outline: 2px solid transparent; outline-offset: -2px; border-radius: 6px; animation: note-moved 1.8s ease-out; }

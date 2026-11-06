@@ -555,15 +555,23 @@ def _btw_view(lines, question):
     """(다 썼는지, 답 글 또는 None). 곁질문 창이 아니면 (False, None)."""
     lines = [ln.replace("\xa0", " ").rstrip() for ln in lines]
     foot = next((i for i in range(len(lines) - 1, -1, -1) if _BTW_FOOT in lines[i] and "/btw" not in lines[i]), None)
-    if foot is None or "browse" not in lines[foot] and "copy" not in lines[foot] and "scroll" not in lines[foot]:
+    if foot is None:
+        return False, None
+    # 안내 줄이 터미널 폭보다 길면 두세 줄로 꺾인다(지난 곁질문이 있으면 「x to clear history」까지 붙어 길어진다) —
+    # 「· 」로 이어지는 윗줄을 붙여 한 줄로 읽고, 본문은 그 위에서 끊는다
+    foot_text, top = lines[foot], foot
+    while top > 0 and top > foot - 3 and re.search(r"\bto (browse|copy|fork|clear|scroll)\b", lines[top - 1]) and "/btw" not in lines[top - 1]:
+        top -= 1
+        foot_text = lines[top].rstrip() + " " + foot_text.strip()
+    if "browse" not in foot_text and "copy" not in foot_text and "scroll" not in foot_text:
         return False, None
     want = re.sub(r"\s+", "", question)[:20]
-    head = next((i for i in range(foot - 1, -1, -1)
+    head = next((i for i in range(top - 1, -1, -1)
                  if lines[i].strip().startswith("/btw") and re.sub(r"\s+", "", lines[i].strip()[4:]).startswith(want)), None)
     if head is None:
         return False, None
     body = []
-    for ln in lines[head + 1:foot]:
+    for ln in lines[head + 1:top]:
         if ln.strip().startswith("/btw") and not ln.startswith("      "):
             break   # 다음 질문(이 질문은 답이 접힌 지난 것)
         body.append(ln)
@@ -572,7 +580,7 @@ def _btw_view(lines, question):
     text = "\n".join(ln[6:] if ln.startswith("      ") else ln.strip() for ln in body).strip()
     if "Answering" in text and len(text) < 40:
         return False, ""
-    return "c to copy" in lines[foot], text
+    return "c to copy" in foot_text, text
 
 
 def read_btw(t, question, timeout=150, find_wait=45):
@@ -726,8 +734,10 @@ def _rewind_view(lines):
 
 
 def rewind_key(prompt):
-    """되돌리기 목록에 보이는 모양으로 맞춘 요청 글(첫 줄, 공백 정리)."""
-    return _norm_text(prompt.splitlines()[0] if prompt else "")
+    """되돌리기 목록에 보이는 모양으로 맞춘 요청 글(내용이 있는 첫 줄, 공백 정리). 빈 줄로 시작하는 글(이미지를 붙이고
+    줄을 바꾼 뒤 쓴 글 등)은 첫 줄이 비어 「되돌릴 요청 글이 없습니다」가 났다 — 목록도 빈 줄은 건너뛰고 보여 준다."""
+    first = next((ln for ln in (prompt or "").splitlines() if ln.strip()), "")
+    return _norm_text(first)
 
 
 def _rewind_match(shown, key):

@@ -1230,7 +1230,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         self._dispatch("DELETE")
 
-    def _boards(self, conn, method, path, body):
+    def _boards(self, conn, method, path, body, query=None):
         """세션이 아닌 보드 칸(csl/boards.py): 만들기 · 문서 읽기·저장 · AI 편집·되돌리기 · 이름 · 지우기.
         터미널 칸을 만들거나 다시 여는 것은 셸을 띄우는 길이라 셸 탭과 같이 같은 출처·토큰(X-Argus-Term)을 요구한다."""
         term_ok = lambda: self._term_ok(self.headers.get("X-Argus-Term") or "")
@@ -1250,15 +1250,16 @@ class Handler(BaseHTTPRequestHandler):
             d = boards.read_doc(conn, bid)
             return self._send(200, d) if d is not None else self._send(400, {"error": "문서 칸이 아닙니다"})
         if action is None and method == "DELETE":
-            boards.remove(conn, bid)
-            return self._send(200, {"ok": True})
+            # file=trash: 마크다운 문서 파일도 휴지통으로(되살릴 수 있게 완전히 지우지는 않는다)
+            _, moved = boards.remove(conn, bid, trash_file=((query or {}).get("file") or [""])[0] == "trash")
+            return self._send(200, {"ok": True, "trashed": moved})
         if method != "POST":
             return self._send(405, {"error": "method"})
         if action == "doc":
             ok, err, mtime = boards.write_doc(conn, bid, body.get("text"), body.get("mtime"))
             return self._send(200, {"ok": True, "mtime": mtime}) if ok else self._send(409, {"error": err, "mtime": mtime})
         if action == "ai":
-            ok, err = boards.ask(conn, bid, body.get("text"))
+            ok, err = boards.ask(conn, bid, body.get("text"), body.get("model"), body.get("effort"))
             return self._send(200, {"ok": True}) if ok else self._send(409, {"error": err})
         if action == "undo":
             ok, err = boards.undo(conn, bid, int(body.get("mid") or 0))
@@ -1832,7 +1833,7 @@ class Handler(BaseHTTPRequestHandler):
             LAUNCHED[tg.handle] = store.now()
             return self._send(200, {"ok": True, "handle": tg.handle, "terminal": tg.terminal.name, "label": tg.terminal.label})
         if path == "/api/boards" or path.startswith("/api/boards/"):
-            return self._boards(conn, method, path, body)
+            return self._boards(conn, method, path, body, query)
         if path == "/api/shells" or path.startswith("/api/shells/"):
             # 오른쪽 터미널 드로어의 셸 탭: 브라우저에서 내 계정으로 아무 명령이나 실행하는 길이라
             # 같은 출처(Origin)·토큰(X-Argus-Term)을 늘 요구한다 — 다른 사이트가 몰래 셸을 띄우거나 닫지 못하게
