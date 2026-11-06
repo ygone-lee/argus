@@ -179,8 +179,11 @@ function dur(sec) {
   return Math.floor(m / 60) + "시간 " + (m % 60) + "분";
 }
 function base(p) { return p ? p.replace(/\/+$/, "").split("/").pop() : ""; }
-// 프로젝트별 색: 처음 본 순서대로 겹치지 않게 배정하고 브라우저에 기억한다
-const PROJECT_COLORS = ["#2f6fde", "#2f9e66", "#c96442", "#8a5cd6", "#0e9aa7", "#d6457d", "#b8860b", "#5b7c99", "#6a8f2a", "#d0453a"];
+// 프로젝트별 색: 처음 본 순서대로 겹치지 않게 배정하고 브라우저에 기억한다. 프로젝트 메뉴의 점·칸 머리 프로젝트 칩에서 직접 고를 수 있다
+// 저장값은 이 배열의 번호라 뒤에만 덧붙인다. 모두 밝은·어두운 테마에서 칩 글자 대비 4.5 이상인 중간 밝기 색(노랑·연한 색은 넣지 않는다)
+const PROJECT_COLORS = ["#2f6fde", "#2f9e66", "#c96442", "#8a5cd6", "#0e9aa7", "#d6457d", "#b8860b", "#5b7c99", "#6a8f2a", "#d0453a",
+  "#5560d8", "#a3489d", "#8d5e3a", "#23787a", "#6c6a73"];
+const PROJECT_COLOR_ORDER = [9, 2, 12, 6, 8, 1, 4, 13, 0, 10, 3, 11, 5, 7, 14];   // 고르는 창에 보일 순서(색상환)
 const projColorMap = load("csl.projColors", {});
 function projColor(root) {
   if (!root) return "var(--text-3)";
@@ -191,8 +194,37 @@ function projColor(root) {
     projColorMap[root] = i < PROJECT_COLORS.length ? i : [...root].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % PROJECT_COLORS.length;
     save("csl.projColors", projColorMap);
   }
-  return PROJECT_COLORS[projColorMap[root]];
+  return PROJECT_COLORS[projColorMap[root]] || PROJECT_COLORS[0];
 }
+function setProjColor(root, i) {
+  projColorMap[root] = i;
+  save("csl.projColors", projColorMap);
+  S.uiVer++;
+  renderProjBtn();
+  renderBoard();
+}
+// 색 고르는 작은 창. 지금 보드에 있는 다른 프로젝트가 쓰는 색은 점으로 표시만 하고 고를 수는 있게 둔다
+function openProjColorMenu(anchor, root, name) {
+  const m = $("#projColorMenu");
+  if (!m.hidden && m.dataset.root === root) { m.hidden = true; return; }
+  const users = {};
+  for (const g of projectGroups()) if (g.key !== root) { const i = projColorMap[g.key]; (users[i] = users[i] || []).push(g.name); }
+  projColor(root);
+  const cur = projColorMap[root];
+  m.dataset.root = root;
+  m.innerHTML = `<div class="pc-title"><span class="pc-name">${esc(name || base(root))}</span> 색</div>
+    <div class="pc-grid">${PROJECT_COLOR_ORDER.map(i => `<button type="button" class="pc-sw ${i === cur ? "on" : ""} ${users[i] ? "used" : ""}"
+      data-pc="${i}" style="--sw:${PROJECT_COLORS[i]}" title="${users[i] ? esc("사용 중: " + users[i].join(", ")) : ""}"></button>`).join("")}</div>`;
+  m.hidden = false;
+  placeMenu(m, anchor);
+}
+$("#projColorMenu").addEventListener("click", e => {
+  const b = e.target.closest("[data-pc]");
+  if (!b) return;
+  const m = $("#projColorMenu");
+  setProjColor(m.dataset.root, +b.dataset.pc);
+  m.querySelectorAll(".pc-sw").forEach(x => x.classList.toggle("on", x === b));
+});
 // 워크트리 표시 이름. 폴더명이 프로젝트명과 같으면(예: ~/.codex/worktrees/<이름>/<프로젝트>) 상위 폴더명을 쓴다
 function wtName(s) {
   if (!s.worktree) return "";
@@ -636,7 +668,7 @@ function drawProjMenu() {
     ${dot}<span class="pm-name">${esc(name)}</span><span class="pm-meta">${meta}</span><span class="pm-n">${n}</span></button>`;
   $("#projMenu").innerHTML = row("", '<span class="proj-dot all"></span>', "전체 프로젝트", total, `${groups.length}개 프로젝트`) +
     '<div class="tm-sep"></div>' +
-    groups.map(g => row(g.key, `<span class="proj-dot" style="background:${projColor(g.key)}"></span>`, g.name, g.n,
+    groups.map(g => row(g.key, `<span class="proj-dot pick" data-proj-color="${esc(g.key)}" data-proj-name="${esc(g.name)}" title="색 바꾸기" style="background:${projColor(g.key)}"></span>`, g.name, g.n,
       [g.waiting ? `<span class="pm-wait">확인 ${g.waiting}</span>` : "", g.working ? `작업 중 ${g.working}` : "",
         g.unread ? `새 응답 ${g.unread}` : ""].filter(Boolean).join(" · "))).join("");
 }
@@ -656,6 +688,8 @@ $("#projBtn").addEventListener("click", () => {
   placeMenu(m, $("#projBtn"));
 });
 $("#projMenu").addEventListener("click", e => {
+  const dot = e.target.closest("[data-proj-color]");
+  if (dot) return openProjColorMenu(dot, dot.dataset.projColor, dot.dataset.projName);
   const b = e.target.closest("[data-proj]");
   if (!b) return;
   $("#projMenu").hidden = true;
@@ -1544,7 +1578,7 @@ function updateCol(col, s, rank, lastPin) {
       </div>
       ${s.brain /* 브레인은 늘 같은 폴더라 프로젝트·브랜치 칩은 빼고 모델·권한만(패널이 좁아 윗줄에 두면 넘친다) */
         ? `<div class="col-meta">${modelChip(s, d)}${permChip(s, d)}</div>`
-        : `<div class="col-meta"><span class="chip proj" title="${esc(s.project_root || "")}">${esc(s.project_name || base(s.project_root))}</span>${placeChips(s)}${diffChip(s)}${modelChip(s, d)}${permChip(s, d)}</div>`}
+        : `<div class="col-meta"><span class="chip proj" data-action="proj-color" data-root="${esc(s.project_root || s.cwd || "")}" title="${esc(s.project_root || "")} · 눌러서 색 바꾸기">${esc(s.project_name || base(s.project_root))}</span>${placeChips(s)}${diffChip(s)}${modelChip(s, d)}${permChip(s, d)}</div>`}
       ${goalChip(s, d)}
       ${s.state_detail && (d === "waiting" || d === "error") ? `<div class="col-detail">${esc(s.state_detail)}</div>` : ""}`);
   }
@@ -1636,7 +1670,7 @@ function updateFamily(col, s) {
 }
 // 떠 있는 메뉴·창은 바깥을 누르면 닫는다: [메뉴, 눌러도 닫지 않을 곳(메뉴 자신과 여는 버튼)]
 const CLOSE_OUTSIDE = [
-  ["#projMenu", "#projMenu, #projBtn"], ["#colMenu", "#colMenu, .col-menu-btn"], ["#newMenu", "#newMenu, #newBtn"],
+  ["#projMenu", "#projMenu, #projBtn, #projColorMenu"], ["#projColorMenu", "#projColorMenu, [data-proj-color], [data-action=proj-color]"], ["#colMenu", "#colMenu, .col-menu-btn"], ["#newMenu", "#newMenu, #newBtn"],
   ["#ctxMenu", "#ctxMenu, .ctx-chip"], ["#modelMenu", "#modelMenu, .model-chip"], ["#topMenu", ".top-menu-wrap"],
   ["#searchPanel", "#searchPanel, #search"],
   ["#xMenu", "#xMenu, .turn-rw, .perm-chip, .goal-chip, #agentsBtn, .col-menu-btn, #colMenu, .bgt-chip, .fork-chip"],
@@ -5170,6 +5204,7 @@ document.addEventListener("click", async e => {
   if (a === "rename") { e.preventDefault(); return startRename(el); }
   if (a === "model-menu") return openModelMenu(el);
   if (a === "md-model-menu") return openMdModelMenu(el);
+  if (a === "proj-color") return openProjColorMenu(el, el.dataset.root, el.textContent);
   if (a === "note-queue") {
     const on = !el.classList.contains("on");
     try {
@@ -5387,7 +5422,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") {
     // 위에 뜬 것부터 하나만 닫는다. 같은 Esc 로 펼친 카드까지 접히지 않게 뒤 처리기로 넘기지 않는다
     if (DRAG.on) { endDrag(true); e.stopImmediatePropagation(); return; }
-    const open = ["#resumeModal", "#xMenu", "#taskModal", "#diffModal", "#colMenu", "#ctxMenu", "#newMenu", "#projMenu", "#topMenu", "#notifMenu", "#help", "#updateModal", "#settings", "#connectors"].find(id => !$(id).hidden);
+    const open = ["#projColorMenu", "#resumeModal", "#xMenu", "#taskModal", "#diffModal", "#colMenu", "#ctxMenu", "#newMenu", "#projMenu", "#topMenu", "#notifMenu", "#help", "#updateModal", "#settings", "#connectors"].find(id => !$(id).hidden);
     if (open) { $(open).hidden = true; e.stopImmediatePropagation(); return; }
     if (document.activeElement === $("#search") || !$("#searchPanel").hidden) { closeSearch(); e.stopImmediatePropagation(); return; }
     // 입력창에서 빠져나오기(쓰던 글은 그대로). 메모 고치기·이름 바꾸기는 각자 Esc 를 처리한다
@@ -7468,7 +7503,7 @@ function updateBoardCol(col, s, rank, lastPin) {
       <button class="col-menu-btn" data-action="col-menu" data-sid="${esc(sid)}" title="이름 · 고정 · 보관 · 지우기" aria-label="칸 메뉴">⋮</button>
     </div>
     <div class="title-line col-title-line"><span class="col-title title-text" title="${esc(s.title)}">${esc(s.title)}</span></div>
-    <div class="col-meta"><span class="chip proj" title="${esc(s.project_root || "")}">${esc(s.project_name || base(s.project_root))}</span>${
+    <div class="col-meta"><span class="chip proj" data-action="proj-color" data-root="${esc(s.project_root || s.cwd || "")}" title="${esc(s.project_root || "")} · 눌러서 색 바꾸기">${esc(s.project_name || base(s.project_root))}</span>${
       s.board === "md" ? `<span class="chip bd-path" title="${esc(s.path || "")}">${esc(boardRelPath(s))}</span>${mdAiChip(s)}`
       : `<span class="chip bd-path" title="${esc(s.cwd)}">${esc(s.cwd.replace(/^\/Users\/[^/]+/, "~"))}</span>`}</div>`);
   if (s.board === "md") syncMd(col, s); else syncBoardTerm(col, s);

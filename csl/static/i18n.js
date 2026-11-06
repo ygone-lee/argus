@@ -9,7 +9,7 @@ const LANG = (() => { try { return JSON.parse(localStorage.getItem("csl.lang")) 
 const I18N_SKIP = ".col-term, .tp-tabs, .md, .bubble, .col-title, .title-text, .rename-input, .col-recap, .recap-clamp, .steps, .tdetail, .mid-text, " +
   ".ib-summary, .ib-rec b, .ib-rec .muted, .ib-meta b, .ib-prompt, .ask-qhead, .ask-opt b, .ask-opt .muted, .nm-folder b, " +
   ".note-text, .daily-body, .sr-text, .sr-title, .sr-scope, .msg-notice .muted, .notice-sum, .ib-target, #langSel, " +
-  ".chip.proj, .pm-name, .cmp-text, .note-input, .ctx-note, .nm-prompt, textarea, script, style, code, pre, " +
+  ".chip.proj, .pm-name, .pc-name, .cmp-text, .note-input, .ctx-note, .nm-prompt, textarea, script, style, code, pre, " +
   // 카드 보기·곁질문·활동·인박스 칸반·카드 기록·카드 대화의 사용자 내용
   ".fam-tab-t, .goal-t, .ag-main b, .ag-last, .ib-run-sum, .ib-file, .pc-head, .pc-opt, .bgt-desc, .task-title, .task-meta, .task-body, .dv-tbl, .dv-fname, .dv-commit, .diff-title, .sc-title, .sc-recap, .sc-last, .sc-meta .chip, .aside-q, .aside-a, .act-main b, .act-text, .ib-todo, .ibl-text, " +
   ".sp-desc:not(.board), .kb-h > div, .ibc-u, .ibc-err, .cmp-rich, .sref, .chip.wt, .chip.br, .ib-stage .muted, .ib-reply-text, .cn-name, .act-main .muted, .act-ask-t, .sw-title, .sw-where, .resume-name, .ibp-t, .ibp-sub";
@@ -28,7 +28,7 @@ const I18N_ROWS = [
   ["5시간", "5時間", "5h"], ["주간", "週間", "Week"], ["권장 {}%", "推奨 {}%", "pace {}%"],
   ["대화 검색 — 내 요청·Claude 응답 ( / )", "会話検索 — 自分の依頼・Claude の応答 ( / )", "Search conversations — my prompts · Claude replies ( / )"],
   ["프로젝트 {}", "プロジェクト {}", "Projects {}"], ["· {}", "· {}", "· {}"],
-  ["프로젝트별로 보기", "プロジェクト別に表示", "Filter by project"], ["전체 프로젝트", "すべてのプロジェクト", "All projects"],
+  ["프로젝트별로 보기", "プロジェクト別に表示", "Filter by project"], ["전체 프로젝트", "すべてのプロジェクト", "All projects"], ["색 바꾸기", "色を変更", "Change color"], ["색", "色", "color"], ["사용 중: {*}", "使用中: {*}", "In use: {*}"],
   ["{}개 프로젝트", "{} プロジェクト", "{} projects"], ["확인 {}", "要確認 {}", "needs you {}"], ["작업 중 {}", "作業中 {}", "working {}"],
   ["새 응답 {}", "新しい応答 {}", "new {}"], ["프로젝트 필터를 풀었습니다", "プロジェクトの絞り込みを解除しました", "Cleared the project filter"],
   ["이 프로젝트에 지금 보이는 세션이 없습니다 — 위 프로젝트 버튼에서 「전체 프로젝트」로", "このプロジェクトに表示中のセッションはありません — 上のプロジェクトボタンで「すべてのプロジェクト」へ", "No visible sessions in this project — switch to \"All projects\" with the project button above"],

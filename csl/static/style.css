@@ -494,9 +494,11 @@ body.view-board .board::after { order: 999999; }
 }
 .chip.proj {
   background: color-mix(in srgb, var(--proj) 16%, transparent);
-  color: color-mix(in srgb, var(--proj) 82%, var(--text));
+  color: color-mix(in srgb, var(--proj) 60%, var(--text));   /* 60%: 팔레트 어느 색이든 글자 대비 4.5 이상 */
   font-weight: 650;
 }
+.chip.proj[data-action] { cursor: pointer; }
+.chip.proj[data-action]:hover { background: color-mix(in srgb, var(--proj) 26%, transparent); }
 [data-theme="dark"] .col-head { background: color-mix(in srgb, var(--proj) 14%, var(--surface-2)); }
 [data-theme="dark"] .chip.proj { background: color-mix(in srgb, var(--proj) 26%, transparent); color: color-mix(in srgb, var(--proj) 55%, var(--text)); }
 
@@ -1073,6 +1075,19 @@ body.bp-resizing, body.bp-resizing *, body.tp-resizing, body.tp-resizing * { cur
 .proj-btn .n { color: var(--text-3); font-weight: 500; }
 .proj-btn.on { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
 .proj-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--text-3); }
+.proj-dot.pick { width: 13px; height: 13px; margin: -2px; border: 2px solid transparent; background-clip: padding-box; cursor: pointer; }
+.proj-dot.pick:hover { border-color: color-mix(in srgb, var(--text) 25%, transparent); }
+/* 프로젝트 색 고르기 */
+.pc-menu { width: 214px; padding: 10px 12px 12px; }
+.pc-title { font-size: calc(12px * var(--fs, 1)); color: var(--text-2); margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pc-name { font-weight: 700; color: var(--text); }
+.pc-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.pc-sw { position: relative; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; background: var(--sw); cursor: pointer; }
+.pc-sw:hover { transform: scale(1.1); }
+.pc-sw.on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--sw); }
+.pc-sw.on::after { content: ""; position: absolute; left: 10px; top: 7px; width: 7px; height: 12px; border: solid #fff; border-width: 0 2.5px 2.5px 0; transform: rotate(45deg); }
+/* 다른 프로젝트가 쓰는 색: 아래 작은 점 */
+.pc-sw.used::before { content: ""; position: absolute; left: 50%; bottom: -5px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--text-3); }
 .proj-dot.all { background: conic-gradient(#d97757 0 25%, #2f9e66 0 50%, #3b82f6 0 75%, #a855f7 0); }
 .proj-menu { min-width: 300px; max-height: 70vh; overflow-y: auto; }
 .proj-menu .cm-item.on { background: var(--accent-soft); }
