@@ -341,6 +341,52 @@ def codex_hooks(remove=False):
         len(cx.HOOK_EVENTS), "added to" if changed else "already in", home(cx.HOOKS_PATH))
 
 
+def codex_skills(want=None, remove=False):
+    """Codex 에 Argus 스킬(skills/*)을 넣거나 뺀다(csl/skills.py — Codex 용으로 고친 SKILL.md 사본 + 저장소 파일 링크).
+    want: True 넣기 · False 새로 넣지 않기 · None 터미널이면 묻고, 아니면(업데이트·보드의 다시 설치) 이미 넣은 것만 맞춘다.
+    결과 문구(Codex 를 안 쓰면 "")."""
+    if codex_mod() is None:
+        return ""
+    from csl import skills as sk
+    names = sk.names()
+    if remove:
+        gone = [n for n in names if sk.state(n, "codex") in ("installed", "outdated") and sk.remove(n, "codex")[0]]
+        return "removed from %s: %s" % (home(sk.codex_dir()), ", ".join(gone)) if gone else ""
+    have = [n for n in names if sk.state(n, "codex") in ("installed", "outdated")]
+    missing = [n for n in names if sk.state(n, "codex") == "missing"]
+    taken = [n for n in names if sk.state(n, "codex") == "conflict"]
+    if missing and want is None:
+        want = ask("Codex found. Also add the %s skill to Codex (%s) so Codex sessions can search past conversations?"
+                   % (", ".join(missing), home(sk.codex_dir())))
+    done = have + (missing if want else [])
+    for n in done:
+        sk.install(n, "codex")
+    out = "%s in %s" % (", ".join(done), home(sk.codex_dir())) if done else ""
+    if missing and not want:
+        out += ("; " if out else "") + "not added: %s — add later in the board (⋮ → ⚙ 설정 → 스킬) or with --codex-skills install" % ", ".join(missing)
+    if taken:
+        out += ("; " if out else "") + "skipped %s: a different skill with that name exists" % ", ".join(taken)
+    return out
+
+
+def codex_rows():
+    """설치 점검의 Codex 줄: 훅 · 훅 승인(Codex 는 새 훅을 한 번 승인받는다) · 스킬."""
+    cx = codex_mod()
+    from csl import skills as sk
+    on = cx.hooks_state()[0]
+    ok, total = cx.hooks_trust()
+    names = sk.names()
+    inst = [n for n in names if sk.state(n, "codex") == "installed"]
+    rows = [("Codex hooks", on, home(cx.HOOKS_PATH) if on
+             else "not installed — %s install adds them (Codex sessions still show up without them, a bit later)" % ctl())]
+    if on:
+        rows.append(("Codex hook trust", ok == total, "%d of %d trusted" % (ok, total) + (
+            "" if ok == total else " — open /hooks in the Codex CLI (or the app's settings) and trust the Argus hooks")))
+    rows.append(("Codex skill", len(inst) == len(names), ", ".join(inst) if inst
+                 else "not added — optional: board ⋮ → ⚙ 설정 → 스킬, or %s install --codex-skills install" % ctl()))
+    return rows
+
+
 def check():
     """설치 상태를 보여 주기만 한다."""
     try:
@@ -359,9 +405,7 @@ def check():
          else "not connected — context % and usage bars will be estimated or hidden"),
         ("tmux", bool(tmux_bin()), home(tmux_bin() or "") or "not installed — brew install tmux (needed for the board terminal)"),
         ("Board server", server_up(), "http://127.0.0.1:%d" % PORT if server_up() else "not running — %s open" % ctl()),
-    ] + ([("Codex hooks", codex_mod().hooks_state()[0], home(codex_mod().HOOKS_PATH) if codex_mod().hooks_state()[0]
-           else "not installed — %s install adds them (Codex sessions still show up without them, a bit later)" % ctl())]
-         if codex_mod() else []) + [
+    ] + (codex_rows() if codex_mod() else []) + [
     ] + ([("Old login item", False, "%s is still there — %s install removes it" % (home(AGENT_PLIST), ctl()))]
          if legacy_autostart() else []) + [
         ("Recorded sessions", bool(sessions), str(sessions) if sessions is not None else "none yet — send a prompt in Claude Code"),
@@ -389,6 +433,8 @@ def main():
     ap.add_argument("--force", action="store_true", help="install even if this isn't macOS")
     ap.add_argument("--autostart", choices=("on", "off"), help=argparse.SUPPRESS)   # 예전 옵션 — 받기만 하고 쓰지 않는다
     ap.add_argument("--tmux", choices=("install", "skip"), help="install tmux with Homebrew if it's missing, or don't — asked if not given")
+    ap.add_argument("--codex-skills", choices=("install", "skip"),
+                    help="add Argus's skills to Codex (~/.codex/skills) too, or don't — asked if not given (only when Codex is installed)")
     ap.add_argument("--remove-autostart", action="store_true",
                     help="only remove the old start-at-login item left by earlier versions, then exit")
     args = ap.parse_args()
@@ -438,6 +484,9 @@ def main():
         say("  Skill links  removed: %s" % skills)
         if cx:
             say("  Codex hooks  %s" % cx)
+        cs = codex_skills(remove=True)
+        if cs:
+            say("  Codex skill  %s" % cs)
         if login:
             say("  Login item   %s" % login)
         if backup:
@@ -455,6 +504,9 @@ def main():
     cx = codex_hooks()
     if cx:
         say("  Codex hooks  %s" % cx)
+    cs = codex_skills({"install": True, "skip": False}.get(args.codex_skills))
+    if cs:
+        say("  Codex skill  %s" % cs)
     if backup:
         say("  Backup       %s" % home(backup))
     tmux = ensure_tmux({"install": True, "skip": False}.get(args.tmux))

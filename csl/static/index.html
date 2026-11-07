@@ -33,8 +33,6 @@
     <button class="mode-btn" data-mode="cols" title="가로 칸 보기 — 대화를 보며 일할 때 ( 세션 보기에서 S )">⇆ 칸</button>
     <button class="mode-btn" data-mode="cards" title="카드 보기 — 전체 세션을 한눈에 ( 세션 보기에서 S )">▦ 카드</button>
   </div>
-  <div class="counters" id="counters"></div>
-  <div class="usage" id="usage" hidden></div>
   <div class="spacer"></div>
   <div class="search-wrap">
     <input class="search" id="search" type="search" placeholder="대화 검색 — 내 요청·Claude 응답  ( / )" autocomplete="off">
@@ -69,6 +67,7 @@
     <span class="drawer-label">터미널</span></button>
 </header>
 <div class="upd-banner" id="updBanner" role="status" hidden></div>
+<div class="upd-banner setup-banner" id="setupBanner" role="status" hidden></div>
 
 <div class="layout" id="layout">
   <aside class="brain-panel" id="brainPanel" hidden>
@@ -102,6 +101,13 @@
   </aside>
 
 </div>
+<!-- 아래 상태줄: 에이전트별 세션 수(누르면 그 에이전트만), 상태 개수(0 은 숨김 · 누르면 그 칸으로)와 사용량 한도(Claude Code 5시간·주간, Codex) — 머리 막대를 비우려고 여기로 -->
+<footer class="statusbar" id="statusBar">
+  <div class="agent-filter" id="agentFilter" role="group" aria-label="에이전트별로 보기"></div>
+  <div class="counters" id="counters"></div>
+  <div class="spacer"></div>
+  <div class="usage" id="usage" hidden></div>
+</footer>
 
 <div class="help settings" id="connectors" hidden>
   <div class="help-box settings-box">

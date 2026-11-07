@@ -1,6 +1,8 @@
 """Argus 브레인이 쓰는 보드 명령(brain/argus 가 부른다). 보드 서버(127.0.0.1)에 묻고 사람이 읽기 쉬운 글로 찍는다.
 
-    ./argus sessions               지금 세션 목록(보드 순서) — 세션은 ID 앞자리(8자)로 가리킨다
+    ./argus sessions [--codex|--claude] [--brief] [--all]   지금 세션 목록(보드 순서) — 에이전트(Claude Code·Codex)·모델·
+                                    권한·컨텍스트·터미널·변경 파일까지. 세션은 ID 앞자리(8자)로 가리킨다(--brief 는 두 줄씩)
+    ./argus usage                  사용량 한도(Claude Code 5시간·주간, Codex 주간 등 — 권장 속도·초기화까지). sessions 맨 위에도 나온다
     ./argus session <ID앞자리|제목 일부> [턴수]   한 세션의 최근 대화·넥스트 액션
     ./argus search <단어…> [--project 이름|--all] [--me|--claude] [--recent] [--limit N]
                                     모든 세션의 요청·응답 전문 검색(관련도 순). 결과마다 턴 번호 #tN
@@ -69,6 +71,13 @@ BASE = "http://127.0.0.1:%d" % PORT
 STATE = {"working": "작업 중", "waiting": "확인 필요", "error": "오류", "done": "완료", "idle": "대기", "ended": "종료"}
 
 
+def my_sid():
+    """이 명령을 실행한 세션의 ID — Claude Code 는 CLAUDE_CODE_SESSION_ID, Codex 는 CODEX_THREAD_ID.
+    Codex 스킬로 불렸으면(ARGUS_AGENT=codex) Codex 것을 먼저 — 보드가 띄운 터미널은 Claude 세션의 환경 변수를 물려받을 수 있다."""
+    claude, codex = os.environ.get("CLAUDE_CODE_SESSION_ID"), os.environ.get("CODEX_THREAD_ID")
+    return (codex or claude) if os.environ.get("ARGUS_AGENT") == "codex" else (claude or codex)
+
+
 def api(method, path, body=None, timeout=20):
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(BASE + path, data=data, method=method,
@@ -132,15 +141,114 @@ def where(s):
     return " · ".join(p for p in parts if p)
 
 
+AGENT = {"claude": "Claude Code", "codex": "Codex"}
+
+
+def until(ts):
+    d = (ts or 0) - time.time()
+    if d <= 0:
+        return ""
+    if d < 3600:
+        return "%d분 뒤" % max(1, d // 60)
+    if d < 86400:
+        return "%d시간 뒤" % (d // 3600)
+    return "%d일 %d시간 뒤" % (d // 86400, d % 86400 // 3600)
+
+
+def usage_part(label, pct, reset, window):
+    """「주간 62% (권장 70% · 2일 3시간 뒤 초기화)」 — 권장은 지난 시간만큼 고르게 썼을 때의 양(보드 막대의 눈금)."""
+    if pct is None:
+        return ""
+    bits = []
+    left = (reset or 0) - time.time()
+    if reset and window and 0 < left <= window:
+        pace = round((1 - left / window) * 100)
+        bits.append("권장 %d%%%s" % (pace, " ⚠ 빠름" if pct > pace + 5 else ""))
+    if until(reset):
+        bits.append(until(reset) + " 초기화")
+    return "%s %d%%%s" % (label, round(pct), " (" + " · ".join(bits) + ")" if bits else "")
+
+
+def usage_lines(state):
+    out = []
+    u = state.get("usage") or {}
+    claude = [x for x in (usage_part("5시간", u.get("five_hour"), u.get("five_hour_reset"), 5 * 3600),
+                          usage_part("주간", u.get("seven_day"), u.get("seven_day_reset"), 7 * 86400)) if x]
+    if claude:
+        out.append("Claude Code 한도: " + " · ".join(claude))
+    cx = state.get("codex_usage") or {}
+    codex = [usage_part(x["label"], x.get("pct"), x.get("resets_at"), (x.get("window_minutes") or 0) * 60 or None)
+             for x in cx.get("limits") or []]
+    if codex:
+        out.append("Codex 한도: " + " · ".join(x for x in codex if x) +
+                   (" · 한도 도달(%s)" % cx["reached"] if cx.get("reached") else "") +
+                   (" — 마지막 Codex 기록 %s 기준" % ago(cx["at"]) if cx.get("at") else ""))
+    elif (state.get("codex") or {}).get("available"):
+        out.append("Codex 한도: 아직 기록 없음(Codex 세션을 한 번 쓰면 보입니다)")
+    return out
+
+
+def cmd_usage(args):
+    lines = usage_lines(api("GET", "/api/state"))
+    print("\n".join(lines) if lines else "사용량 정보가 아직 없습니다")
+
+
+
+
+def model_name(s):
+    m = s.get("model") or ""
+    return m[len("claude-"):] if m.startswith("claude-") else m
+
+
+def facts(s):
+    """세션 한 줄 정보: 에이전트·모델·effort·권한·턴·컨텍스트·터미널·리모트."""
+    out = [AGENT.get(s.get("agent"), s.get("agent") or "?")]
+    if model_name(s):
+        out.append(model_name(s) + (" (" + s["effort"] + ")" if s.get("effort") else ""))
+    if s.get("permission_mode"):
+        out.append("권한 " + s["permission_mode"])
+    if s.get("turn_count"):
+        out.append("턴 %d" % s["turn_count"])
+    ctx = s.get("ctx") or {}
+    if ctx.get("pct") is not None:
+        out.append("컨텍스트 %s%%" % (("%.0f" % ctx["pct"]) if isinstance(ctx["pct"], (int, float)) else ctx["pct"]))
+    if s.get("running"):
+        out.append("터미널 " + (s.get("term_label") or "열림"))
+    elif s["state"] != "ended":
+        out.append("열린 터미널 없음")
+    if s.get("bg"):
+        out.append("백그라운드 세션")
+    if s.get("remote"):
+        out.append("리모트 켜짐")
+    if s.get("pinned"):
+        out.append("고정")
+    return " · ".join(out)
+
+
 def cmd_sessions(args):
+    """./argus sessions [--all] [--codex|--claude] [--brief]"""
     state = api("GET", "/api/state")
     rows = board_sessions(state, "--all" in args)
+    want = "codex" if "--codex" in args else "claude" if "--claude" in args else None
+    if want:
+        rows = [s for s in rows if s.get("agent") == want]
+    brief = "--brief" in args
+    num = {x["session_id"]: i for i, x in enumerate(board_sessions(state), 1)}   # #N 은 다른 명령에서도 같은 세션(거르기 전 순서)
     notes = {}
     for n in state.get("notes") or []:
         if not n["done"] and n.get("session_id"):
             notes.setdefault(n["session_id"], []).append(n["text"])
-    print("세션 %d개 (보드 순서)" % len(rows))
-    for i, s in enumerate(rows, 1):
+    by_agent, by_state = {}, {}
+    for s in rows:
+        by_agent[s.get("agent")] = by_agent.get(s.get("agent"), 0) + 1
+        by_state[s["state"]] = by_state.get(s["state"], 0) + 1
+    print("세션 %d개 (보드 순서%s) — %s | %s" % (
+        len(rows), ", " + AGENT[want] + "만" if want else "",
+        " · ".join("%s %d" % (AGENT.get(a, a), n) for a, n in sorted(by_agent.items(), key=lambda x: str(x[0]))) or "없음",
+        " · ".join("%s %d" % (STATE.get(k, k), by_state[k]) for k in STATE if k in by_state) or "없음"))
+    for line in usage_lines(state):
+        print("   " + line)
+    for s in rows:
         title = s.get("title") or clip(s.get("first_prompt"), 50) or "(요청 없음)"
         st = STATE.get(s["state"], s["state"])
         if s.get("compact_at"):
@@ -148,15 +256,30 @@ def cmd_sessions(args):
         if s.get("unread"):
             st += "·새 응답"
         extra = " · 할 일 %d" % len(notes.get(s["session_id"], [])) if notes.get(s["session_id"]) else ""
-        print("\n「%s」 [%s] ID %s — %s · %s%s" % (title, st, s["session_id"][:8], where(s), ago(s.get("last_activity")), extra))
-        if s.get("worktree") or s.get("project_root"):
-            print("   폴더 " + (s.get("worktree") or s.get("project_root")))
+        print("\n%s「%s」 [%s] ID %s — %s · %s%s" % ("#%d " % num[s["session_id"]] if s["session_id"] in num else "", title, st, s["session_id"][:8], where(s), ago(s.get("last_activity")), extra))
+        print("   " + facts(s))
+        if brief:
+            continue
+        folder = s.get("worktree") or s.get("project_root") or s.get("cwd")
+        if folder:
+            d = s.get("dirty") or {}
+            print("   폴더 " + folder + (" · 커밋 안 한 변경 %d파일(+%d −%d)" % (d["files"], d.get("add") or 0, d.get("del") or 0)
+                                          if d.get("files") else ""))
+        if s.get("started_at"):
+            print("   시작 %s · 마지막 활동 %s" % (ago(s["started_at"]), ago(s.get("last_activity"))))
+        if s.get("goal"):
+            print("   목표: " + clip(s["goal"] if isinstance(s["goal"], str) else json.dumps(s["goal"], ensure_ascii=False), 160))
         if s["state"] == "waiting" and s.get("state_detail"):
             print("   대기 사유: " + clip(s["state_detail"], 160))
+        if s.get("ask"):
+            print("   묻는 중: 질문·확인 창이 떠 있음 (./argus ask %s)" % s["session_id"][:8])
+        tasks = [t for t in s.get("bg_tasks") or [] if t.get("status") == "running"]
+        if tasks:
+            print("   백그라운드 작업 %d개 실행 중: %s" % (len(tasks), " / ".join(clip(t.get("desc"), 60) for t in tasks[:3])))
         lp = (s.get("last_prompt") or {}).get("prompt")
         lr = (s.get("last_response") or {}).get("response")
         if lp:
-            print("   마지막 요청: " + clip(lp, 160))
+            print("   마지막 요청: " + clip(asked(lp), 160))
         if lr:
             print("   마지막 응답: " + clip(lr, 220))
         if s.get("recap"):
@@ -190,6 +313,7 @@ def cmd_session(args):
     d = api("GET", "/api/sessions/%s?limit=%d" % (s["session_id"], max(1, min(n, 30))))
     print("%s — %s · %s · id %s" % (s.get("title") or "(제목 없음)", STATE.get(s["state"], s["state"]), where(s),
                                    s["session_id"]))
+    print(facts(s))
     if s.get("recap"):
         print("recap: " + clip(s["recap"], 400))
     for t in d["turns"]:
@@ -209,7 +333,7 @@ def cmd_session(args):
 def cmd_search(args):
     opts = {"sort": "rank", "limit": "20"}
     words = []
-    me = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    me = my_sid()
     scoped = os.environ.get("ARGUS_SCOPE") == "project" and me   # 스킬 래퍼가 켠다(브레인은 늘 전체)
     it = iter(args)
     for a in it:
@@ -406,7 +530,7 @@ def cmd_inbox(args):
         if not sid:
             sys.exit("맡길 세션을 적어 주세요: ./argus inbox delegate <카드 key> <세션>")
         d = api("POST", "/api/inbox/%d/delegate" % card["id"], {"session_id": sid, "prompt": card["prompt"],
-                                                                "from": os.environ.get("CLAUDE_CODE_SESSION_ID")})
+                                                                "from": my_sid()})
         print(d.get("message"))
     elif sub == "close":
         keys = args[1:]
@@ -560,7 +684,7 @@ def cmd_send(args):
     if not text:
         sys.exit("보낼 내용이 없습니다")
     d = api("POST", "/api/sessions/%s/send" % s["session_id"],
-            {"text": text, "from": os.environ.get("CLAUDE_CODE_SESSION_ID")})
+            {"text": text, "from": my_sid()})
     if path:
         os.remove(path)
     print("%s (ID %s) — %s · 답이 오면 [자동 알림]으로 알려 줍니다(그때 ./argus session %s)" % (
@@ -571,13 +695,13 @@ def cmd_remote(args):
     if not args:
         sys.exit("사용법: ./argus remote <ID앞자리|제목 일부>")
     s = target(args[0])
-    d = api("POST", "/api/sessions/%s/remote" % s["session_id"], {"from": os.environ.get("CLAUDE_CODE_SESSION_ID")})
+    d = api("POST", "/api/sessions/%s/remote" % s["session_id"], {"from": my_sid()})
     print("%s (%s) — %s" % (s.get("title") or "(제목 없음)", s["session_id"][:8], d.get("message") or "켰습니다"))
 
 
 def ME():
     """보낸 쪽(브레인) 세션 ID — 서버가 자동 정리 중인지 본다."""
-    return os.environ.get("CLAUDE_CODE_SESSION_ID")
+    return my_sid()
 
 
 def cmd_quit(args):
@@ -959,7 +1083,7 @@ def cmd_calendar(args):
 
 def main():
     args = sys.argv[1:]
-    cmds = {"sessions": cmd_sessions, "session": cmd_session, "search": cmd_search, "timeline": cmd_timeline, "turn": cmd_turn, "inbox": cmd_inbox, "calendar": cmd_calendar,
+    cmds = {"sessions": cmd_sessions, "usage": cmd_usage, "session": cmd_session, "search": cmd_search, "timeline": cmd_timeline, "turn": cmd_turn, "inbox": cmd_inbox, "calendar": cmd_calendar,
             "send": cmd_send, "remote": cmd_remote, "notes": cmd_notes, "events": cmd_events, "git": cmd_git,
             "quit": cmd_quit, "archive": cmd_archive, "unarchive": lambda a: cmd_archive(a, False), "new": cmd_new, "note": cmd_note,
             "pin": cmd_pin, "unpin": lambda a: cmd_pin(a, False), "rename": cmd_rename, "stop": cmd_stop, "model": cmd_model,

@@ -61,6 +61,7 @@
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
+:root { --sb-h: 28px; }   /* 아래 상태줄 높이 */
 body {
   margin: 0;
   background: var(--bg);
@@ -121,7 +122,7 @@ input { font: inherit; color: inherit; }
 
 /* ---------------------------------------------------------------- 레이아웃 */
 .layout {
-  height: calc(100% - 56px);
+  height: calc(100% - 56px - var(--sb-h));
   display: grid;
   grid-template-columns: minmax(0, 1fr);
 }
@@ -225,7 +226,7 @@ a.ext:hover::after { opacity: 1; }
 /* ---------------------------------------------------------------- 넥스트 패널 */
 
 .toast {
-  position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px);
+  position: fixed; left: 50%; bottom: calc(24px + var(--sb-h)); transform: translate(-50%, 20px);
   background: var(--text); color: var(--bg); padding: 8px 16px; border-radius: 8px;
   font-size: calc(13px * var(--fs, 1)); opacity: 0; pointer-events: none; transition: all .2s;
 }
@@ -234,7 +235,7 @@ a.ext:hover::after { opacity: 1; }
 /* ---------------------------------------------------------------- 좁은 화면 */
 @media (max-width: 860px) {
   .topbar { gap: 8px; padding: 0 10px; }
-  .counters, .search { display: none; }
+  .search { display: none; }
 }
 
 /* ---------------------------------------------------------------- 보드 뷰 */
@@ -619,11 +620,35 @@ kbd {
 }
 
 /* ---------------------------------------------------------------- 사용량(상단) */
-.usage { display: flex; align-items: center; gap: 10px; margin-left: 6px; min-width: 0; flex: 0 1 auto; overflow: hidden; }
+/* ---------------------------------------------------------------- 아래 상태줄(상태 개수 · 사용량) */
+.statusbar {
+  height: var(--sb-h); box-sizing: border-box; display: flex; align-items: center; gap: 12px; padding: 0 14px;
+  border-top: 1px solid var(--border); background: var(--surface); color: var(--text-2);
+  font-size: calc(11.5px * var(--fs, 1)); white-space: nowrap; overflow: hidden;
+}
+/* 상태 칩: 줄 높이(--sb-h) 안에 위아래 여백이 남게 작게 */
+/* 에이전트 필터: 작은 세그먼트(전체 · Claude · Codex), 고른 것만 진하게 */
+.agent-filter { display: flex; gap: 1px; padding: 1px; flex: none; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border); }
+.af-btn { display: inline-flex; align-items: center; gap: 4px; height: 17px; padding: 0 7px; border: 0; border-radius: 5px; background: transparent;
+  color: var(--text-3); font: 500 calc(10.5px * var(--fs, 1))/1 var(--font); cursor: pointer; }
+.af-btn:hover { color: var(--text); }
+.af-btn.on { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 0 0 1px var(--border); }
+.af-btn .n { font-variant-numeric: tabular-nums; color: var(--text-3); }
+.af-btn.on .n { color: var(--text-2); }
+.af-btn .agent-logo { width: 10px; height: 10px; flex: none; }
+.statusbar .counters { gap: 5px; flex: none; }
+.statusbar .counter { gap: 4px; height: 17px; padding: 0 7px; font-size: calc(10.5px * var(--fs, 1)); line-height: 1; cursor: pointer; }
+.statusbar .counter.zero { display: none; }
+.statusbar .counter .dot { width: 6px; height: 6px; }
+.statusbar .counter .dot.working::after { inset: -3px; border-width: 1.5px; }
+.usage { display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; }
 .usage[hidden] { display: none; }
-.u-item { display: inline-flex; align-items: flex-end; gap: 5px; font-size: calc(12px * var(--fs, 1)); color: var(--text-2); white-space: nowrap; cursor: default; }
+.u-sep { width: 1px; height: 11px; background: var(--border); flex: none; }
+.u-item { display: inline-flex; align-items: center; gap: 5px; font-size: calc(11.5px * var(--fs, 1)); color: var(--text-2); white-space: nowrap; cursor: default; }
 .u-label { color: var(--text-3); font-weight: 600; }
-.u-bar { position: relative; width: 64px; height: 7px; border-radius: 4px; background: var(--surface-hover); overflow: hidden; }
+.u-rec { color: var(--text-3); }
+.u-item.ahead .u-rec { color: var(--waiting); }
+.u-bar { position: relative; width: 48px; height: 6px; border-radius: 3px; background: var(--surface-hover); overflow: hidden; }
 .u-bar i { position: relative; display: block; height: 100%; background: var(--working); border-radius: 4px; }
 .u-item.warm .u-bar i { background: var(--waiting); }
 .u-item.hot .u-bar i { background: var(--alert); }
@@ -1102,7 +1127,10 @@ body.bp-resizing, body.bp-resizing *, body.tp-resizing, body.tp-resizing * { cur
 .topbar .new-btn { flex: none; white-space: nowrap; }
 .search-wrap { flex: 0 1 320px; min-width: 150px; }
 .search-wrap .search { width: 100%; }
-@media (max-width: 1250px) { .usage { display: none; } }
+/* 좁은 화면: 권장 → 초기화 시각 → 막대 순으로 줄인다 */
+@media (max-width: 1250px) { .u-rec { display: none; } }
+@media (max-width: 980px) { .u-at { display: none; } }
+@media (max-width: 640px) { .u-bar { display: none; } .statusbar { gap: 8px; padding: 0 10px; } }
 .tm-lang select { font: inherit; font-size: calc(12.5px * var(--fs, 1)); padding: 3px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
 
 /* ---------------------------------------------------------------- 설정 창 */
@@ -1121,6 +1149,25 @@ body.bp-resizing, body.bp-resizing *, body.tp-resizing, body.tp-resizing * { cur
   background: var(--surface); color: var(--text);
 }
 .cfg-ctl input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); }
+/* 설정 창 「스킬」: 스킬마다 에이전트별 설치 상태·버튼 */
+.cfg-skill-help { margin: 0 2px 4px; font-size: calc(11.5px * var(--fs, 1)); }
+.skill-row { align-items: flex-start; }
+.skill-ctl { flex-direction: column; align-items: stretch; gap: 6px; min-width: 250px; }
+.skill-agent { display: flex; align-items: center; gap: 8px; font-size: calc(12px * var(--fs, 1)); }
+.skill-who { flex: 1; display: inline-flex; align-items: center; white-space: nowrap; }
+.skill-st { color: var(--text-3); white-space: nowrap; }
+.skill-st.st-installed { color: var(--working); }
+.skill-st.st-outdated, .skill-st.st-conflict { color: var(--waiting); }
+.skill-agent .btn { padding: 2px 10px; }
+@media (max-width: 640px) { .skill-row { flex-wrap: wrap; } .skill-ctl { flex: 1 1 100%; min-width: 0; } }
+/* 설정 창 「에이전트 연결」 */
+.setup-row { align-items: flex-start; }
+.setup-row label b { display: inline-flex; align-items: center; }
+.setup-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: calc(12px * var(--fs, 1)); }
+.setup-list li.no { color: var(--waiting); }
+.setup-mark { display: inline-block; width: 1.2em; color: var(--working); }
+.setup-list li.no .setup-mark { color: var(--waiting); }
+.cfg-skill-help code { font-size: .95em; }
 .cfg-path { flex: 1; min-width: 0; font-family: var(--mono, ui-monospace, monospace) !important; font-size: calc(12px * var(--fs, 1)) !important; }
 .settings-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 12px; }
 .settings-foot .muted { flex: 1; color: var(--alert); font-size: calc(12px * var(--fs, 1)); }
@@ -1325,11 +1372,8 @@ select {
 .drawer-btn.on { color: var(--accent); background: var(--accent-soft); }
 .drawer-btn.on .drawer-fill { opacity: .35; }
 .drawer-btn .brain-badge { margin-left: 2px; }
-/* 사용량: 이름을 막대 위에 얹어 한 덩어리로(권장·초기화 시각은 마우스를 올리면) */
-.u-stack { display: inline-flex; flex-direction: column; gap: 2px; }
-.u-stack .u-label { font-size: calc(10px * var(--fs, 1)); line-height: 1; letter-spacing: .02em; }
-.u-item b { font-size: calc(12px * var(--fs, 1)); line-height: 1; padding-bottom: 0; }
-.u-at { font-size: calc(11px * var(--fs, 1)); line-height: 1; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.u-item b { font-size: calc(11.5px * var(--fs, 1)); line-height: 1; font-variant-numeric: tabular-nums; }
+.u-at { line-height: 1; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .ib-new { font-size: calc(10.5px * var(--fs, 1)); font-weight: 700; letter-spacing: .04em; color: #fff; background: var(--alert); padding: 1px 6px; border-radius: 8px; }
 /* 작업 중단 버튼(■): 작업 중일 때만 보내기 옆에 */
 .cmp-stop { flex: none; width: 30px; height: 30px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface);

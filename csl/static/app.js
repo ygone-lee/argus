@@ -465,6 +465,11 @@ async function focusCol(sid) {
     toast("프로젝트 필터를 풀었습니다");
     idx = boardSessions().findIndex(s => s.session_id === sid);
   }
+  if (idx < 0 && S.agentFilter && allBoardSessions().some(s => s.session_id === sid)) {
+    setAgentFilter("");   // 다른 에이전트의 칸이면 필터를 풀고 간다
+    toast("에이전트 필터를 풀었습니다");
+    idx = boardSessions().findIndex(s => s.session_id === sid);
+  }
   if (idx < 0) { toast("보드에 없는 세션입니다(종료·보관됐거나 검색에 걸러짐)"); return null; }
   if (idx >= S.boardLimit) { S.boardLimit = idx + 1; renderBoard(); }
   const col = $(`.col[data-col="${CSS.escape(sid)}"]`);
@@ -499,10 +504,12 @@ async function poll() {
   S.inboxNewAt = data.inbox_new_at || [];
   renderRemoteBtn();
   renderProjBtn();
+  renderAgentFilter();
   S.codex = data.codex || null;
   renderUsage(data.usage, data.codex_usage);
   S.lastUpdate = data.update;
   renderUpdateBanner(data.update);
+  renderSetupBanner(data.setup);
   checkAlerts();
   const groups = stateGroups();
   renderCounters(groups);
@@ -695,6 +702,7 @@ function setProjFilter(key) {
   save("csl.projFilter", key);
   S.boardLimit = 12;
   renderProjBtn();
+  renderAgentFilter();
   renderBoard();
   refreshBoard();
 }
@@ -712,6 +720,33 @@ $("#projMenu").addEventListener("click", e => {
   if (!b) return;
   $("#projMenu").hidden = true;
   setProjFilter(b.dataset.proj);
+});
+
+// ------------------------------------------------------------------ 에이전트 필터(아래 상태줄)
+// Claude Code·Codex 세션 수(프로젝트 필터 안에서). 누르면 그 에이전트 칸만 — 터미널·문서 칸은 「전체」에서만
+S.agentFilter = load("csl.agentFilter", "");
+function agentOf(s) { return s.board ? "" : isCodex(s) ? "codex" : "claude"; }
+function renderAgentFilter() {
+  const list = S.projFilter ? allBoardSessions().filter(s => projectKey(s) === S.projFilter) : allBoardSessions();
+  const n = { claude: 0, codex: 0 };
+  for (const s of list) { const a = agentOf(s); if (a) n[a]++; }
+  const b = (key, inner, cnt, tip) => `<button class="af-btn ${S.agentFilter === key ? "on" : ""}" data-agent-filter="${key}" title="${tip}" aria-pressed="${S.agentFilter === key}">${inner}<span class="n">${cnt}</span></button>`;
+  setHtml($("#agentFilter"), b("", "전체", list.length, "모든 칸") +
+    b("claude", `<span class="agent-logo claude">${CLAUDE_MARK}</span>Claude`, n.claude, "Claude Code 세션만") +
+    b("codex", `<span class="agent-logo codex">${CODEX_MARK}</span>Codex`, n.codex, "OpenAI Codex 세션만"));
+}
+function setAgentFilter(key) {
+  S.agentFilter = key;
+  save("csl.agentFilter", key);
+  S.boardLimit = Math.max(S.boardLimit, 12);
+  renderAgentFilter();
+  renderBoard();
+  refreshBoard();
+  if (S.boardMode === "cards") renderCards(true);
+}
+$("#agentFilter").addEventListener("click", e => {
+  const b = e.target.closest("[data-agent-filter]");
+  if (b) setAgentFilter(S.agentFilter === b.dataset.agentFilter ? "" : b.dataset.agentFilter);
 });
 
 // ------------------------------------------------------------------ 상단 카운터
@@ -1376,8 +1411,10 @@ function allBoardSessions() {
 }
 // 프로젝트 필터를 건 보드 순서(정렬은 안정 정렬이라 걸러도 순서가 같다)
 function boardSessions() {
-  const all = allBoardSessions();
-  return S.projFilter ? all.filter(s => projectKey(s) === S.projFilter) : all;
+  let all = allBoardSessions();
+  if (S.projFilter) all = all.filter(s => projectKey(s) === S.projFilter);
+  if (S.agentFilter) all = all.filter(s => agentOf(s) === S.agentFilter);
+  return all;
 }
 function sessionById(sid) { return sid ? S.sessions.find(s => s.session_id === sid) || (S.boards || []).find(s => s.session_id === sid) || null : null; }
 // 칸 대화(세션 상세)를 받아 보드 캐시에. 칸 보기·브레인 패널·펼친 카드가 같이 쓴다. 여러 칸이면 요청 한 번으로
@@ -1444,11 +1481,12 @@ function renderBoard() {
   if (!cols.length) {
     board.querySelectorAll(".col, .col-more").forEach(el => el.remove());
     // 처음 쓰는 사람에게는 다음에 할 일을 — 세션이 하나도 없을 때(프로젝트 필터로 가려진 것과 구분)
-    const msg = S.projFilter ? "이 프로젝트에 지금 보이는 세션이 없습니다 — 위 프로젝트 버튼에서 「전체 프로젝트」로"
+    const msg = S.agentFilter ? `지금 보이는 ${S.agentFilter === "codex" ? "Codex" : "Claude Code"} 세션이 없습니다 — 아래 상태줄에서 「전체」로`
+      : S.projFilter ? "이 프로젝트에 지금 보이는 세션이 없습니다 — 위 프로젝트 버튼에서 「전체 프로젝트」로"
       : `<b>아직 기록된 세션이 없습니다</b>
          <p>Claude Code 에서 요청을 하나 보내면 그 세션이 여기에 나타납니다 — 이미 열려 있는 세션도 다음 요청부터 보입니다.</p>
          <p><span>훅을 설치하기 전의 대화도 가져오려면</span>: <code>/usr/bin/python3 csl/backfill.py --days 7</code></p>
-         <p><span>설치 상태 확인</span>: <code>/usr/bin/python3 install.py --check</code></p>`;
+         <p><span>설치 상태 확인</span>: <code>/usr/bin/python3 install.py --check</code> · <button class="linkish" data-setup-open>에이전트 연결 보기</button></p>`;
     // 같은 글이면 다시 쓰지 않는다(번역된 글을 매번 한국어로 되돌리지 않게)
     if (!empty) { board.insertAdjacentHTML("beforeend", `<div class="board-empty"></div>`); }
     const box = board.querySelector(".board-empty");
@@ -4162,16 +4200,16 @@ function renderUsage(u, cx) {
     const tip = `${label} 사용량 ${Math.round(pct)}%` + (reset ? ` · ${untilText(reset)} 초기화` : "") +
       (pace == null ? "" : `\n권장 ${pace}% — 지금까지 지난 시간만큼 고르게 썼을 때의 양${perDay}` +
         (ahead ? `\n권장보다 ${Math.round(pct - pace)}%p 빠릅니다` : pct < pace ? `\n권장보다 ${Math.round(pace - pct)}%p 여유` : ""));
-    // 이름은 막대 위에 작게, 권장·초기화 시각은 마우스를 올렸을 때(title)만 — 상단 막대 자리를 적게 쓴다
-    return `<span class="u-item ${lv} ${ahead ? "ahead" : ""}" title="${esc(tip)}">
-      <span class="u-stack"><span class="u-label">${label}</span>
-      <span class="u-bar">${pace != null ? `<span class="u-pace" style="width:${pace}%"></span>` : ""}<i style="width:${Math.min(100, pct)}%"></i>${pace != null && pct > pace ? `<span class="u-notch" style="left:${pace}%"></span>` : ""}</span></span>
-      <b>${Math.round(pct)}%</b>${reset ? `<span class="u-at">↻ ${resetAt(reset)}</span>` : ""}</span>`;
+    // 아래 상태줄에 한 줄로: 이름 · 막대(권장 구간) · % · 권장 · 초기화 시각(좁은 화면에선 뒤에서부터 숨김)
+    return `<span class="u-item ${lv} ${ahead ? "ahead" : ""}" title="${esc(tip)}"><span class="u-label">${label}</span>
+      <span class="u-bar">${pace != null ? `<span class="u-pace" style="width:${pace}%"></span>` : ""}<i style="width:${Math.min(100, pct)}%"></i>${pace != null && pct > pace ? `<span class="u-notch" style="left:${pace}%"></span>` : ""}</span>
+      <b>${Math.round(pct)}%</b>${pace != null ? `<span class="u-rec">권장 ${pace}%</span>` : ""}${reset ? `<span class="u-at">↻ ${resetAt(reset)}</span>` : ""}</span>`;
   };
-  // Codex 한도(가장 최근 Codex 기록의 값) — Claude 막대 뒤에 「Codex 주간」처럼
-  const html = part("5시간", u.five_hour, u.five_hour_reset, USAGE_WINDOW.five) +
-    part("주간", u.seven_day, u.seven_day_reset, USAGE_WINDOW.week) +
-    cxLimits.map(x => part("Codex " + x.label, x.pct, x.resets_at, (x.window_minutes || 0) * 60 || null)).join("");
+  // Codex 한도(가장 최근 Codex 기록의 값) — Claude 뒤에 「Codex 주간」처럼
+  const html = [part("5시간", u.five_hour, u.five_hour_reset, USAGE_WINDOW.five),
+    part("주간", u.seven_day, u.seven_day_reset, USAGE_WINDOW.week),
+    ...cxLimits.map(x => part("Codex " + x.label, x.pct, x.resets_at, (x.window_minutes || 0) * 60 || null))]
+    .filter(Boolean).join('<span class="u-sep"></span>');
   el.hidden = false;
   if (el._html !== html) { el._html = html; el.innerHTML = html; }
 }
@@ -6359,8 +6397,89 @@ async function openSettings() {
         return `<div class="cfg-row"><label for="cfg-${k}"><b>${l}</b><span class="muted">${h}</span></label>
           <div class="cfg-ctl"><select id="cfg-${k}" data-font-scale="${k}">${FONT_STEPS.map(v => `<option value="${v}" ${v === cur ? "selected" : ""}>${Math.round(v * 100)}%${v === 1 ? " (기본)" : ""}</option>`).join("")}</select></div></div>`;
       }).join("")}</section>`;
+  $("#settingsBody").insertAdjacentHTML("beforeend", `<section class="cfg-group" id="cfgSetup"><h3>에이전트 연결</h3><p class="muted">불러오는 중…</p></section>` +
+    `<section class="cfg-group" id="cfgSkills"><h3>스킬</h3><p class="muted cfg-skill-wait">불러오는 중…</p></section>`);
   $("#settingsMsg").textContent = "";
   $("#settings").hidden = false;
+  drawSetup();
+  drawSkills();
+}
+// 설정 창 「에이전트 연결」: Claude Code·Codex 에 Argus 훅이 들어 있는지 · 나중에 깐 에이전트도 여기서 훅을 넣는다
+async function drawSetup() {
+  const box = $("#cfgSetup");
+  if (!box) return;
+  let r;
+  try { r = await api("GET", "/api/setup"); } catch (e) { return setHtml(box, `<h3>에이전트 연결</h3><p class="upd-err">${esc(e.message)}</p>`); }
+  const c = r.status.claude, x = r.status.codex;
+  const item = (ok, label, note) => `<li class="${ok ? "ok" : "no"}"><span class="setup-mark">${ok ? "✓" : "·"}</span>${label}${note ? ` <span class="muted">${note}</span>` : ""}</li>`;
+  const claudeOk = c.hooks >= c.hooks_total && c.statusline;
+  const claude = `<div class="cfg-row setup-row"><label><b>${agentLogo({ agent: "claude" })}Claude Code</b>
+      <ul class="setup-list">${item(c.found, c.found ? "설치됨" : "찾지 못함", c.found ? "" : "Claude Code 를 먼저 설치해 주세요")}
+        ${item(c.hooks >= c.hooks_total, `훅 ${c.hooks}/${c.hooks_total}`, esc(c.settings))}
+        ${item(c.statusline, "상태줄 탭", c.statusline ? "" : "컨텍스트 %·사용량 막대가 추정값이 됩니다")}</ul></label>
+      <div class="cfg-ctl"><button class="btn ${claudeOk ? "ghost" : ""}" data-setup="claude">${claudeOk ? "다시 설치" : "설치"}</button></div></div>`;
+  const cxHooks = x.hooks >= x.hooks_total;
+  const codexRow = !x.found ? `<div class="cfg-row setup-row"><label><b>${agentLogo({ agent: "codex" })}Codex</b>
+      <span class="muted">찾지 못했습니다 — Codex 를 쓰지 않으면 넘어가도 됩니다. 나중에 깔면 여기서 훅을 넣을 수 있습니다.</span></label></div>`
+    : `<div class="cfg-row setup-row"><label><b>${agentLogo({ agent: "codex" })}Codex</b>
+      <ul class="setup-list">${item(true, "설치됨")}
+        ${item(cxHooks, `훅 ${x.hooks}/${x.hooks_total}`, esc(x.hooks_path))}
+        ${x.ours ? item(x.trusted >= x.ours, `승인 ${x.trusted}/${x.ours}`, x.trusted >= x.ours ? "" : "Codex CLI 에서 /hooks 를 열어 Argus 훅을 승인해 주세요") : ""}</ul></label>
+      <div class="cfg-ctl">${cxHooks ? "" : `<button class="btn" data-setup="codex">훅 넣기</button>`}</div></div>`;
+  setHtml(box, `<h3>에이전트 연결</h3><p class="muted cfg-skill-help">Argus 는 각 에이전트의 훅으로 세션 상태를 받습니다. 처음 설치할 때 없던 에이전트를 나중에 깔았거나, 업데이트 뒤 훅이 모자라면 여기서 넣으세요. 터미널에서는 <code>./ctl.sh install</code> · 점검은 <code>./ctl.sh check</code>.</p>` + claude + codexRow);
+}
+async function runSetup(which, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api("POST", "/api/setup/" + which, {}, { "X-Argus-Term": await termToken(true) });
+    toast(r.message);
+  } catch (e) { toast(e.message); }
+  if (btn) btn.disabled = false;
+  drawSetup();
+  refresh();
+}
+// 보드 위 안내 띠: 훅이 빠졌거나 Codex 가 아직 승인하지 않았을 때(서버가 30초마다 확인). 「나중에」는 그 상태만 접는다
+function renderSetupBanner(list) {
+  const el = $("#setupBanner");
+  if (!el) return;
+  const hidden = load("csl.setupDismissed", []);
+  const it = (list || []).find(i => !hidden.includes(i.key));
+  el.hidden = !it;
+  if (!it) return;
+  el.dataset.key = it.key;
+  const html = `<span>🔌 ${esc(it.text)}</span>${it.action ? `<button class="btn primary" data-setup="${it.action}">${it.action === "codex" ? "훅 넣기" : "설치"}</button>` : ""}
+    <button class="btn" data-setup-open>자세히</button><button class="btn ghost" data-setup-later>나중에</button>`;
+  if (el.dataset.html !== html) { setHtml(el, html); el.dataset.html = html; }
+}
+function openSetup() { openSettings().then(() => setTimeout(() => { const b = $("#cfgSetup"); if (b) b.scrollIntoView({ block: "start" }); }, 150)); }
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-setup]");
+  if (b) return runSetup(b.dataset.setup, b);
+  if (e.target.closest("[data-setup-open]")) return openSetup();
+  if (e.target.closest("[data-setup-later]")) {
+    const el = $("#setupBanner");
+    save("csl.setupDismissed", [...load("csl.setupDismissed", []), el.dataset.key].slice(-20));
+    el.hidden = true;
+  }
+});
+// 설정 창 「스킬」: 저장소 skills/* 를 Claude Code·Codex 에 설치·제거(누르면 바로 — 저장 버튼과 상관없이)
+const SKILL_STATE = { installed: "설치됨", outdated: "갱신 필요", missing: "설치 안 됨", conflict: "같은 이름의 다른 스킬 있음" };
+async function drawSkills() {
+  const box = $("#cfgSkills");
+  if (!box) return;
+  let r;
+  try { r = await api("GET", "/api/skills"); } catch (e) { return setHtml(box, `<h3>스킬</h3><p class="upd-err">${esc(e.message)}</p>`); }
+  const ctl = (k, agent, path) => {
+    const st = k[agent];
+    const btn = st === "installed" ? `<button class="btn ghost" data-skill="${esc(k.name)}" data-skill-agent="${agent}" data-skill-act="remove">제거</button>`
+      : st === "conflict" ? "" : `<button class="btn" data-skill="${esc(k.name)}" data-skill-agent="${agent}" data-skill-act="install">${st === "outdated" ? "갱신" : "설치"}</button>`;
+    return `<div class="skill-agent"><span class="skill-who">${agent === "codex" ? agentLogo({ agent: "codex" }) + "Codex" : agentLogo({ agent: "claude" }) + "Claude Code"}</span>
+      <span class="skill-st st-${st}" title="${esc(path)}">${SKILL_STATE[st] || st}</span>${btn}</div>`;
+  };
+  setHtml(box, `<h3>스킬</h3><p class="muted cfg-skill-help">Argus 가 주는 스킬을 각 에이전트에 넣습니다. 누르면 바로 설치·제거되고, 새로 여는 세션부터 쓸 수 있습니다.</p>` +
+    (r.items.length ? r.items.map(k => `<div class="cfg-row skill-row"><label><b>${esc(k.name)}</b><span class="muted">${esc(k.description)}</span></label>
+      <div class="cfg-ctl skill-ctl">${ctl(k, "claude", k.claude_path)}${r.codex ? ctl(k, "codex", k.codex_path) : ""}</div></div>`).join("")
+      : `<p class="muted">저장소에 스킬이 없습니다</p>`));
 }
 async function saveSettings() {
   const body = {};
@@ -6511,6 +6630,18 @@ $("#settings").addEventListener("change", e => {
 });
 $("#settings").addEventListener("click", e => {
   if (e.target.closest("[data-settings-close]") || e.target === $("#settings")) $("#settings").hidden = true;
+  const sk = e.target.closest("[data-skill]");
+  if (sk) {
+    sk.disabled = true;
+    (async () => {
+      try {
+        const r = await api("POST", `/api/skills/${encodeURIComponent(sk.dataset.skill)}/${sk.dataset.skillAgent}`,
+          { action: sk.dataset.skillAct }, { "X-Argus-Term": await termToken(true) });
+        toast(r.message);
+      } catch (err) { toast(err.message); }
+      drawSkills();
+    })();
+  }
   const r = e.target.closest("[data-cfg-reset]");
   if (r) {
     const c = CFG.find(x => x.key === r.dataset.cfgReset), el = $("#cfg-" + c.key);

@@ -52,7 +52,10 @@
 ## 보드 명령 (`./argus`)
 
 ```
-./argus sessions                 세션 목록(보드 순서 — 「제목」·상태·ID 앞자리, 프로젝트·워크트리·브랜치, 마지막 요청·응답, recap, 할 일)
+./argus sessions [--codex|--claude] [--brief]   세션 목록(보드 순서 — 맨 위에 에이전트·상태별 개수와 사용량 한도, 세션마다 #번호·「제목」·상태·ID 앞자리,
+                                 프로젝트·워크트리·브랜치, 에이전트(Claude Code·Codex)·모델·effort·권한·턴·컨텍스트·터미널·리모트, 폴더·커밋 안 한 변경,
+                                 실행 중인 백그라운드 작업, 마지막 요청·응답, recap, 할 일)
+./argus usage                    사용량 한도만(Claude Code 5시간·주간, Codex 주간 — 권장 속도·초기화까지)
 ./argus session <ID|제목>       한 세션의 최근 대화와 넥스트 액션 (뒤에 턴 수, 기본 6)
 ./argus notes                    세션마다 남은(완료 안 된) 넥스트 액션 — 끝난·보관된 세션 것도. ⚠ 는 3일 넘은 것
 ./argus search <단어…> [--project 이름] [--me|--claude] [--recent]   모든 세션의 요청·응답 전문 검색(관련도 순, 결과마다 #tN)

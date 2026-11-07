@@ -73,11 +73,12 @@ curl -fsSL https://raw.githubusercontent.com/ygone-lee/argus/main/install.sh | s
 ```
 
 Argus 를 **`~/.argus`** 폴더에 내려받고 설치 프로그램을 실행합니다. 설치 프로그램은 Claude Code 설정(`~/.claude/settings.json`)을
-먼저 백업한 뒤 Argus 훅을 넣습니다. 다른 훅과 설정은 그대로 둡니다. 설치 중에 아래 두 가지를 묻습니다.
+먼저 백업한 뒤 Argus 훅을 넣습니다. 다른 훅과 설정은 그대로 둡니다. [OpenAI Codex](#openai-codex-세션)가 깔려 있으면 Codex 훅도 넣습니다. 설치 중에 아래를 묻습니다(해당할 때만).
 
 | 묻는 것 | 「예」라고 하면 |
 |---|---|
 | tmux 가 없을 때: Homebrew 로 설치할까요? | `brew install tmux` 를 실행합니다. 「아니요」면 나중에 직접 설치하면 됩니다 |
+| Codex 가 있을 때: Codex 에도 `argus-recall` 스킬을 넣을까요? | Codex 세션에서도 지난 대화를 찾아봅니다. 「아니요」면 나중에 ⋮ → ⚙ 설정 → 스킬에서 넣으면 됩니다 |
 | 지금 보드를 열까요? | 브라우저에서 http://127.0.0.1:7799 를 엽니다 |
 
 이제 Claude Code 를 평소처럼 쓰면 됩니다. 열려 있던 세션은 다음 요청부터, 새 세션은 시작하자마자 보드에 나타납니다.
@@ -194,6 +195,8 @@ http://127.0.0.1:7798 에 열립니다. 따로 쓰는 임시 폴더와 포트를
 - **새로 시작:** ＋ 새 보드 → **◎ Codex** 로 고른 폴더의 보드 터미널에 `codex` 를 띄웁니다. 모델·추론 단계·첫 메시지를 고를 수 있습니다.
 - **보내기·멈추기·끝내기:** 보드 터미널에서 도는 Codex 는 칸 입력창의 글을 그 입력창에 넣습니다. 앱의 대화나 보드가 입력할 수 없는 터미널의 CLI 는 `codex queue` 로 그 대화에 넣습니다. ■ 로 멈추고(Esc), ⋮ → ⏻ 로 끝냅니다(`/quit`). 끝난 CLI 대화는 보드 터미널에서 이어 열 수 있습니다(`codex resume`).
 - **모으는 방식:** `~/.codex` 에 있는 Codex 기록(`state_*.sqlite` 의 세션 목록, `sessions/…/rollout-*.jsonl` 과 `thread_history_*.sqlite` 의 대화)을 몇 초마다 읽기만 하고 고치지 않습니다. 설치할 때 `~/.codex/hooks.json` 에 훅도 넣어(이미 있는 훅은 그대로) 「확인 필요」(승인 창) 같은 상태를 바로 받습니다. Codex 는 새 훅을 한 번 승인받습니다 — Codex CLI 에서 `/hooks` 를 열어 주세요. 훅이 없어도 나머지는 몇 초 늦게 그대로 됩니다.
+- **Argus 를 설치한 뒤에 Codex 를 깔았다면:** 보드가 알아챕니다. 보드 위에 **훅 넣기** 안내 띠가 뜨고, ⋮ → ⚙ 설정 → **에이전트 연결** 에서 에이전트마다 훅 상태(Claude Code 훅 *n/13*·상태줄 탭, Codex 훅 *n/9*·Codex 의 승인 여부)를 보고 빠진 것을 버튼으로 넣습니다. 업데이트로 훅이 늘었을 때 Claude Code 쪽 설치를 다시 돌리는 것도 여기서 합니다. Codex 훅 승인은 Codex 에서만 됩니다 — Codex CLI 에서 `/hooks` 를 열어 주세요. 터미널에서는 `~/.argus/ctl.sh install` 이 같은 일을, `~/.argus/ctl.sh check` 가 전체 점검을 합니다.
+- **Codex 에 스킬 넣기:** ⋮ → ⚙ 설정 → **스킬** 에 Argus 스킬이 에이전트마다 설치 버튼과 함께 나옵니다. Codex 옆 **설치** 를 누르면 `argus-recall` 이 `~/.codex/skills`(또는 `$CODEX_HOME/skills`)에 들어가, Codex 세션에서도 지난 Claude Code·Codex 대화를 찾아봅니다. 누르기 전에는 아무것도 쓰지 않고, 저장소보다 뒤처진 사본은 보드가 뜰 때 새로 쓰며, **제거** 는 Argus 가 넣은 것만 지웁니다.
 - **Codex 에서는 안 되는 것:** 보드에서 모델 바꾸기, 권한 모드, 되돌리기, 갈래(branch·fork), 리모트 컨트롤, `/btw`, 슬래시 명령 자동완성.
 
 ## 개인정보와 안전

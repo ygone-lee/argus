@@ -20,7 +20,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from csl import boards, brain, cardchat, codex, commands, config, connectors, daily, delegate, focus, gitreport, hook, inboxrun, locate, notesreport, sendqueue, store, terminals, update, webterm  # noqa: E402
+from csl import agentsetup, boards, brain, cardchat, codex, commands, config, connectors, daily, delegate, focus, gitreport, hook, inboxrun, locate, notesreport, sendqueue, skills, store, terminals, update, webterm  # noqa: E402
 from csl.terminals import tmux as tmux_term  # noqa: E402
 from csl.terminals import web as web_term  # noqa: E402
 
@@ -1018,6 +1018,19 @@ def codex_tab(conn, sess):
     return tg if tg and _hold_terminal(tg) else None
 
 
+def watch_from_brain(conn, body, target_sid, text):
+    """브레인(./argus send)이 보낸 글이면 그 세션의 답을 지켜본다 — 답하면 브레인에게 [자동 알림](delegate.relay_tick)."""
+    src = body.get("from")
+    if not src or src == target_sid or text.startswith("/"):
+        return
+    row = conn.execute("SELECT cwd FROM sessions WHERE session_id=?", (src,)).fetchone()
+    if row and brain.is_brain(row["cwd"]):
+        conn.execute("UPDATE brain_watch SET status='replaced' WHERE target_sid=? AND status='open'", (target_sid,))
+        conn.execute("INSERT INTO brain_watch (brain_sid, target_sid, sent_at, prompt) VALUES (?,?,?,?)",
+                     (src, target_sid, store.now(), store.mask(text)[:2000]))
+        conn.commit()
+
+
 def codex_send(conn, sess, body):
     text = CONTROL_CHARS.sub("", (body.get("text") or "").replace("\r\n", "\n")).strip()
     images = body.get("images") or []
@@ -1036,6 +1049,7 @@ def codex_send(conn, sess, body):
         ok, err = codex.paste(tg, text, paths)
         if not ok:
             return 502, {"error": "전송 실패: " + err}
+        watch_from_brain(conn, body, sess["session_id"], text)
         msg = "보냈습니다" if sess["state"] != "working" else "보냈습니다 · 작업 중이라 Codex 가 이어서 처리합니다"
         return 200, {"ok": True, "message": msg, "stages": [], "images": len(paths)}
     desktop = codex.desktop_session(sess)
@@ -1048,6 +1062,7 @@ def codex_send(conn, sess, body):
     ok, err = codex.queue(sess["session_id"], text)
     if not ok:
         return 502, {"error": "전송 실패: " + err}
+    watch_from_brain(conn, body, sess["session_id"], text)
     return 200, {"ok": True, "message": "Codex 앱의 그 대화에 보냈습니다" if desktop else "Codex 에 보냈습니다",
                  "stages": [], "images": len(paths)}
 
@@ -1547,7 +1562,15 @@ def list_state(conn, days, show_archived):
             "codex_usage": codex.rate_limits() if codex.available() else None,
             "codex": codex_info(conn) if codex.available() else None,
             "inbox_new": len(inbox_new_at), "inbox_new_at": inbox_new_at, "boards": boards.listing(conn, show_archived),
-            "update": update.summary(conn)}
+            "update": update.summary(conn), "setup": setup_issues(conn)}
+
+
+def setup_issues(conn):
+    """보드 위 안내 띠: 빠진 훅·승인(agentsetup). 읽다 실패해도 상태 요청은 살린다."""
+    try:
+        return agentsetup.issues(conn)
+    except Exception:  # noqa: BLE001
+        return []
 
 
 AGENTS = {"at": 0, "items": []}
@@ -2091,6 +2114,30 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, {"error": err})
             store.set_setting(conn, "brain_slack_every", every)
             return self._send(200, {"ok": True})
+        if path == "/api/setup" and method == "GET":
+            agentsetup.forget()
+            return self._send(200, {"status": agentsetup.cached(), "issues": agentsetup.issues(conn)})
+        m = re.fullmatch(r"/api/setup/(claude|codex)", path)
+        if m and method == "POST":
+            # ~/.claude/settings.json·~/.codex/hooks.json 을 고친다 — 보드 화면(같은 출처·토큰)에서 사용자가 누른 것만
+            if not self._term_ok(self.headers.get("X-Argus-Term") or ""):
+                return self._send(403, {"error": "보드 설정 창에서만 바꿀 수 있습니다"})
+            ok, msg = agentsetup.install_claude() if m.group(1) == "claude" else agentsetup.install_codex()
+            return self._send(200 if ok else 409, {"ok": True, "message": msg} if ok else {"error": msg})
+        if path == "/api/skills" and method == "GET":
+            return self._send(200, {"items": skills.listing(), "codex": skills.codex_available()})
+        m = re.fullmatch(r"/api/skills/([\w\-]+)/(claude|codex)", path)
+        if m and method == "POST":
+            # 홈 폴더(~/.claude/skills·~/.codex/skills)에 파일을 만들거나 지운다 — 보드 화면(같은 출처·토큰)에서 사용자가 누른 것만.
+            # 세션이 ./argus 로 부르거나 다른 사이트가 보내는 것은 막는다
+            if not self._term_ok(self.headers.get("X-Argus-Term") or ""):
+                return self._send(403, {"error": "보드 설정 창에서만 바꿀 수 있습니다"})
+            try:
+                fn = skills.remove if (body or {}).get("action") == "remove" else skills.install
+                ok, msg = fn(m.group(1), m.group(2))
+            except OSError as e:
+                ok, msg = False, "실패: %s" % e
+            return self._send(200 if ok else 409, {"ok": ok, "message": msg} if ok else {"error": msg})
         if path == "/api/config" and method == "GET":
             return self._send(200, {"items": config.describe(conn)})
         if path == "/api/config" and method == "POST":
@@ -2814,13 +2861,7 @@ class Handler(BaseHTTPRequestHandler):
                 # PreCompact 훅이 곧 오지만, 훅을 아직 못 읽은(설정 변경 전에 연) 세션도 바로 보이게
                 store.start_compact(conn, sess["session_id"], "manual")
                 return self._send(200, {"ok": True, "message": "컨텍스트를 요약하는 중입니다", "stages": stages, "images": 0})
-            src = body.get("from")
-            if src and src != sess["session_id"]:
-                row = conn.execute("SELECT cwd FROM sessions WHERE session_id=?", (src,)).fetchone()
-                if row and brain.is_brain(row["cwd"]) and not text.startswith("/"):
-                    conn.execute("UPDATE brain_watch SET status='replaced' WHERE target_sid=? AND status='open'", (sess["session_id"],))
-                    conn.execute("INSERT INTO brain_watch (brain_sid, target_sid, sent_at, prompt) VALUES (?,?,?,?)",
-                                 (src, sess["session_id"], store.now(), store.mask(text)[:2000]))
+            watch_from_brain(conn, body, sess["session_id"], text)
             btw = re.match(r"/btw\s+(.+)", text, re.S)
             if btw:
                 aid = conn.execute("INSERT INTO asides (session_id, question, status, at) VALUES (?,?,?,?)",
@@ -3468,6 +3509,7 @@ def main():
     threading.Thread(target=_dirty_loop, daemon=True).start()  # 칸 머리 변경 보기 버튼용 커밋 안 한 변경 수
     if codex.available():
         threading.Thread(target=_codex_loop, daemon=True).start()  # OpenAI Codex 세션 모으기
+    threading.Thread(target=skills.refresh_codex, daemon=True).start()  # Codex 에 설치한 스킬 사본을 저장소에 맞추기
     print("Argus: http://127.0.0.1:%d" % store.PORT, flush=True)
     try:
         httpd.serve_forever()

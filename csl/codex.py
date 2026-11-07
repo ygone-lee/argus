@@ -532,8 +532,10 @@ def rate_limits():
             if isinstance(w, dict) and w.get("used_percent") is not None:
                 mins = w.get("window_minutes") or 0
                 label = "주간" if mins >= 7 * 1440 - 1 else ("%d시간" % round(mins / 60) if mins >= 60 else "%d분" % mins)
-                out.append({"label": label, "pct": float(w["used_percent"]), "resets_at": w.get("resets_at"),
-                            "window_minutes": mins})
+                pct, reset = float(w["used_percent"]), w.get("resets_at")
+                if reset and reset <= time.time():   # 마지막 Codex 기록 뒤에 한도가 초기화됨 — 옛 값 대신 0
+                    pct, reset = 0.0, None
+                out.append({"label": label, "pct": pct, "resets_at": reset, "window_minutes": mins})
         if out:
             return {"limits": out, "plan": rl.get("plan_type"), "at": _mtime(path),
                     "reached": rl.get("rate_limit_reached_type")}
@@ -1571,6 +1573,34 @@ def hooks_state():
             if any(MARK in (h.get("command") or "") for h in g.get("hooks") or []):
                 got.append(ev)
     return bool(got), got
+
+
+def hooks_trust():
+    """(Codex 가 승인한 우리 훅 수, 우리 훅 수). Codex 는 hooks.json 의 새 훅을 한 번 승인받아야 돌리고(/hooks),
+    승인은 config.toml 의 [hooks.state."<hooks.json 경로>:<이벤트>:<그룹 번호>:<훅 번호>"] trusted_hash 로 남는다.
+    해시가 지금 명령과 맞는지는 알 수 없어(Codex 의 계산 방식) 승인 기록이 있는지만 본다. enabled = false 면 꺼진 것으로."""
+    try:
+        with open(HOOKS_PATH) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return 0, 0
+    ours = []
+    for ev, groups in (d.get("hooks") or {}).items():
+        snake = re.sub(r"(?<!^)(?=[A-Z])", "_", ev).lower()
+        for gi, g in enumerate(groups or []):
+            for hi, h in enumerate(g.get("hooks") or []):
+                if MARK in (h.get("command") or ""):
+                    ours.append("%s:%s:%d:%d" % (HOOKS_PATH, snake, gi, hi))
+    try:
+        with open(os.path.join(HOME, "config.toml"), encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        text = ""
+    state = {}
+    for m in re.finditer(r'^\[hooks\.state\."([^"]+)"\][ \t]*\n((?:[^\[\n].*\n?|\n)*)', text, re.M):
+        state[m.group(1)] = m.group(2)
+    ok = sum(1 for k in ours if "trusted_hash" in state.get(k, "") and not re.search(r"^\s*enabled\s*=\s*false", state[k], re.M))
+    return ok, len(ours)
 
 
 def install_hooks(python, hook_path):
