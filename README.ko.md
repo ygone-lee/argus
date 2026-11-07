@@ -188,7 +188,7 @@ http://127.0.0.1:7798 에 열립니다. 따로 쓰는 임시 폴더와 포트를
 
 ## OpenAI Codex 세션
 
-[OpenAI Codex](https://github.com/openai/codex)(CLI·데스크톱 앱)도 쓰고 있다면, 그 대화도 Claude Code 세션 옆에 칸으로 모입니다. 칸에는 **◎ Codex**(앱의 대화는 **Codex 앱**) 표시가 붙습니다. 끄려면 ⋮ → ⚙ 설정 → 「Codex 세션도 모으기」.
+[OpenAI Codex](https://github.com/openai/codex)(CLI·데스크톱 앱)도 쓰고 있다면, 그 대화도 Claude Code 세션 옆에 칸으로 모입니다. 제목 앞에 Codex는 OpenAI 표시, Claude Code는 Claude 표시가 붙고, 데스크톱 앱의 대화에는 **Codex 앱** 칩이 붙습니다. 끄려면 ⋮ → ⚙ 설정 → 「Codex 세션도 모으기」.
 
 - **보이는 것:** 대화, 작업 중·새 응답·오류 상태, 실행 중인 명령·도구 호출(작업 과정), 모델·추론 단계, 컨텍스트 사용량. 위쪽 사용량 막대에는 Codex 주간 한도도 나옵니다. 검색·활동·넥스트 액션·하루 정리에도 함께 들어갑니다.
 - **새로 시작:** ＋ 새 보드 → **◎ Codex** 로 고른 폴더의 보드 터미널에 `codex` 를 띄웁니다. 모델·추론 단계·첫 메시지를 고를 수 있습니다.

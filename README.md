@@ -213,7 +213,7 @@ Sessions you already run in another terminal show up as they are. To reply to th
 
 ## OpenAI Codex sessions
 
-If you also use [OpenAI Codex](https://github.com/openai/codex) (the CLI or the desktop app), its conversations show up on the board next to your Claude Code sessions, marked **◎ Codex** (or **Codex app** for a conversation in the app). Turn it off in ⋮ → ⚙ 설정 → 「Codex 세션도 모으기」 (Also collect Codex sessions).
+If you also use [OpenAI Codex](https://github.com/openai/codex) (the CLI or the desktop app), its conversations show up on the board next to your Claude Code sessions, with an OpenAI mark before the title (Claude Code sessions get the Claude mark), and a **Codex app** chip for conversations in the desktop app. Turn it off in ⋮ → ⚙ 설정 → 「Codex 세션도 모으기」 (Also collect Codex sessions).
 
 - **What you see:** the conversation, working / new reply / error state, the live trail of commands and tool calls, model, reasoning level, context usage, and Codex's weekly limit next to the Claude usage bars. Search, the activity feed, next actions and the daily log include them.
 - **Start one:** ＋ 새 보드 → **◎ Codex** opens `codex` in the board terminal in the chosen folder, with a model, reasoning level and first message.
