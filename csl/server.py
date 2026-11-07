@@ -921,6 +921,19 @@ def _claude_close(tg):
     return focus._input_line_of(focus._screen(tg)) is not None
 
 
+def recap_text(lines, i, first, col, min_indent):
+    """화면의 recap: 첫 줄(i) 글 + 이어지는 줄들(min_indent 칸 이상, 첫 줄 글이 시작하는 칸(col) 이하로 들여 쓴 줄).
+    훨씬 깊이 들여 쓴 줄은 이어지는 줄이 아니다 — Claude Code 가 오른쪽 끝에 찍는 알림(「✔ Update installed · Restart
+    to update」 등)이 recap 바로 아래 줄에 붙어 나온다."""
+    parts = [first]
+    for ln in lines[i + 1:]:
+        indent = len(ln) - len(ln.lstrip())
+        if not ln.strip() or not min_indent <= indent <= col + 1 or ln.lstrip().startswith(("❯", "─")):
+            break
+        parts.append(ln.strip())
+    return " ".join(p for p in parts if p)
+
+
 def run_recap(conn, sess):
     """/recap — Claude Code·Codex 모두 요약을 터미널에만 찍고(대화 턴·훅이 아님) 보드에는 남지 않았다.
     보내고 요약 줄이 나올 때까지 기다렸다가 칸의 recap 자리에 넣는다. (HTTP 코드, 본문)."""
@@ -951,21 +964,14 @@ def run_recap(conn, sess):
             idx = [i for i, ln in enumerate(lines) if "Recap:" in ln and ln not in before]
             if idx:
                 i = idx[-1]
-                parts = [lines[i].split("Recap:", 1)[1].strip()]
-                for ln in lines[i + 1:]:
-                    if not ln.strip() or not ln.startswith("   "):
-                        break
-                    parts.append(ln.strip())
-                text = " ".join(parts)
+                head = lines[i].split("Recap:", 1)[1]
+                text = recap_text(lines, i, head.strip(), len(lines[i]) - len(head.lstrip()), 3)
         else:    # 「❯ /recap」 다음 「⎿ …」 + 들여 쓴 이어지는 줄
             echo = [i for i, ln in enumerate(lines) if ln.strip() == "❯ /recap"]
             if echo and len(lines) > echo[-1] + 1 and lines[echo[-1] + 1].strip().startswith("⎿"):
-                parts = [lines[echo[-1] + 1].strip().lstrip("⎿").strip()]
-                for ln in lines[echo[-1] + 2:]:
-                    if not ln.strip() or not ln.startswith("     ") or ln.lstrip().startswith(("❯", "─")):
-                        break
-                    parts.append(ln.strip())
-                text = " ".join(parts)
+                first = lines[echo[-1] + 1]
+                body = first.split("⎿", 1)[1]
+                text = recap_text(lines, echo[-1] + 1, body.strip(), len(first) - len(body.lstrip()), 5)
     if not text:
         return 504, {"error": "요약이 나오지 않았습니다 — 터미널을 확인해 주세요"}
     t = store.now()

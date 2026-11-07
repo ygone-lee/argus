@@ -1324,7 +1324,7 @@ function flipNotes(box, render) {
       focusLi = focusLi || li;
     }
   }
-  const sc = focusLi && focusLi.closest(".col-fixed");
+  const sc = focusLi && focusLi.closest(".cf-notes");   // 스크롤은 할 일 목록 안에서만
   if (sc) {
     const r = focusLi.getBoundingClientRect(), v = sc.getBoundingClientRect();
     if (r.top < v.top || r.bottom > v.bottom) sc.scrollTo({ top: sc.scrollTop + r.top - v.top - 40, behavior: reduce ? "auto" : "smooth" });
@@ -1665,9 +1665,9 @@ function updateCol(col, s, rank, lastPin) {
     const li = col.querySelector(`.note[data-nid="${S.noteFocus}"]`);
     if (li) li.focus({ preventScroll: true });
   }
-  setHtml(col.querySelector(".cf-recap"), s.recap
+  setHtml(col.querySelector(".cf-recap"), recapFresh(s)
     ? `<div class="col-recap ${S.recapOpen.has(sid) ? "open" : ""}" data-action="toggle-recap" data-sid="${esc(sid)}"
-        title="${S.recapOpen.has(sid) ? "접기" : "눌러서 전체 보기"}"><div class="recap-clamp"><b>recap</b>${recapAge(s)} ${esc(s.recap)}</div></div>` : "");
+        title="${S.recapOpen.has(sid) ? "접기" : "눌러서 전체 보기"}"><div class="recap-clamp"><b>recap</b> ${esc(s.recap)}</div></div>` : "");
   const xm = $("#xMenu");   // 펼쳐 둔 백그라운드 작업 목록이면 내용만 새로
   if (!xm.hidden && xm.dataset.kind === "bgt" && xm.dataset.sid === sid) setHtml(xm, bgTasksHtml(s) || BGT_EMPTY);
   const thread = col.querySelector(".col-thread");
@@ -2171,10 +2171,12 @@ function toggleBgtMenu(chip) {
   m.style.left = (cr.left + 6) + "px";
   m.style.top = (hr.bottom + 4) + "px";
 }
-// recap 은 Claude Code 가 자리를 비웠다 돌아올 때 만든 요약이라 그 뒤 대화가 이어졌으면 지난 내용이다 — 언제 요약인지 붙인다
-function recapAge(s) {
+// recap 은 Claude Code 가 자리를 비웠다 돌아올 때(또는 /recap) 만든 요약 — 그 뒤에 요청을 보냈으면 지난 내용이라 숨긴다
+// (생겼을 때 보이고, 다음 요청을 보낼 때까지만)
+function recapFresh(s) {
+  if (!s || !s.recap) return false;
   const lp = s.last_prompt && s.last_prompt.prompt_at;
-  return s.recap_at && lp && lp > s.recap_at + 60 ? ` <span class="recap-age">${esc(rel(s.recap_at))} 요약</span>` : "";
+  return !lp || !s.recap_at || lp <= s.recap_at;
 }
 const TASKV = { sid: null, tid: null, timer: 0 };
 async function openBgTask(sid, tid) {
@@ -5526,6 +5528,9 @@ document.addEventListener("click", async e => {
   if (a === "prompt-pick") return pickPrompt(el);
   if (a === "bg-tasks") return toggleBgtMenu(el);
   if (a === "toggle-recap") {
+    // 글을 끌어서 고른 것(복사하려고)이면 접고 펴지 않는다 — 놓을 때 click 이 같이 와서 바로 풀려 버린다
+    const sel = getSelection();
+    if (sel && !sel.isCollapsed && el.contains(sel.anchorNode)) return;
     const sid = el.dataset.sid;
     S.uiVer++;
     S.recapOpen.has(sid) ? S.recapOpen.delete(sid) : S.recapOpen.add(sid);
@@ -7547,7 +7552,7 @@ function applyBoardVisibility() {
 function plainOneLine(t, n) { return clamp(plainLine(t || ""), n); }
 function sessionCardHtml(s, rank) {
   const d = displayState(s);
-  const body = s.recap ? `<div class="sc-recap"><b>recap</b> ${esc(clamp(s.recap, 220))}</div>`
+  const body = recapFresh(s) ? `<div class="sc-recap"><b>recap</b> ${esc(clamp(s.recap, 220))}</div>`
     : s.last_response ? `<div class="sc-recap">${esc(plainOneLine(s.last_response.response, 220))}</div>`
     : '<div class="sc-recap-none muted">아직 응답이 없습니다</div>';
   const lp = s.last_prompt && s.last_prompt.prompt;

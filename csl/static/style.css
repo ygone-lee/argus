@@ -370,10 +370,13 @@ body.view-board .board {
 /* 보드 칸: 머리 → 넥스트 액션(고정) → 대화(스크롤, 최신이 아래) */
 .col { --fade: var(--surface); }
 /* 넥스트 액션·recap 은 위에 고정된 영역. 점선 아래 옅은 그림자로 대화 영역과 나뉘어 보이게 */
+/* 바깥은 스크롤하지 않는다(스크롤 막대가 둘 생기지 않게) — 넘치면 할 일 목록(.cf-notes)만 줄어들며 스크롤한다 */
 .col-fixed {
-  flex: none; max-height: 42%; overflow-y: auto; padding: 10px 14px 10px; border-bottom: 1px solid var(--border);
+  flex: none; max-height: 42%; overflow: hidden; padding: 10px 14px 10px; border-bottom: 1px solid var(--border);
+  display: flex; flex-direction: column;
   position: relative; z-index: 1; box-shadow: 0 6px 8px -6px rgba(0, 0, 0, .14);
 }
+.col-fixed > * { flex: none; }
 [data-theme="dark"] .col-fixed { box-shadow: 0 6px 10px -6px rgba(0, 0, 0, .55); }
 /* 여러 줄(Shift+Enter)이면 글 길이만큼 늘어난다 */
 .col-fixed .note-add .note-input {
@@ -381,8 +384,10 @@ body.view-board .board {
   font: inherit; font-size: calc(13px * var(--fs, 1)); line-height: 1.4; color: var(--text); resize: none; field-sizing: content;
 }
 .col-fixed .notes { margin-top: 4px; }
-/* 할 일 목록은 따로 스크롤(7개쯤 넘으면) — 입력칸·recap 과 아래 대화가 밀려나지 않게 */
-.col-fixed .cf-notes { max-height: 250px; overflow-y: auto; overscroll-behavior: contain; }
+/* 할 일 목록만 스크롤(250px 또는 칸 높이 42% 에서 입력칸·recap 을 뺀 만큼) — 입력칸·recap 과 아래 대화가 밀려나지 않게 */
+.col-fixed .cf-notes { flex: 0 1 auto; min-height: 0; max-height: 250px; overflow-y: auto; overscroll-behavior: contain; }
+/* 펼친 recap 이 길면 recap 도 그 안에서 스크롤(접힌 3줄일 땐 그대로) */
+.col-fixed .cf-recap:has(.col-recap.open) { flex: 0 1 auto; min-height: 64px; overflow-y: auto; overscroll-behavior: contain; }
 .cf-toggle {
   display: inline-flex; align-items: center; gap: 6px; margin: -2px 0 0 -4px; padding: 2px 6px 2px 4px; border: 0; border-radius: 6px;
   background: transparent; font: inherit; color: inherit; cursor: pointer;
@@ -1754,7 +1759,6 @@ select {
 .bgt-row:not(.working) .bgt-desc { color: var(--text-2); }
 .bgt-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bgt-time { font-size: calc(11px * var(--fs, 1)); white-space: nowrap; }
-.recap-age { font-size: calc(11px * var(--fs, 1)); color: var(--text-3); font-weight: 400; }
 .task-meta { padding: 0 2px 8px; font-size: calc(12px * var(--fs, 1)); }
 .task-body .steps { font-size: calc(13px * var(--fs, 1)); }
 .task-out { font-family: var(--mono); font-size: calc(12px * var(--fs, 1)); white-space: pre-wrap; word-break: break-word; background: var(--surface-2); padding: 10px; border-radius: 8px; margin: 0; }
