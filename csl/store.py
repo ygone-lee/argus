@@ -634,12 +634,20 @@ def apply_transcript_meta(conn, session_id, path, meta=None):
             "UPDATE sessions SET title=?, title_source=? WHERE session_id=?",
             (mask(title), "custom" if meta.get("custom_title") else "ai", session_id),
         )
-    if meta.get("recap"):
-        # 더 새 것만 — 보드에서 /recap 으로 넣은 요약을 그보다 앞선 기록 파일의 요약이 덮지 않게
-        conn.execute(
-            "UPDATE sessions SET recap=?, recap_at=? WHERE session_id=? AND COALESCE(recap_at, 0) <= COALESCE(?, 0) + 1",
-            (mask(meta["recap"]), meta.get("recap_at"), session_id, meta.get("recap_at")),
-        )
+    apply_recap(conn, session_id, meta)
+
+
+def apply_recap(conn, session_id, meta):
+    """기록 파일의 recap(away_summary)을 넣는다 — 더 새 것만(보드에서 /recap 으로 넣은 요약을 그보다 앞선 기록의
+    요약이 덮지 않게). 바꿨으면 True."""
+    if not meta.get("recap"):
+        return False
+    cur = conn.execute(
+        "UPDATE sessions SET recap=?, recap_at=? WHERE session_id=? AND COALESCE(recap_at, 0) < COALESCE(?, 0) + 1"
+        " AND COALESCE(recap, '') != ?",
+        (mask(meta["recap"]), meta.get("recap_at"), session_id, meta.get("recap_at"), mask(meta["recap"])),
+    )
+    return cur.rowcount > 0
 
 
 def tail_custom_title(path, tail_bytes=64 * 1024):
@@ -944,7 +952,20 @@ def read_activity(path, since, until=None, tail_bytes=6 * 1024 * 1024, limit=200
             data = f.read()
     except OSError:
         return items
+    wrote = {}   # Write 결과: 도구 호출 ID → "create"(새 파일)·"update"(있던 파일을 덮어씀) — toolUseResult.type
     for raw in data.splitlines():
+        if b'"toolUseResult"' in raw and (b'"create"' in raw or b'"update"' in raw):
+            try:
+                d = json.loads(raw)
+            except ValueError:
+                continue
+            r = d.get("toolUseResult")
+            content = (d.get("message") or {}).get("content")
+            if isinstance(r, dict) and r.get("type") in ("create", "update") and isinstance(content, list):
+                for b in content:
+                    if isinstance(b, dict) and b.get("type") == "tool_result":
+                        wrote[b.get("tool_use_id")] = r["type"]
+            continue
         if b'"assistant"' not in raw:
             continue
         try:
@@ -966,9 +987,19 @@ def read_activity(path, since, until=None, tail_bytes=6 * 1024 * 1024, limit=200
             if kind == "text" and (block.get("text") or "").strip():
                 items.append({"kind": "text", "at": ts, "text": mask(block["text"])})
             elif kind == "tool_use":
-                items.append({"kind": "tool", "at": ts, "name": block.get("name") or "",
+                items.append({"kind": "tool", "at": ts, "name": block.get("name") or "", "_id": block.get("id"),
                               "brief": mask(_tool_brief(block.get("input"))),
                               "detail": mask(_tool_detail(block.get("name"), block.get("input")))})
+    # 파일을 고친 단계: 보드는 새로 만든 것(create)·고친 것(update)을 나눠 보인다. Write 는 결과를 봐야 알 수 있다
+    for it in items:
+        tid = it.pop("_id", None)
+        if it.get("kind") != "tool":
+            continue
+        if it["name"] == "Write":
+            if tid in wrote:   # 아직 결과가 없으면(쓰는 중) 모른다 — 보드는 「Write」로
+                it["op"] = wrote[tid]
+        elif it["name"] in ("Edit", "MultiEdit", "NotebookEdit"):
+            it["op"] = "update"
     return items[-limit:]
 
 

@@ -355,6 +355,14 @@ def _cmd_text(it):
 
 _EXEC_CMD = re.compile(r"""\bcmd\s*:\s*(["'`])((?:\\.|(?!\1).)*)\1""", re.S)
 _PATCH_FILE = re.compile(r"^\*\*\* (?:Update|Add|Delete) File: (.+)$", re.M)
+_PATCH_OP = re.compile(r"^\*\*\* (Update|Add|Delete) File:", re.M)
+
+
+def _file_op(kinds):
+    """패치·파일 변경의 종류들 → 보드 표시(create·update·delete). 섞여 있으면 update."""
+    kinds = {str(k).lower() for k in kinds if k}
+    kinds = {"create" if k in ("add", "create") else k for k in kinds}
+    return kinds.pop() if len(kinds) == 1 and kinds <= {"create", "update", "delete"} else "update"
 
 
 def _unescape(v):
@@ -382,7 +390,7 @@ def _call_step(it):
     if name == "apply_patch" or "*** Begin Patch" in raw[:200]:
         files = _PATCH_FILE.findall(raw)
         return {"kind": "tool", "at": at, "name": "Edit", "brief": ", ".join("/".join(f.strip().split("/")[-2:]) for f in files[:4]),
-                "detail": store.mask(raw[:4000])}
+                "detail": store.mask(raw[:4000]), "op": _file_op(_PATCH_OP.findall(raw))}
     cmds = [_unescape(m.group(2)) for m in _EXEC_CMD.finditer(raw)]
     if cmds:   # 코드 모드(exec)의 tools.exec_command({cmd: …}) — 셸 명령
         return {"kind": "tool", "at": at, "name": "Bash", "brief": store.mask(" ".join(cmds[0].split())[:160]),
@@ -424,7 +432,10 @@ def _step(it):
         paths = [c.get("path") for c in changes if isinstance(c, dict) and c.get("path")] if isinstance(changes, list) \
             else list(changes) if isinstance(changes, dict) else []
         brief = ", ".join("/".join(str(p).rstrip("/").split("/")[-2:]) for p in paths[:4])
-        return {"kind": "tool", "at": at, "name": "Edit", "brief": brief,
+        vals = changes if isinstance(changes, list) else list(changes.values()) if isinstance(changes, dict) else []
+        kinds = [(c.get("kind") or {}).get("type") if isinstance(c.get("kind"), dict) else c.get("kind") or c.get("type")
+                 for c in vals if isinstance(c, dict)]
+        return {"kind": "tool", "at": at, "name": "Edit", "brief": brief, "op": _file_op(kinds),
                 "detail": store.mask(json.dumps(changes, ensure_ascii=False, indent=2)[:4000])}
     if k == "mcptoolcall":
         args = it.get("arguments")

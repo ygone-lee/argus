@@ -861,14 +861,49 @@ function setupThread(el) {
 }
 
 // ------------------------------------------------------------------ 대화 스레드
+// 작업 과정의 도구 이름: 파일을 바꾼 단계는 무엇을 했는지로 — Create(새 파일)·Update(고침)·Delete(지움), 그냥 명령은 Bash.
+// 편집 도구(Edit·Write …, Codex 패치)는 서버가 준 op 로, 셸로 바꾼 명령(sed -i, 파일로 > 쓰기, 스크립트의 파일 쓰기 …)은
+// 명령 글로 가린다(셸 쓰기는 새 파일인지 알 수 없어 Update)
+const CODE_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+const OP_LABEL = { create: "Create", update: "Update", delete: "Delete" };
+const NOT_PROJECT = String.raw`(?!&|\/dev\/|\/tmp\/|\/private\/tmp\/|\/var\/folders\/|"?\$\{?TMPDIR)`;   // 임시 폴더·/dev/null 은 코드가 아니다
+// 셸 줄에서 찾는 것(heredoc 본문은 빼고 — 본문의 JS 화살표 「=>」·비교식 「a > b」를 리다이렉트로 잘못 읽지 않게)
+const SHELL_WRITES = [
+  /\b(?:sed|gsed)\s+(?:-[a-zA-Z]*\s+)*-i\b/, /\bperl\s+-[a-zA-Z]*i/, /\b(?:git\s+apply|patch\s+-p\d|apply_patch)\b/,
+  new RegExp(String.raw`\btee\s+(?:-a\s+)?` + NOT_PROJECT + String.raw`["']?[\w.~\/$]`),
+  new RegExp(String.raw`(?:^|[\s;|)])[0-9]?>>?\s*` + NOT_PROJECT + String.raw`["']?[\w.~\/$]`, "m"),   // 파일로 > · >>
+];
+// 스크립트(heredoc·python -c …) 안에서 파일을 쓰는 것 — 쓰는 곳이 임시 폴더뿐이면 빼기 어려워 그대로 Code
+const SCRIPT_WRITES = [/\bopen\([^)]*,\s*["'](?:w|a|r\+|wb|ab)["']/, /\.write_text\(|\.write_bytes\(|writeFileSync\(/];
+function shellPart(cmd) {
+  return cmd.replace(/<<-?\s*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?\n\s*\2[ \t]*(?=\n|$)/g, m => m.slice(0, m.indexOf("\n")));
+}
+// 지우기: rm·git rm 으로 임시 폴더가 아닌 곳을
+// rm 은 명령 맨 앞일 때만(「claude rm」 같은 하위 명령은 아님).
+// (옵션 「-rf」를 경로로 읽지 않게 경로는 「-」로 시작하지 않는 것만, 변수($X)로 가리킨 곳은 대개 시험용 임시 폴더라 뺀다)
+const SHELL_DELETES = new RegExp(String.raw`(?:^|[;|&(]|\bxargs|\bsudo)\s*(?:git\s+)?rm\s+(?:-[a-zA-Z]+\s+)*` + NOT_PROJECT + String.raw`(?!["']?\$)["']?[\w.~\/]`, "m");
+function stepOp(it) {
+  if (it.op) return it.op;
+  if (CODE_TOOLS.has(it.name)) return it.name === "Write" ? null : "update";   // Write 는 결과가 오기 전엔 모른다
+  if (it.name !== "Bash" || !it.detail) return null;
+  const sh = shellPart(it.detail);
+  if (SHELL_WRITES.some(r => r.test(sh)) || SCRIPT_WRITES.some(r => r.test(it.detail))) return "update";
+  if (SHELL_DELETES.test(sh)) return "delete";
+  return null;
+}
+function stepLabel(it) {
+  const op = stepOp(it);
+  return { label: op ? OP_LABEL[op] : it.name === "Edit" ? "Update" : it.name, op };
+}
 function stepsHtml(items, skipText) {
   return items.map(it => {
     if (it.kind === "tool") {
       // 누르면 실제 명령(Bash)·입력 전체를 펼쳐 본다
       const k = it.at + "|" + it.name + "|" + it.brief;
       const open = it.detail && S.stepOpen.has(k);
+      const { label, op } = stepLabel(it);
       return `<div class="step tool ${it.detail ? "has-detail" : ""} ${open ? "open" : ""}" ${it.detail ? `data-action="toggle-step" data-key="${esc(k)}" title="눌러서 ${open ? "접기" : "자세히 보기"}"` : ""}>
-        <span class="tname">${esc(it.name)}</span><span class="tbrief">${esc(it.brief)}</span></div>` +
+        <span class="tname ${op ? "op-" + op : ""}" ${label !== it.name ? `title="${esc(it.name)}"` : ""}>${esc(label)}</span><span class="tbrief">${esc(it.brief)}</span></div>` +
         (open ? `<pre class="tdetail">${esc(it.detail)}</pre>` : "");
     }
     if (skipText && it.text.trim() === skipText.trim()) return "";

@@ -1416,6 +1416,38 @@ def _codex_loop():
         time.sleep(3)
 
 
+def _recap_loop():
+    """쉬고 있는 Claude Code 세션의 recap(away_summary). Claude Code 는 응답이 끝나고 몇 분~수십 분 쉬면 요약을 기록 파일에
+    쓰는데, 그때는 훅이 오지 않는다(훅은 다음 요청의 응답이 끝날 때 읽는다 — 그때면 이미 지난 recap 이라 칸에 안 보인다).
+    그래서 쉬는 세션의 기록 파일이 바뀌면 끝부분만 읽어 넣는다."""
+    conn, seen = store.connect(), {}
+    while True:
+        time.sleep(15)
+        try:
+            rows = conn.execute("SELECT session_id, transcript_path, state_at FROM sessions WHERE agent='claude'"
+                                " AND state IN ('done', 'idle', 'error') AND archived=0 AND transcript_path IS NOT NULL").fetchall()
+            changed = False
+            for r in rows:
+                try:
+                    mt = os.path.getmtime(r["transcript_path"])
+                except OSError:
+                    continue
+                if seen.get(r["session_id"]) == mt or mt <= (r["state_at"] or 0):
+                    seen[r["session_id"]] = mt
+                    continue
+                seen[r["session_id"]] = mt
+                meta = store.scan_transcript_meta(r["transcript_path"], tail_bytes=256 * 1024)
+                if meta.get("recap_at") and meta["recap_at"] > (r["state_at"] or 0) - 1:   # 쉬기 시작한 뒤에 쓴 요약만
+                    changed = store.apply_recap(conn, r["session_id"], meta) or changed
+            if changed:
+                conn.commit()
+            else:
+                conn.rollback()
+        except Exception:  # noqa: BLE001 - 기록 파일 형식이 바뀌어도 서버는 계속
+            traceback.print_exc()
+            time.sleep(30)
+
+
 def _reap_loop():
     while True:
         try:
@@ -3513,6 +3545,7 @@ def main():
     update.start_scheduler(restart_server)   # 몇 시간마다 새 버전 확인 · 자동이면 조용할 때 받기
     threading.Thread(target=_reap_loop, daemon=True).start()   # 정상 종료한 세션의 빈 탭 닫기
     threading.Thread(target=_dirty_loop, daemon=True).start()  # 칸 머리 변경 보기 버튼용 커밋 안 한 변경 수
+    threading.Thread(target=_recap_loop, daemon=True).start()  # 쉬는 세션에 Claude Code 가 쓴 recap 가져오기
     if codex.available():
         threading.Thread(target=_codex_loop, daemon=True).start()  # OpenAI Codex 세션 모으기
     threading.Thread(target=skills.refresh_codex, daemon=True).start()  # Codex 에 설치한 스킬 사본을 저장소에 맞추기

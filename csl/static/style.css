@@ -325,6 +325,10 @@ body.view-board .board {
   flex: none; font-family: var(--mono); font-size: calc(10.5px * var(--fs, 1)); padding: 1px 6px; border-radius: 4px;
   background: var(--surface-hover); color: var(--text-2);
 }
+/* 파일을 바꾼 단계는 색으로 구분: Create 초록 · Update 주황 · Delete 빨강 */
+.step.tool .tname.op-create { background: var(--working-soft); color: var(--working); }
+.step.tool .tname.op-update { background: var(--accent-soft); color: var(--accent); }
+.step.tool .tname.op-delete { background: var(--alert-soft); color: var(--alert); }
 .step.tool .tbrief { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .step.text { color: var(--text); font-size: calc(13px * var(--fs, 1)); }
 .live-indicator { display: flex; align-items: center; gap: 8px; font-size: calc(12.5px * var(--fs, 1)); font-weight: 600; color: var(--working); margin-top: 4px; }
