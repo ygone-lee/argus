@@ -42,6 +42,7 @@ DATA_DIR = os.path.expanduser(os.environ.get("CSL_DATA_DIR", "~/.claude/session-
 # 예전 버전이 쓰던 「로그인할 때 보드 띄우기」 macOS LaunchAgent. 이제 쓰지 않는다 — launchd 가 띄운 서버는 macOS 개인정보
 # 보호(TCC)에 걸려 다운로드·문서 폴더를 못 읽어서(끌어 놓은 파일 찾기 등). 보드는 Claude Code 훅이나 ctl.sh 가 터미널에서
 # 띄우고(터미널 앱의 권한을 물려받는다), 설치·업데이트 때 남아 있는 이 항목을 지운다. 앱으로 감싼 뒤 다시 들인다
+CODEX_HOME = os.path.expanduser(os.environ.get("CODEX_HOME") or "~/.codex")
 AGENT_LABEL = "com.argus.board"
 AGENT_PLIST = os.path.expanduser("~/Library/LaunchAgents/%s.plist" % AGENT_LABEL)
 
@@ -315,6 +316,31 @@ def session_count():
         return None
 
 
+def codex_mod():
+    """csl/codex.py (Codex 훅 설치·확인). Codex 를 안 쓰면(~/.codex 없음) None."""
+    if not os.path.isdir(CODEX_HOME):
+        return None
+    sys.path.insert(0, HERE)
+    from csl import codex
+    return codex
+
+
+def codex_hooks(remove=False):
+    """~/.codex/hooks.json 에 Codex 훅을 넣거나 뺀다. 결과 문구(Codex 를 안 쓰면 "")."""
+    cx = codex_mod()
+    if cx is None:
+        return ""
+    try:
+        if remove:
+            return "removed from %s" % home(cx.HOOKS_PATH) if cx.uninstall_hooks() else ""
+        cmd_py, cmd_hook = shlex.quote(PYTHON), shlex.quote(HOOK)
+        changed = cx.install_hooks(cmd_py, cmd_hook)
+    except (OSError, RuntimeError) as e:
+        return "not installed — %s" % e
+    return "%d hooks %s %s — Codex asks you to trust them once (/hooks in the Codex CLI, or the app's settings)" % (
+        len(cx.HOOK_EVENTS), "added to" if changed else "already in", home(cx.HOOKS_PATH))
+
+
 def check():
     """설치 상태를 보여 주기만 한다."""
     try:
@@ -333,6 +359,9 @@ def check():
          else "not connected — context % and usage bars will be estimated or hidden"),
         ("tmux", bool(tmux_bin()), home(tmux_bin() or "") or "not installed — brew install tmux (needed for the board terminal)"),
         ("Board server", server_up(), "http://127.0.0.1:%d" % PORT if server_up() else "not running — %s open" % ctl()),
+    ] + ([("Codex hooks", codex_mod().hooks_state()[0], home(codex_mod().HOOKS_PATH) if codex_mod().hooks_state()[0]
+           else "not installed — %s install adds them (Codex sessions still show up without them, a bit later)" % ctl())]
+         if codex_mod() else []) + [
     ] + ([("Old login item", False, "%s is still there — %s install removes it" % (home(AGENT_PLIST), ctl()))]
          if legacy_autostart() else []) + [
         ("Recorded sessions", bool(sessions), str(sessions) if sessions is not None else "none yet — send a prompt in Claude Code"),
@@ -402,10 +431,13 @@ def main():
 
     if args.uninstall:
         login = remove_autostart()
+        cx = codex_hooks(remove=True)
         say("Argus removed ✓\n")
         say("  Hooks        removed from %s (your other hooks are untouched)" % home(SETTINGS))
         say("  Status line  %s" % statusline)
         say("  Skill links  removed: %s" % skills)
+        if cx:
+            say("  Codex hooks  %s" % cx)
         if login:
             say("  Login item   %s" % login)
         if backup:
@@ -420,6 +452,9 @@ def main():
                                                       "" if created else " (your other hooks are untouched)"))
     say("  Status line  %s" % statusline)
     say("  Skill        %s linked into %s" % (skills, home(SKILLS_DIR)))
+    cx = codex_hooks()
+    if cx:
+        say("  Codex hooks  %s" % cx)
     if backup:
         say("  Backup       %s" % home(backup))
     tmux = ensure_tmux({"install": True, "skip": False}.get(args.tmux))

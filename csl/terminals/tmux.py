@@ -86,6 +86,23 @@ def _claude_fg(tty):
     return False
 
 
+def _codex_fg(tty):
+    """그 tty 의 전면 프로세스가 Codex CLI 인지 — 실행 파일(codex)이거나 npm 설치본(node …/codex)."""
+    if not re.fullmatch(r"/dev/ttys\d+", tty or ""):
+        return False
+    try:
+        r = subprocess.run(["ps", "-t", tty[len("/dev/"):], "-o", "stat=,args="], capture_output=True, text=True, timeout=3)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    for line in r.stdout.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) == 2 and "+" in parts[0]:
+            args = parts[1].split()
+            if any(os.path.basename(a) in ("codex", "codex.js") for a in args[:2]):
+                return True
+    return False
+
+
 class Tmux(Terminal):
     name = "tmux"
     label = "tmux"
@@ -184,7 +201,8 @@ class Tmux(Terminal):
             return None
         cmd, title, tty = (r.stdout.rstrip("\n").split("\t") + ["", "", ""])[:3]
         # 전면 명령 이름이 claude 가 아니라 버전 번호(2.1.x)로 보일 수 있다 — tty 의 전면 프로세스로 한 번 더 본다
-        agent = "claude" if cmd == "claude" or _claude_fg(tty) else ""
+        agent = "claude" if cmd == "claude" or _claude_fg(tty) else \
+            "codex" if cmd == "codex" or (cmd in ("node", "bun") and _codex_fg(tty)) else ""
         return {"agent": agent, "title": title}
 
     def exited(self, handle):

@@ -185,12 +185,13 @@ Sessions you already run in another terminal show up as they are. To reply to th
 
 **Just want to look first?** `~/.argus/ctl.sh demo` opens the real board at http://127.0.0.1:7798 with made-up projects and sessions that change while you watch (you can send them messages too). It uses its own temporary data folder and port, never touches your Claude Code setup, and cleans up when you stop it with Ctrl+C.
 
-## New board: Claude Code · terminal · markdown
+## New board: Claude Code · Codex · terminal · markdown
 
-**＋ 새 보드** (New board) in the top bar makes three kinds of columns. All of them are board columns, so pinning, dragging to reorder,
+**＋ 새 보드** (New board) in the top bar makes four kinds of columns. All of them are board columns, so pinning, dragging to reorder,
 ⌘number, <kbd>Z</kbd> zoom and archiving work the same way.
 
 - **✳ Claude Code** — a Claude Code session in the chosen folder, with model, effort, a new worktree (`claude -w`) and a first message.
+- **◎ Codex** — an OpenAI Codex session in the board terminal, with a model, reasoning level and first message. Shown only when Codex is installed — see [OpenAI Codex sessions](#openai-codex-sessions).
 - **⌨ Terminal** — a shell in the chosen folder; the column is the terminal.
   - It runs on the board's tmux server, so it survives reloads and board restarts.
   - After `exit`, the column offers 「↻ 같은 폴더에서 다시 열기」 (Reopen in the same folder).
@@ -209,6 +210,16 @@ Sessions you already run in another terminal show up as they are. To reply to th
 - **Connectors** — ⋮ → 🔌 커넥터 (Connectors) to collect Slack mentions/DMs and Gmail into the Brain's inbox. Secrets go into the macOS Keychain. For Slack, "Create the Slack app" opens Slack with a read-only app manifest prefilled: pick the workspace → Create → Install → copy the User OAuth Token (xoxp-…) and paste it — Argus saves it, checks the connection and names the connector after the workspace.
 
 **To remove Argus:** `~/.argus/ctl.sh uninstall` (or `./ctl.sh uninstall` in your clone) removes the hooks and restores your original status line; then delete the Argus folder. Your data stays in `~/.claude/session-log` until you delete that folder.
+
+## OpenAI Codex sessions
+
+If you also use [OpenAI Codex](https://github.com/openai/codex) (the CLI or the desktop app), its conversations show up on the board next to your Claude Code sessions, marked **◎ Codex** (or **Codex app** for a conversation in the app). Turn it off in ⋮ → ⚙ 설정 → 「Codex 세션도 모으기」 (Also collect Codex sessions).
+
+- **What you see:** the conversation, working / new reply / error state, the live trail of commands and tool calls, model, reasoning level, context usage, and Codex's weekly limit next to the Claude usage bars. Search, the activity feed, next actions and the daily log include them.
+- **Start one:** ＋ 새 보드 → **◎ Codex** opens `codex` in the board terminal in the chosen folder, with a model, reasoning level and first message.
+- **Reply, stop, end:** the column's input box types into a Codex that runs in the board terminal. For a conversation in the Codex app, or a CLI running somewhere the board can't type into, the message goes in through `codex queue`. ■ stops a turn (Esc) and ⋮ → ⏻ ends it (`/quit`). An ended CLI conversation can be resumed in the board terminal (`codex resume`).
+- **How it's collected:** Argus reads Codex's own records in `~/.codex` (the session list in `state_*.sqlite`, the conversation in `sessions/…/rollout-*.jsonl` and `thread_history_*.sqlite`) every few seconds and never writes to them. The installer also adds hooks to `~/.codex/hooks.json` (next to any hooks you already have) so states such as *needs you* (an approval prompt) show up at once. Codex asks you to trust new hooks once — open `/hooks` in the Codex CLI. Without the hooks everything else still works, a few seconds later.
+- **Not available for Codex:** changing the model from the board, permission modes, rewind, branch/fork, Remote Control, `/btw` and slash command completion.
 
 ## A tour of the board
 
@@ -408,7 +419,10 @@ These use the Orca terminal's CLI (`/Applications/Orca.app/Contents/Resources/bi
 
 ```
 Claude Code sessions ──hooks (hook.py)──▶ ~/.claude/session-log/board.db (SQLite) ◀── server.py ── browser
+Codex (CLI · app) ──~/.codex records (csl/codex.py) · hooks (hook.py --agent codex)──┘
 ```
+
+Codex sessions are stored in the same tables with `sessions.agent = 'codex'`. Codex turns are keyed by Codex's own `turn_id` (`turns.prompt_id`), so the hooks and the record reader fill in the same turn.
 
 | Hook | What it records |
 |---|---|
@@ -485,7 +499,8 @@ front, but not driven.
 | Path | Contents |
 |---|---|
 | `csl/store.py` | Schema, masking, git info, transcript parsing, usage cache |
-| `csl/hook.py` | Hook entry point |
+| `csl/hook.py` | Hook entry point (Claude Code; `--agent codex` for Codex) |
+| `csl/codex.py` | OpenAI Codex sessions: reads `~/.codex`, Codex hooks, sending to Codex |
 | `csl/server.py` | Web server and API |
 | `csl/webterm.py` | Board terminal: minimal WebSocket server side and the PTY relay to `tmux attach` |
 | `csl/backfill.py` | Import past conversations |

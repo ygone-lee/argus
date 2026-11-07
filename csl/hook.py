@@ -1,4 +1,5 @@
 """Claude Code 훅 진입점. settings.json 에서 `python3 hook.py` 로 부른다(async).
+Codex 훅은 ~/.codex/hooks.json 에서 `python3 hook.py --agent codex` 로 부른다(csl/codex.py 가 처리).
 
 표준 입력의 훅 JSON 을 받아 board.db 에 세션 상태·턴을 적는다.
 어떤 오류가 나도 Claude 를 막지 않도록 항상 0 으로 끝난다.
@@ -608,7 +609,11 @@ def main():
         return
     try:
         data = json.load(sys.stdin)
-        out = handle(data)
+        if "--agent" in sys.argv and sys.argv[sys.argv.index("--agent") + 1:][:1] == ["codex"]:
+            from csl import codex   # OpenAI Codex 훅(~/.codex/hooks.json) — 입력 모양은 같고 처리만 다르다
+            out = codex.handle_hook(data)
+        else:
+            out = handle(data)
         if out:
             sys.stdout.write(json.dumps(out))
     except Exception:  # noqa: BLE001 - 훅 실패가 Claude 를 막으면 안 된다

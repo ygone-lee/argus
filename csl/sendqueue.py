@@ -21,7 +21,7 @@ def tick():
     conn = store.connect()
     try:
         rows = conn.execute(
-            "SELECT n.id, n.session_id, s.state, s.state_at, s.title, s.cwd, s.project_root, s.terminal"
+            "SELECT n.id, n.session_id, s.state, s.state_at, s.title, s.cwd, s.project_root, s.terminal, s.agent"
             " FROM notes n JOIN sessions s ON s.session_id = n.session_id"
             " WHERE n.queued_at IS NOT NULL AND n.done = 0 AND s.state IN ('done', 'idle')"
             " ORDER BY n.queued_at, n.id").fetchall()
@@ -34,6 +34,9 @@ def tick():
             if (r["state_at"] or 0) <= _sent_at.get(sid, 0):
                 continue   # 방금 보낸 것의 응답이 아직 안 끝났다
             sess = {k: r[k] for k in ("session_id", "title", "cwd", "project_root", "terminal")}
+            if r["agent"] == "codex":
+                _codex_tick(conn, r, sess)
+                continue
             tg, _ = focus.resolve_target(sess)
             if not tg:
                 continue
@@ -71,6 +74,51 @@ def tick():
                     store.add_event(conn, sid, "error", "예약한 할 일을 보내지 못했습니다: %s" % (err or "")[:200])
     finally:
         conn.close()
+
+
+def _claim(conn, nid):
+    """보내기 직전에 예약을 가져온다(그사이 풀었거나 지웠으면 None). (글, 이미지 경로)."""
+    with conn:
+        claimed = conn.execute("UPDATE notes SET queued_at=NULL, updated_at=? WHERE id=? AND queued_at IS NOT NULL"
+                               " AND done=0", (store.now(), nid)).rowcount
+    if claimed != 1:
+        return None
+    note = conn.execute("SELECT text, images FROM notes WHERE id=?", (nid,)).fetchone()
+    try:
+        images = json.loads(note["images"]) if note["images"] else []
+    except ValueError:
+        images = []
+    return note["text"] or "", images
+
+
+def _codex_tick(conn, r, sess):
+    """Codex 세션의 예약: 보드 터미널 등에서 codex 가 돌면 입력창에, 데스크톱 앱 대화면 `codex queue` 로."""
+    from csl import codex
+    sid = r["session_id"]
+    tg = codex.tab_of(sess)
+    before = store.now()
+    if tg:
+        with focus.hold(tg):
+            if codex.busy(tg):
+                return
+            got = _claim(conn, r["id"])
+            if got is None:
+                return
+            ok, err = codex.paste(tg, got[0], got[1])
+    elif codex.desktop_session(sess) or codex.is_running(dict(sess, last_activity=r["state_at"])):
+        got = _claim(conn, r["id"])
+        if got is None:
+            return
+        text = got[0] + ("\n\n" + "\n".join("첨부 이미지: " + p for p in got[1]) if got[1] else "")
+        ok, err = codex.queue(sid, text)
+    else:
+        return   # codex 가 꺼져 있다 — 다시 열면 보낸다
+    with conn:
+        if ok:
+            _sent_at[sid] = before
+            conn.execute("UPDATE notes SET done=1, done_at=?, updated_at=? WHERE id=?", (store.now(), store.now(), r["id"]))
+        else:
+            store.add_event(conn, sid, "error", "예약한 할 일을 보내지 못했습니다: %s" % (err or "")[:200])
 
 
 def start():

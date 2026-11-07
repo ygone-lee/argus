@@ -142,6 +142,13 @@ function sessionTitle(s) {
   if (!s.title && s.team_agent) return "👥 " + s.team_agent;
   return s.title || promptSummary(s.first_prompt, 60) || "(아직 요청 없음)";
 }
+// 어느 에이전트의 세션인지 — claude(Claude Code) · codex(OpenAI Codex CLI·데스크톱 앱)
+function isCodex(s) { return !!s && s.agent === "codex"; }
+function agentName(s) { return isCodex(s) ? "Codex" : "Claude"; }
+function agentChip(s) {
+  if (!isCodex(s)) return "";
+  return `<span class="chip agent-chip codex" title="${s.desktop ? "OpenAI Codex 앱의 대화 — 보내기는 앱의 그 대화로 들어갑니다" : "OpenAI Codex CLI 세션"}">${s.desktop ? "Codex 앱" : "Codex"}</span>`;
+}
 function displayState(s) {
   if (s.state === "waiting") return "waiting";
   if (s.state === "working") return "working";
@@ -482,7 +489,8 @@ async function poll() {
   S.inboxNewAt = data.inbox_new_at || [];
   renderRemoteBtn();
   renderProjBtn();
-  renderUsage(data.usage);
+  S.codex = data.codex || null;
+  renderUsage(data.usage, data.codex_usage);
   S.lastUpdate = data.update;
   renderUpdateBanner(data.update);
   checkAlerts();
@@ -509,7 +517,7 @@ const SUGGEST_DELAYS = [2500, 7000, 15000];
 function watchSuggestions() {
   for (const s of S.sessions) {
     const d = displayState(s);
-    if (d === "working" || d === "waiting" || d === "ended" || s.compact_at) continue;
+    if (d === "working" || d === "waiting" || d === "ended" || s.compact_at || isCodex(s)) continue;
     const cur = S.sugg.get(s.session_id);
     if (cur && cur.key === s.state_at) continue;
     S.sugg.set(s.session_id, { key: s.state_at, text: cur && cur.text });
@@ -591,7 +599,7 @@ function checkAlerts() {
       const n = next[s.session_id];
       if (!p) continue;
       if (n.disp === "waiting" && p.disp !== "waiting") {
-        alertUser(s, "확인 필요 · " + sessionTitle(s), s.state_detail || "Claude 가 입력을 기다립니다");
+        alertUser(s, "확인 필요 · " + sessionTitle(s), s.state_detail || agentName(s) + " 가 입력을 기다립니다");
       } else if (n.disp === "error" && p.disp !== "error") {
         alertUser(s, "오류 · " + sessionTitle(s), s.state_detail || "응답이 실패했습니다");
       } else if (s.unread && n.resp && p.resp !== n.resp) {
@@ -747,6 +755,12 @@ S.reveal = new Set();
 // 보드 터미널 밖(Orca·tmux·iTerm2·백그라운드 …)에서 도는 세션이면 { where, note }, 아니면 null(종료·브레인·보드 터미널)
 function elsewhere(s) {
   if (s.term_web || s.brain || s.state === "ended" || s.archived || isImporting(s)) return null;
+  if (isCodex(s)) {   // Codex: 앱의 대화·다른 터미널은 보내면 Codex 가 그 대화에 넣어 준다(codex queue) — 가져오기 없음
+    if (s.desktop) return { where: "Codex 앱", note: "보내면 앱의 그 대화로 들어갑니다", nobtn: true };
+    if (s.running === false) return { where: "꺼진 세션", note: "Codex 가 돌고 있지 않습니다", btn: "⇄ 이어 열기" };
+    const movable = ["orca", "tmux"].includes(s.term_name);
+    return { where: s.term_label || "다른 터미널", note: "보드 밖에서 도는 Codex — 보내면 그 대화에 들어갑니다", nobtn: !movable };
+  }
   if (s.bg) return { where: "백그라운드", note: "터미널 없이 돌고 있습니다" };
   if (s.running === false) return { where: "꺼진 세션", note: "어느 터미널에서도 돌고 있지 않습니다", btn: "⇄ 이어 열기" };
   const where = s.term_label || "다른 터미널";
@@ -822,7 +836,7 @@ function turnHtml(t, s, lastRunId) {
   const promptOpen = S.promptOpen.has(t.id);
   const notice = taskNotice(t.prompt);
   const user = t.prompt == null ? "" : notice ? noticeHtml(notice, at ? hm(at) : "") : `
-    <div class="msg-meta">${t.status !== "rewound" && t.prompt && s.state !== "ended" ? `<button class="turn-rw" data-action="rewind-menu" data-sid="${esc(s.session_id)}" data-tid="${t.id}" title="이 요청 앞으로 되돌리기(/rewind)">↶</button>` : ""}${at ? dateLabel(at) + " " + hm(at) : ""}</div>
+    <div class="msg-meta">${t.status !== "rewound" && t.prompt && s.state !== "ended" && !isCodex(s) ? `<button class="turn-rw" data-action="rewind-menu" data-sid="${esc(s.session_id)}" data-tid="${t.id}" title="이 요청 앞으로 되돌리기(/rewind)">↶</button>` : ""}${at ? dateLabel(at) + " " + hm(at) : ""}</div>
     <div class="msg-user"><div class="bubble md ${promptLong && !promptOpen ? "clamped" : ""}">${promptHtml(t)}</div></div>
     ${promptLong ? `<div class="msg-user"><button class="linkish" data-action="toggle-prompt" data-tid="${t.id}">${promptOpen ? "접기" : "요청 전체 보기"}</button></div>` : ""}`;
 
@@ -835,7 +849,7 @@ function turnHtml(t, s, lastRunId) {
     const shown = items.slice(-30);
     const waiting = s.state === "waiting";
     claude = `<div class="msg-claude">
-      <div class="who-line"><span class="who-name">Claude</span></div>
+      <div class="who-line"><span class="who-name">${agentName(s)}</span></div>
       ${items.length > shown.length ? `<div class="muted step">앞선 단계 ${items.length - shown.length}개 생략</div>` : ""}
       ${shown.length ? `<div class="steps">${stepsHtml(shown)}</div>` : ""}
       <div class="live-indicator ${waiting ? "live-wait" : ""}"><span class="dot ${waiting ? "waiting" : "working"}"></span>
@@ -859,7 +873,7 @@ function turnHtml(t, s, lastRunId) {
         : '<div class="steps"><div class="step muted">기록된 작업 과정이 없습니다.</div></div>';
     }
     claude = `<div class="msg-claude">
-      <div class="who-line"><span class="who-name">Claude</span>${hm(t.response_at)}${took} ${badge}
+      <div class="who-line"><span class="who-name">${agentName(s)}</span>${hm(t.response_at)}${took} ${badge}
         ${t.prompt_at ? `<button class="linkish" data-action="toggle-trail" data-tid="${t.id}" data-sid="${esc(s.session_id)}">${trailOpen ? "작업 과정 접기" : "작업 과정 보기"}</button>` : ""}</div>
       ${trailHtml}
       ${extrasHtml(t)}
@@ -1533,7 +1547,7 @@ function updateCol(col, s, rank, lastPin) {
       col.querySelector(".col-head").after(band);
     }
     const html = `<span class="ce-where">${esc(away.where)}</span><span class="ce-note" title="${esc(away.note)}">${esc(away.note)}</span>
-      <button class="ce-btn" data-action="import-open" data-sid="${esc(sid)}" title="⇄ 보드 터미널로 가져오기 — 같은 대화로 보드 터미널에서 다시 엽니다">${away.btn || "⇄ 가져오기"}</button>`;
+      ${away.nobtn ? "" : `<button class="ce-btn" data-action="import-open" data-sid="${esc(sid)}" title="⇄ 보드 터미널로 가져오기 — 같은 대화로 보드 터미널에서 다시 엽니다">${away.btn || "⇄ 가져오기"}</button>`}`;
     band.classList.toggle("off", !!away.btn);
     setHtml(band, html);
   } else if (band) band.remove();
@@ -1578,7 +1592,7 @@ function updateCol(col, s, rank, lastPin) {
       </div>
       ${s.brain /* 브레인은 늘 같은 폴더라 프로젝트·브랜치 칩은 빼고 모델·권한만(패널이 좁아 윗줄에 두면 넘친다) */
         ? `<div class="col-meta">${modelChip(s, d)}${permChip(s, d)}</div>`
-        : `<div class="col-meta"><span class="chip proj" data-action="proj-color" data-root="${esc(s.project_root || s.cwd || "")}" title="${esc(s.project_root || "")} · 눌러서 색 바꾸기">${esc(s.project_name || base(s.project_root))}</span>${placeChips(s)}${diffChip(s)}${modelChip(s, d)}${permChip(s, d)}</div>`}
+        : `<div class="col-meta">${agentChip(s)}<span class="chip proj" data-action="proj-color" data-root="${esc(s.project_root || s.cwd || "")}" title="${esc(s.project_root || "")} · 눌러서 색 바꾸기">${esc(s.project_name || base(s.project_root))}</span>${placeChips(s)}${diffChip(s)}${modelChip(s, d)}${permChip(s, d)}</div>`}
       ${goalChip(s, d)}
       ${s.state_detail && (d === "waiting" || d === "error") ? `<div class="col-detail">${esc(s.state_detail)}</div>` : ""}`);
   }
@@ -1757,12 +1771,12 @@ async function collapseRewound(sid) {
 const PERM = { auto: ["⏵⏵", "자동"], default: ["⏸", "수동"], acceptEdits: ["⏵⏵", "편집 허용"], plan: ["⏸", "계획"], bypassPermissions: ["⚠", "전부 허용"] };
 // 갈래·곁일(/branch·/fork·/subtask) — 입력창 옆에 두면 입력칸이 좁아지고, 칩 줄에 두면 줄이 넘쳐 머리가 길어져서 ⋮ 옆 아이콘으로
 function forkChip(s, d) {
-  if (d === "ended" || s.bg && !s.term_handle) return "";
+  if (d === "ended" || s.bg && !s.term_handle || isCodex(s) && (s.desktop || s.running === false)) return "";
   return `<button class="fork-chip" data-action="fork-menu" data-sid="${esc(s.session_id)}" title="갈래·곁일 — /branch(여기서 갈라 대화) · /fork(갈라서 맡기기) · /subtask(곁일)" aria-label="갈래·곁일">⑂</button>`;
 }
 function permChip(s, d) {
   const p = PERM[s.permission_mode];
-  if (!p || d === "ended" || s.bg && !s.term_handle) return "";
+  if (!p || d === "ended" || s.bg && !s.term_handle || isCodex(s)) return "";
   return `<button class="perm-chip pm-${esc(s.permission_mode)}" data-action="perm-menu" data-sid="${esc(s.session_id)}" title="권한 모드 — 눌러서 바꾸기(터미널의 Shift+Tab)">${p[0]} ${p[1]} ▾</button>`;
 }
 // keyboard: ⇧Tab 으로 연 것 — 지금 모드에 포커스를 두고 ⇧Tab·↓ 다음 · ↑ 이전 · Enter 적용 · Esc 닫기(포커스는 입력칸으로 돌아간다)
@@ -1835,6 +1849,17 @@ function openForkMenu(btn) {
   const sid = btn.dataset.sid, s = sessionById(sid);
   if (!s) return;
   const busy = ["working", "waiting"].includes(s.state);
+  if (isCodex(s)) {   // Codex: /fork(이 탭이 갈래로 넘어감) · /side(터미널의 곁대화)
+    openXMenu(btn, `<div class="xm-head">⑂ 갈래·곁대화</div>
+      ${busy ? '<div class="xm-note warn">작업 중에는 쓸 수 없습니다 — 끝난 뒤에</div>' : ""}
+      <div class="xm-form"><b>⑂ 여기서 갈라 대화하기</b> <span class="muted">/fork — 이 터미널이 갈라진 새 대화로 넘어가고, 원본은 꺼진 채 칸의 탭으로 남습니다(이어 열기 가능)</span>
+        <div class="xm-row"><input class="cx-fork-prompt" placeholder="갈래에서 할 첫 요청(비우면 터미널에서)"></div>
+        <div class="xm-row"><button class="btn" data-cxfork="" data-sid="${esc(sid)}" ${busy ? "disabled" : ""}>지금 폴더에서</button>
+        <button class="btn" data-cxfork="wt" data-sid="${esc(sid)}" ${busy ? "disabled" : ""}>새 Git 워크트리에서</button></div></div>
+      <div class="xm-form"><b>↪ 곁대화</b> <span class="muted">/side — 대화를 물려받은 임시 갈래에서 곁질문. 터미널에서 이어집니다(보드 칸에는 남지 않음)</span>
+        <div class="xm-row"><button class="btn" data-cxside data-sid="${esc(sid)}" ${busy ? "disabled" : ""}>터미널에서 곁대화 열기</button></div></div>`);
+    return;
+  }
   openXMenu(btn, `<div class="xm-head">⑂ 갈래·곁일</div>
     ${busy ? '<div class="xm-note warn">작업 중에는 쓸 수 없습니다 — 끝난 뒤에(명령이 요청으로 끼어들지 않게)</div>' : ""}
     <form class="xm-form" data-fork-form="branch" data-sid="${esc(sid)}"><b>⑂ 여기서 갈라 대화하기</b> <span class="muted">/branch — 이 터미널이 갈래로 넘어가고, 원본은 탭에 남습니다</span>
@@ -1844,7 +1869,22 @@ function openForkMenu(btn) {
     <form class="xm-form" data-fork-form="subtask" data-sid="${esc(sid)}"><b>↪ 곁일 맡기기</b> <span class="muted">/subtask — 서브에이전트가 하고 결과를 이 대화로 돌려줍니다</span>
       <div class="xm-row"><input name="v" placeholder="곁일" required><button class="btn" ${busy ? "disabled" : ""}>맡기기</button></div></form>`);
 }
-$("#xMenu").addEventListener("click", e => {
+$("#xMenu").addEventListener("click", async e => {
+  const cf = e.target.closest("[data-cxfork]"), cs = e.target.closest("[data-cxside]");
+  if (cf || cs) {
+    const sid = (cf || cs).dataset.sid;
+    closeXMenu();
+    try {
+      if (cf) {
+        const prompt = (($("#xMenu").querySelector(".cx-fork-prompt") || {}).value || "").trim();
+        const r = await api("POST", `/api/sessions/${sid}/codex-fork`, { worktree: cf.dataset.cxfork === "wt", prompt });
+        toast(r.message + (r.prompt ? "" : " — 터미널에서 첫 요청을 보내면 갈래 탭이 생깁니다"));
+        if (!r.prompt && r.handle) openLaunchTerm(r.handle, "web");
+      }
+      else { await api("POST", `/api/sessions/${sid}/send`, { text: "/side", images: [] }); setTimeout(() => focusTerminal(sid), 400); }
+    } catch (err) { toast(err.message); }
+    return refresh(sid);
+  }
   const ip = e.target.closest("[data-ibpick]");
   if (ip) return pickInboxSession(ip);
   const so = e.target.closest("[data-sendopt]");
@@ -2346,13 +2386,14 @@ function ctxChip(s, d) {
   const tip = `컨텍스트 ${pct}% 사용 · ${fmtTokens(c.used)} / ${fmtTokens(c.size)} 토큰` +
     (c.estimated ? "\n창 크기는 추정(같은 모델이 200k 를 넘겨 쓴 적이 있으면 1M, 아니면 200k)" : "");
   // 도넛: 채워진 각도 = 사용 %
+  if (isCodex(s)) return `<span class="ctx-chip ${lv}" title="${esc(tip)}"><span class="ctx-ring" style="--p:${pct}"></span>${pct}%</span>`;
   return `<button class="ctx-chip ${lv}" data-action="ctx-menu" data-sid="${esc(s.session_id)}" title="${esc(tip + "\n누르면 컴팩트(/compact)")}">
     <span class="ctx-ring" style="--p:${pct}"></span>${pct}%</button>`;
 }
 // 머리의 「📡 원격」: 리모트 컨트롤 켜기·끄기 버튼(켜졌으면 초록, 꺼졌으면 흐리게). claude.ai/code 에서 열기는 ⋮ 메뉴.
 // 보드가 그 터미널을 조작할 수 있는 세션만(켜고 끄려면 /remote-control 을 쳐야 한다)
 function remoteBadge(s, d) {
-  if (d === "ended" || s.running === false || !["web", "tmux", "orca"].includes(s.term_name)) return "";
+  if (d === "ended" || isCodex(s) || s.running === false || !["web", "tmux", "orca"].includes(s.term_name)) return "";
   const on = !!(s.remote && /^session_[A-Za-z0-9]+$/.test(s.remote));
   if (!on && s.rc_requested_at && Date.now() / 1000 - s.rc_requested_at < 180) {
     return '<span class="rc-badge pending" title="리모트 컨트롤을 켜는 중(다음 응답 때 연결이 확인됩니다)" data-icon="📡">📡 연결 중</span>';
@@ -2377,9 +2418,10 @@ function openResume(sid, el) {
   box._sid = sid;
   box._el = el || null;
   box.querySelector(".resume-name").textContent = sessionTitle(s) || sid.slice(0, 8);
+  const how = isCodex(s) ? "codex resume" : "claude --resume";
   box.querySelector(".resume-sub").textContent = withText
-    ? "새 터미널 탭에서 claude --resume 으로 이어 열고, 쓰던 글을 보냅니다."
-    : "새 터미널 탭에서 claude --resume 으로 이어 엽니다.";
+    ? `새 터미널 탭에서 ${how} 으로 이어 열고, 쓰던 글을 보냅니다.`
+    : `새 터미널 탭에서 ${how} 으로 이어 엽니다.`;
   const go = box.querySelector("[data-resume-go]");
   go.textContent = withText ? "새 탭에서 열고 보내기" : "새 탭에서 열기";
   go.disabled = false;
@@ -2449,6 +2491,21 @@ function openColMenu(btn) {
     placeMenu(menu, btn, "right", 4);
     return;
   }
+  if (isCodex(s)) {   // Codex: 원격·목표·가져오기(Claude Code 기능) 없이
+    const off = s.state === "ended" || s.running === false;
+    const canImport = !s.desktop && (!s.term_web || off);
+    menu.innerHTML = `
+      <button class="cm-item" data-cm="archive">🗄 ${s.archived ? "보관 해제" : "보관"} <span class="muted">${s.archived ? "" : "보드에서 숨기기"}</span></button>
+      ${canImport ? `<button class="cm-item" data-cm="import">⇄ 보드 터미널로 가져오기 <span class="muted">${off ? "이어 열기" : "다른 터미널에서 옮기기"}</span></button>` : ""}
+      ${s.state !== "ended" && !s.desktop ? `<button class="cm-item danger" data-cm="quit">⏻ 세션 종료 <span class="muted">Codex 를 닫고(/quit) 터미널 탭도 닫기</span></button>` : ""}
+      <button class="cm-item" data-cm="pin">📌 ${pinOf(s) ? "고정 풀기" : "맨 앞에 고정"} <span class="muted">P</span></button>
+      <button class="cm-item" data-cm="diff">🧾 변경 보기 <span class="muted">커밋 안 한 변경</span></button>
+      ${colWidthOf(sid) ? `<button class="cm-item" data-cm="width-reset">↔ 기본 너비로 <span class="muted">${colWidthOf(sid)}px</span></button>` : ""}
+      ${s.state === "ended" ? `<button class="cm-item danger" data-cm="delete">🗑 보드에서 지우기 <span class="muted">칸·대화 기록</span></button>` : ""}`;
+    menu.hidden = false;
+    placeMenu(menu, btn, "right", 4);
+    return;
+  }
   menu.innerHTML = `
     ${s.brain ? "" : `<button class="cm-item" data-cm="archive">🗄 ${s.archived ? "보관 해제" : "보관"} <span class="muted">${s.archived ? "" : "보드에서 숨기기"}</span></button>`}
     ${s.term_web && s.state !== "ended" && s.running !== false ? `<button class="cm-item" data-cm="restart">↻ 다시 열기 <span class="muted">끝내고 같은 대화로 새로</span></button>` : ""}
@@ -2458,7 +2515,8 @@ function openColMenu(btn) {
     ${s.brain ? "" /* 브레인은 패널에 따로 떠서 고정·목표·변경·너비가 의미 없다 — 다시 열기·종료·원격만 */ : `<button class="cm-item" data-cm="pin">📌 ${pinOf(s) ? "고정 풀기" : "맨 앞에 고정"} <span class="muted">P</span></button>
     ${d !== "ended" ? `<button class="cm-item" data-cm="goal">🎯 ${s.goal && !s.goal.met ? "목표 바꾸기·풀기" : "목표 걸기"} <span class="muted">/goal</span></button>` : ""}
     <button class="cm-item" data-cm="diff">🧾 변경 보기 <span class="muted">커밋 안 한 변경</span></button>
-    ${colWidthOf(sid) ? `<button class="cm-item" data-cm="width-reset">↔ 기본 너비로 <span class="muted">${colWidthOf(sid)}px</span></button>` : ""}`}`;
+    ${colWidthOf(sid) ? `<button class="cm-item" data-cm="width-reset">↔ 기본 너비로 <span class="muted">${colWidthOf(sid)}px</span></button>` : ""}
+    ${s.state === "ended" ? `<button class="cm-item danger" data-cm="delete">🗑 보드에서 지우기 <span class="muted">칸·대화 기록</span></button>` : ""}`}`;
   menu.hidden = false;
   placeMenu(menu, btn, "right", 4);
 }
@@ -2470,6 +2528,16 @@ $("#colMenu").addEventListener("click", async e => {
   const sid = menu.dataset.sid;
   const s = sessionById(sid);
   if (s && s.board && await boardMenuAction(item, menu, s)) return;
+  if (s && item.dataset.cm === "delete") {
+    const n = s._fam ? s._fam.members.length : 1;
+    item.outerHTML = `<div class="cm-confirm">
+      <div>이 칸을 보드에서 지울까요?<br><span class="muted">${n > 1 ? `원본·갈래 ${n}개 세션의 ` : ""}보드 기록(대화·넥스트 액션·활동)을 지웁니다. 되돌릴 수 없습니다.
+        ${isCodex(s) ? "Codex" : "Claude Code"} 쪽 대화 기록은 그대로라 나중에 다시 이어 쓸 수 있습니다</span></div>
+      <div class="cm-confirm-btns"><button class="btn" data-cm="cancel">취소</button><button class="btn danger" data-cm="delete-yes">지우기</button></div>
+    </div>`;
+    menu.querySelector('[data-cm="cancel"]').focus();
+    return;
+  }
   if (s && item.dataset.cm === "archive" && !s.archived) {
     // 보관은 칸이 보드에서 사라지므로 한 번 더 묻는다(메뉴 안에서, 브라우저 확인 창 없이)
     item.outerHTML = `<div class="cm-confirm">
@@ -2487,6 +2555,19 @@ $("#colMenu").addEventListener("click", async e => {
       <div class="cm-confirm-btns"><button class="btn" data-cm="cancel">취소</button>${busy ? "" : `<button class="btn primary" data-cm="restart-yes">다시 열기</button>`}</div>
     </div>`;
     (menu.querySelector('[data-cm="restart-yes"]') || menu.querySelector('[data-cm="cancel"]')).focus();
+    return;
+  }
+  if (s && item.dataset.cm === "import" && isCodex(s)) {
+    const busy = ["working", "waiting"].includes(displayState(s));
+    const live = s.state !== "ended" && s.running !== false;
+    const how = !live ? "보드 터미널에서 이 대화를 이어 엽니다(codex resume)."
+      : ["orca", "tmux"].includes(s.term_name) ? "지금 터미널에서 Codex 를 끝내고(/quit) 보드 터미널에서 같은 대화로 다시 엽니다(codex resume). 그 터미널 탭은 셸로 남습니다."
+      : "보드가 이 터미널을 조작할 수 없습니다 — 그 터미널에서 /quit 로 끝낸 뒤 누르면 보드 터미널에서 이어 엽니다.";
+    item.outerHTML = `<div class="cm-confirm">
+      <div>${busy && live ? "<b>작업 중입니다.</b> 끝난 뒤 가져와 주세요." : "보드 터미널로 가져올까요?"}<br><span class="muted">${how}</span></div>
+      <div class="cm-confirm-btns"><button class="btn" data-cm="cancel">취소</button>${busy && live ? "" : `<button class="btn primary" data-cm="import-yes">가져오기</button>`}</div>
+    </div>`;
+    (menu.querySelector('[data-cm="import-yes"]') || menu.querySelector('[data-cm="cancel"]')).focus();
     return;
   }
   if (s && item.dataset.cm === "import") {
@@ -2520,7 +2601,8 @@ $("#colMenu").addEventListener("click", async e => {
         ${dirty ? "" : `<div class="muted cm-wt-note">새 커밋도 없으면 Claude Code 가 묻지 않고 정리할 수 있습니다</div>`}
       </div>` : "";
     item.outerHTML = `<div class="cm-confirm">
-      <div>${busy ? "<b>작업 중입니다.</b> 작업을 멈추고 세션을 종료할까요?" : "이 세션을 종료할까요?"}<br><span class="muted">터미널에서 /exit 를 친 것처럼 Claude Code 를 닫고 탭도 닫습니다. 대화는 남아 있어 나중에 claude --resume 으로 이어 갈 수 있습니다</span></div>
+      <div>${busy ? "<b>작업 중입니다.</b> 작업을 멈추고 세션을 종료할까요?" : "이 세션을 종료할까요?"}<br><span class="muted">${isCodex(s) ? "터미널에서 /quit 를 친 것처럼 Codex 를 닫고 탭도 닫습니다. 대화는 남아 있어 나중에 이어 열 수 있습니다(codex resume)"
+        : "터미널에서 /exit 를 친 것처럼 Claude Code 를 닫고 탭도 닫습니다. 대화는 남아 있어 나중에 claude --resume 으로 이어 갈 수 있습니다"}</span></div>
       ${wtBox}
       <div class="cm-confirm-btns"><button class="btn" data-cm="cancel">취소</button><button class="btn danger" data-cm="quit-yes" data-force="${busy ? 1 : ""}">${busy ? "멈추고 종료" : "종료"}</button></div>
     </div>`;
@@ -2559,12 +2641,18 @@ $("#colMenu").addEventListener("click", async e => {
     catch (err) { toast(err.message); }
     return refresh(sid);
   }
+  if (item.dataset.cm === "delete-yes") {
+    try { toast((await api("POST", `/api/sessions/${sid}/delete`, {})).message); } catch (err) { toast(err.message); }
+    return poll();
+  }
   if (item.dataset.cm === "pin") return togglePin(sid);
   if (item.dataset.cm === "goal") return openGoalMenu(sid, btnOfCol(sid, ".col-menu-btn"));
   if (item.dataset.cm === "diff") return openDiff(sid);
   if (item.dataset.cm === "width-reset") return setColWidth(sid, null);
   if (item.dataset.cm === "archive" || item.dataset.cm === "archive-yes") {
-    await api("POST", `/api/sessions/${sid}/archive`, { archived: !s.archived });
+    // 칸 = 원본과 갈래 묶음. 보관하면 칸째 숨긴다(고른 탭 하나만 숨기면 다른 갈래가 남아 칸이 그대로 보였다)
+    const ids = s._fam ? s._fam.members.map(m => m.session_id) : [sid];
+    for (const id of ids) await api("POST", `/api/sessions/${id}/archive`, { archived: !s.archived });
     toast(s.archived ? "보관 해제했습니다" : "보관했습니다 (⋮ → 「종료·보관 세션도 보기」로 다시 보입니다)");
     return refresh(sid);
   }
@@ -3358,18 +3446,20 @@ async function openNewMenu() {
   menu.dataset.inbox = "";   // 카드에서 연 것이 아니면 띄워도 카드를 옮기지 않는다
   let last = {};
   try { last = JSON.parse(localStorage.getItem(NEW_KEY) || "{}"); } catch (e) { /* 저장소 없음 */ }
-  const kind = ["claude", "term", "md"].includes(last.kind) ? last.kind : "claude";
+  const cx = S.codex && S.codex.available;
+  const kind = ["claude", "term", "md"].concat(cx ? ["codex"] : []).includes(last.kind) ? last.kind : "claude";
+  const cxModels = (S.codex && S.codex.models) || [];
   menu.className = menu.className.replace(/\bnm-kind-\w+/g, "").trim() + " nm-kind-" + kind;
   menu.innerHTML = `
     <div class="ctx-head"><b>새 보드</b></div>
-    <div class="nm-kinds" role="tablist">${[["claude", "✳ Claude Code"], ["term", "⌨ 터미널"], ["md", "📝 마크다운"]]
+    <div class="nm-kinds" role="tablist">${[["claude", "✳ Claude Code"]].concat(cx ? [["codex", "◎ Codex"]] : []).concat([["term", "⌨ 터미널"], ["md", "📝 마크다운"]])
       .map(([k, l]) => `<button type="button" class="nm-kind ${k === kind ? "on" : ""}" data-nm-kind="${k}">${l}</button>`).join("")}</div>
     <label class="nm-label">폴더</label>
     <div class="nm-folders"><div class="muted nm-loading">Orca 프로젝트 불러오는 중…</div></div>
     <input class="ctx-note nm-cwd" placeholder="또는 경로 직접 입력 — /Users/…" value="${esc(last.cwd || "")}" spellcheck="false">
     <div class="nm-board-only"><label class="nm-label">이름 <span class="muted">(선택)</span></label>
       <input class="ctx-note nm-title" placeholder="비워 두면 폴더 이름·날짜로" spellcheck="false"></div>
-    <div class="nm-prompt-wrap"><label class="nm-label"><span class="nm-claude-only">첫 메시지</span><span class="nm-md-only">AI 에게 첫 요청</span> <span class="muted">(선택 · Shift+Enter 줄바꿈)</span></label>
+    <div class="nm-prompt-wrap"><label class="nm-label"><span class="nm-agent-only">첫 메시지</span><span class="nm-md-only">AI 에게 첫 요청</span> <span class="muted">(선택 · Shift+Enter 줄바꿈)</span></label>
     <textarea class="ctx-note nm-prompt" rows="3" placeholder="비워 두면 빈 칸으로 시작합니다"></textarea></div>
     <div class="nm-pair nm-claude-only">
       <div><label class="nm-label">모델</label>
@@ -3378,8 +3468,16 @@ async function openNewMenu() {
       <div><label class="nm-label">effort</label>
         <select class="nm-model nm-effort">${NEW_EFFORTS.map(v => `<option value="${v}" ${v === ((S.settings || {}).new_default_effort || "high") ? "selected" : ""}>${v}</option>`).join("")}</select></div>
     </div>
+    <div class="nm-pair nm-codex-only">
+      <div><label class="nm-label">모델</label>
+        <select class="nm-model nm-cx-model"><option value="">기본(Codex 설정대로)</option>${cxModels
+          .map(m => `<option value="${esc(m.slug)}" ${m.slug === last.cxModel ? "selected" : ""}>${esc(m.name)}</option>`).join("")}</select></div>
+      <div><label class="nm-label">추론</label>
+        <select class="nm-model nm-cx-effort"><option value="">기본</option>${((S.codex && S.codex.efforts) || [])
+          .map(v => `<option value="${v}" ${v === last.cxEffort ? "selected" : ""}>${v}</option>`).join("")}</select></div>
+    </div>
     <label class="nm-check nm-claude-only" title="claude --worktree — 그 저장소의 .claude/worktrees/ 에 새 워크트리(새 브랜치)를 만들어 거기서 시작합니다. 끄면 고른 폴더에서 그대로"><input type="checkbox" class="nm-wt" checked> 새 워크트리로 시작 <span class="muted">claude -w</span></label>
-    <div class="ctx-foot"><span class="muted nm-term-hint"><span class="nm-claude-only">보드 터미널에 띄웁니다 — 칸 머리 「⌨ 터미널」로 터미널을 엽니다</span><span class="nm-term-only">그 폴더에서 셸을 엽니다 — 칸 안이 터미널입니다</span><span class="nm-md-only">그 폴더의 .argus/boards/ 에 .md 로 저장합니다(git 에는 안 올라감)</span></span>
+    <div class="ctx-foot"><span class="muted nm-term-hint"><span class="nm-agent-only">보드 터미널에 띄웁니다 — 칸 머리 「⌨ 터미널」로 터미널을 엽니다</span><span class="nm-term-only">그 폴더에서 셸을 엽니다 — 칸 안이 터미널입니다</span><span class="nm-md-only">그 폴더의 .argus/boards/ 에 .md 로 저장합니다(git 에는 안 올라감)</span></span>
       <button class="btn primary" data-new-run>만들기</button></div>`;
   menu.hidden = false;
   placeMenu(menu, $("#newBtn"), "right");
@@ -3408,6 +3506,7 @@ async function runNewSession() {
   const cwd = menu.querySelector(".nm-cwd").value.trim();
   const prompt = menu.querySelector(".nm-prompt").value.trim();
   const kind = (menu.querySelector(".nm-kind.on") || {}).dataset?.nmKind || "claude";
+  if (kind === "codex") return runNewCodex(cwd, prompt);
   if (kind !== "claude") return runNewBoard(kind, cwd, menu.querySelector(".nm-title").value.trim(), prompt);
   const model = menu.querySelector(".nm-model").value, effort = menu.querySelector(".nm-effort").value;
   const worktree = menu.querySelector(".nm-wt").checked;
@@ -3427,6 +3526,30 @@ async function runNewSession() {
     toast("새 세션 실패: " + e.message);
     btn.disabled = false;
     btn.textContent = "시작";
+  }
+}
+// 새 Codex 세션: 첫 메시지는 codex 를 띄울 때 함께 넘긴다(Codex 는 첫 요청이 와야 대화 기록을 만든다 —
+// 그래야 칸이 바로 생긴다). 비워 두면 보드 터미널에서 첫 요청을 치면 칸이 생긴다
+async function runNewCodex(cwd, prompt) {
+  const menu = $("#newMenu"), btn = menu.querySelector("[data-new-run]");
+  if (!cwd) { menu.querySelector(".nm-cwd").focus(); return; }
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.textContent = "띄우는 중…";
+  const model = menu.querySelector(".nm-cx-model").value, effort = menu.querySelector(".nm-cx-effort").value;
+  try {
+    const r = await api("POST", "/api/sessions/new", { agent: "codex", cwd, model, effort, prompt });
+    let last = {};
+    try { last = JSON.parse(localStorage.getItem(NEW_KEY) || "{}"); } catch (e) { /* 저장소 없음 */ }
+    try { localStorage.setItem(NEW_KEY, JSON.stringify(Object.assign(last, { cwd, kind: "codex", cxModel: model, cxEffort: effort }))); } catch (e) { /* 저장소 없음 */ }
+    menu.hidden = true;
+    S.pendingNew = { handle: r.handle, prompt: "", at: Date.now(), sid: null, label: r.label || "보드 터미널" };
+    if (menu.dataset.inbox) api("PATCH", "/api/inbox/" + menu.dataset.inbox, { status: "sent" }).catch(() => {});
+    openLaunchTerm(r.handle, r.terminal, "codex");
+  } catch (e) {
+    toast("새 Codex 세션 실패: " + e.message);
+    btn.disabled = false;
+    btn.textContent = "만들기";
   }
 }
 // 띄운 세션의 칸이 생기면 그 칸으로 가고, 첫 메시지가 있으면 보낸다
@@ -3495,7 +3618,7 @@ $("#newMenu").addEventListener("click", e => {
     const menu = $("#newMenu");
     menu.querySelectorAll(".nm-kind").forEach(b => b.classList.toggle("on", b === k));
     menu.className = menu.className.replace(/\bnm-kind-\w+/g, "").trim() + " nm-kind-" + k.dataset.nmKind;
-    (menu.querySelector(k.dataset.nmKind === "claude" ? ".nm-prompt" : ".nm-title") || {}).focus?.();
+    (menu.querySelector(["claude", "codex"].includes(k.dataset.nmKind) ? ".nm-prompt" : ".nm-title") || {}).focus?.();
     return;
   }
   const f = e.target.closest(".nm-folder");
@@ -3930,9 +4053,11 @@ function pacePct(reset, windowSec) {
   if (left <= 0 || left > windowSec) return null;
   return Math.round((1 - left / windowSec) * 100);
 }
-function renderUsage(u) {
+function renderUsage(u, cx) {
   const el = $("#usage");
-  if (!u || (u.five_hour == null && u.seven_day == null)) { el.hidden = true; return; }
+  const cxLimits = (cx && cx.limits) || [];
+  if ((!u || (u.five_hour == null && u.seven_day == null)) && !cxLimits.length) { el.hidden = true; return; }
+  u = u || {};
   const part = (label, pct, reset, windowSec) => {
     if (pct == null) return "";
     const pace = pacePct(reset, windowSec);
@@ -3949,8 +4074,10 @@ function renderUsage(u) {
       <span class="u-bar">${pace != null ? `<span class="u-pace" style="width:${pace}%"></span>` : ""}<i style="width:${Math.min(100, pct)}%"></i>${pace != null && pct > pace ? `<span class="u-notch" style="left:${pace}%"></span>` : ""}</span></span>
       <b>${Math.round(pct)}%</b>${reset ? `<span class="u-at">↻ ${resetAt(reset)}</span>` : ""}</span>`;
   };
+  // Codex 한도(가장 최근 Codex 기록의 값) — Claude 막대 뒤에 「Codex 주간」처럼
   const html = part("5시간", u.five_hour, u.five_hour_reset, USAGE_WINDOW.five) +
-    part("주간", u.seven_day, u.seven_day_reset, USAGE_WINDOW.week);
+    part("주간", u.seven_day, u.seven_day_reset, USAGE_WINDOW.week) +
+    cxLimits.map(x => part("Codex " + x.label, x.pct, x.resets_at, (x.window_minutes || 0) * 60 || null)).join("");
   el.hidden = false;
   if (el._html !== html) { el._html = html; el.innerHTML = html; }
 }
@@ -3966,8 +4093,19 @@ function modelName(m) {
   if (!g) return m;
   return g[1][0].toUpperCase() + g[1].slice(1) + " " + g[2] + (g[3] ? "." + g[3] : "");
 }
+// Codex 모델 id(gpt-6.1-sol) → /model 창의 이름(GPT-6.1-Sol). 목록에 없으면 id 그대로
+function cxModelName(id) {
+  const m = ((S.codex && S.codex.models) || []).find(x => x.slug === id);
+  return m ? m.name : (id || "");
+}
 function modelChip(s, d) {
   if (!s.model && !s.effort) return "";
+  if (isCodex(s)) {   // Codex: 보드 터미널 등 조작할 수 있는 탭이면 바꾸기(/model 창 — 이 세션만), 앱의 대화는 보기만
+    const label = [cxModelName(s.model), s.effort].filter(Boolean).join(" · ");
+    const can = d !== "ended" && !s.desktop && s.running !== false;
+    return `<button class="model-chip ${can ? "" : "ro"}" ${can ? `data-action="model-menu" data-sid="${esc(s.session_id)}"` : "disabled"}
+      title="Codex 모델 · 추론 단계${can ? " — 눌러서 바꾸기(이 세션만)" : ""}">${esc(label)}${can ? " ▾" : ""}</button>`;
+  }
   const label = [modelName(s.model), s.effort].filter(Boolean).join(" · ");
   const can = d !== "ended";
   return `<button class="model-chip" ${can ? `data-action="model-menu" data-sid="${esc(s.session_id)}"` : "disabled"}
@@ -3978,17 +4116,20 @@ function openModelMenu(btn) {
   const s = sessionById(sid);
   if (!s) return;
   const menu = $("#modelMenu");
-  const cur = modelName(s.model);
+  const cx = isCodex(s);
+  const choices = cx ? ((S.codex && S.codex.models) || []).map(m => m.name) : MODEL_CHOICES;
+  const efforts = cx ? ((S.codex && S.codex.efforts) || []) : EFFORTS;
+  const cur = cx ? cxModelName(s.model) : modelName(s.model);
   menu.dataset.sid = sid;
   menu._onPick = null;
-  menu._pick = { model: MODEL_CHOICES.includes(cur) ? cur : null, effort: EFFORTS.includes(s.effort) ? s.effort : null };
+  menu._pick = { model: choices.includes(cur) ? cur : null, effort: efforts.includes(s.effort) ? s.effort : null };
   const busy = !["idle", "done", "error"].includes(s.state);
   const draw = () => {
     const p = menu._pick;
     menu.innerHTML = `<div class="mm-title">모델 <span class="muted">지금: ${esc(cur || "알 수 없음")}</span></div>
-      <div class="mm-row">${MODEL_CHOICES.map(m => `<button class="mm-opt ${p.model === m ? "on" : ""}" data-mm-model="${m}">${m}</button>`).join("")}</div>
-      <div class="mm-title">effort <span class="muted">지금: ${esc(s.effort || "알 수 없음")}</span></div>
-      <div class="mm-row">${EFFORTS.map(e => `<button class="mm-opt ${p.effort === e ? "on" : ""}" data-mm-effort="${e}">${e}</button>`).join("")}</div>
+      <div class="mm-row">${choices.map(m => `<button class="mm-opt ${p.model === m ? "on" : ""}" data-mm-model="${esc(m)}">${esc(m)}</button>`).join("")}</div>
+      <div class="mm-title">${cx ? "추론" : "effort"} <span class="muted">지금: ${esc(s.effort || "알 수 없음")}</span></div>
+      <div class="mm-row">${efforts.map(e => `<button class="mm-opt ${p.effort === e ? "on" : ""}" data-mm-effort="${e}">${e}</button>`).join("")}</div>
       <div class="mm-foot">
         <span class="muted">${busy ? "작업 중에는 바꿀 수 없습니다" : "이 세션에만 적용 · 기본값은 그대로"}</span>
         <button class="btn primary" data-mm-apply ${busy ? "disabled" : ""}>적용</button>
@@ -4012,7 +4153,7 @@ $("#modelMenu").addEventListener("click", async e => {
   const sid = menu.dataset.sid;
   const s = sessionById(sid) || {};
   const body = {};
-  if (menu._pick.model && menu._pick.model !== modelName(s.model)) body.model = menu._pick.model;
+  if (menu._pick.model && menu._pick.model !== (isCodex(s) ? cxModelName(s.model) : modelName(s.model))) body.model = menu._pick.model;
   if (menu._pick.effort && menu._pick.effort !== s.effort) body.effort = menu._pick.effort;
   if (!body.model && !body.effort) { menu.hidden = true; return toast("바뀐 것이 없습니다"); }
   apply.disabled = true;
@@ -4394,7 +4535,7 @@ document.addEventListener("input", e => {
 });
 function updateComposer(el, s) {
   const sug = suggestionFor(s);
-  const ph = sug ? `${sug.replace(/\s+/g, " ")}   ⇥ Tab` : CMP_PLACEHOLDER;
+  const ph = sug ? `${sug.replace(/\s+/g, " ")}   ⇥ Tab` : isCodex(s) ? (s.desktop ? "Codex 앱의 대화로 보내기 · Enter 전송 · Shift+Enter 줄바꿈" : CMP_PLACEHOLDER.replace("Claude", "Codex")) : CMP_PLACEHOLDER;
   const pta = el.querySelector(".cmp-text");
   if (pta.placeholder !== ph) pta.placeholder = ph;
   el.classList.toggle("has-sugg", !!sug);
@@ -4673,8 +4814,8 @@ function drawSlash(pop, q) {
     const hl = q && c.name.toLowerCase().startsWith(q) ? `<b>${esc(c.name.slice(0, q.length))}</b>${esc(c.name.slice(q.length))}` : n;
     return `<div class="sp-row ${i === pop._sel ? "on" : ""}" data-action="slash-pick" data-idx="${i}">
       <span class="sp-name">/${hl}${c.hint ? ` <span class="sp-hint">${esc(c.hint)}</span>` : ""}</span>
-      <span class="sp-desc${BOARD_SLASH[c.name] ? " board" : ""}">${esc(BOARD_SLASH[c.name] || c.desc || "")}</span>
-      ${(k => SLASH_KIND[k] ? `<span class="sp-kind ${k}">${SLASH_KIND[k]}</span>` : "")(BOARD_SLASH[c.name] ? "board" : c.kind)}</div>`;
+      <span class="sp-desc${BOARD_SLASH[c.name] ? " sp-board" : ""}">${esc(BOARD_SLASH[c.name] || c.desc || "")}</span>
+      ${(k => SLASH_KIND[k] ? `<span class="sp-kind sk-${k}">${SLASH_KIND[k]}</span>` : "")(BOARD_SLASH[c.name] ? "board" : c.kind)}</div>`;
   }).join("");
   pop.hidden = false;
   const on = pop.querySelector(".sp-row.on");
@@ -5664,8 +5805,11 @@ function disposeTerm(box) {
   box.textContent = "";
 }
 // 막 띄운 보드 터미널 세션: 훅이 세션을 기록하기 전(폴더 신뢰 확인 창 등)에는 칸이 없으니 창에서 보여 준다
-function openLaunchTerm(handle, kind) {
+function openLaunchTerm(handle, kind, agent) {
   const m = $("#termModal"), box = m.querySelector(".col-term");
+  m.querySelector(".term-modal-sub").textContent = agent === "codex"
+    ? "Codex 입력창이 뜨면 칸이 생기고 칸 안으로 옮겨 갑니다 · 닫아도 세션은 계속 돕니다"
+    : "Claude Code 가 뜨면 칸 안으로 옮겨 갑니다 · 닫아도 세션은 계속 돕니다";
   disposeTerm(box);
   m.hidden = false;
   box.hidden = false;
@@ -6311,7 +6455,7 @@ function renderSearch() {
       html += `<div class="sr-item ${i === SR.sel ? "sel" : ""}" data-sr-idx="${i}" style="--proj:${projColor(r.project_root)}">
         <div class="sr-meta"><span class="chip proj">${esc(r.project_name || "")}</span>
           <span class="sr-title">${esc(clamp(r.title || "(제목 없음)", 40))}</span>
-          <span class="sr-who ${r.in === "prompt" ? "me" : ""}">${r.in === "prompt" ? "나" : "Claude"}</span>
+          <span class="sr-who ${r.in === "prompt" ? "me" : ""}">${r.in === "prompt" ? "나" : r.agent === "codex" ? "Codex" : "Claude"}</span>
           <span class="muted">${r.at ? dateLabel(r.at) + " " + hm(r.at) : ""}</span></div>
         <div class="sr-text">${markWords(r.snippet, SR.q)}</div></div>`;
     }
@@ -7129,7 +7273,7 @@ function sessionCardHtml(s, rank) {
       <span class="ago" data-ts="${s.last_activity}">${rel(s.last_activity)}</span>${ctxChip(s, d)}<span class="spacer"></span>
       ${remoteBadge(s, d)}${pinOf(s) ? '<span class="sc-pin" title="고정됨">📌</span>' : ""}${key}</div>
     <div class="sc-title">${esc(sessionTitle(s))}</div>
-    <div class="sc-meta"><span class="chip proj">${esc(s.project_name || base(s.project_root))}</span>${placeChips(s)}${s._fam ? famChip(s._fam) : ""}</div>
+    <div class="sc-meta">${agentChip(s)}<span class="chip proj">${esc(s.project_name || base(s.project_root))}</span>${placeChips(s)}${s._fam ? famChip(s._fam) : ""}</div>
     ${d === "waiting" && s.state_detail ? `<div class="sc-wait"><span aria-hidden="true">⏳</span> ${esc(clamp(s.state_detail, 120))}</div>` : ""}
     ${body}
     <div class="sc-foot">${lp ? `<span class="sc-last" title="${esc(clamp(lp, 400))}">▶ ${esc(plainOneLine(lp, 90))}</span>` : '<span></span>'}

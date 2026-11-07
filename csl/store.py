@@ -15,7 +15,7 @@ DB_PATH = os.path.join(DATA_DIR, "board.db")
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 # 이 날수 넘게 아무 일도 없던 세션과 그 대화는 지운다(고정했거나 남은 넥스트 액션이 있으면 둔다)
 # 스키마를 바꾸면 올린다. 연결할 때마다 마이그레이션을 다시 확인하지 않도록(훅은 도구 호출마다 연결한다)
-SCHEMA_VERSION = 23
+SCHEMA_VERSION = 24
 PORT = int(os.environ.get("CSL_PORT", "7799"))
 
 SCHEMA = """
@@ -121,6 +121,8 @@ def _migrate(conn):
     for col, decl in (("compact_at", "REAL"), ("compact_trigger", "TEXT"), ("compact_ms", "INTEGER")):
         if col not in cols:
             conn.execute("ALTER TABLE sessions ADD COLUMN %s %s" % (col, decl))
+    if "agent" not in cols:   # 어떤 에이전트의 세션인지: claude(Claude Code) · codex(OpenAI Codex CLI·데스크톱 앱)
+        conn.execute("ALTER TABLE sessions ADD COLUMN agent TEXT DEFAULT 'claude'")
     if "extras" not in {r[1] for r in conn.execute("PRAGMA table_info(turns)")}:
         # 마지막 메시지 앞의 중간 메시지·보낸 파일·끼어든 알림(JSON). 훅은 마지막 메시지만 주므로 기록 파일에서 읽는다
         conn.execute("ALTER TABLE turns ADD COLUMN extras TEXT")

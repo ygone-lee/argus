@@ -20,7 +20,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from csl import boards, brain, cardchat, commands, config, connectors, daily, delegate, focus, gitreport, hook, inboxrun, locate, notesreport, sendqueue, store, terminals, update, webterm  # noqa: E402
+from csl import boards, brain, cardchat, codex, commands, config, connectors, daily, delegate, focus, gitreport, hook, inboxrun, locate, notesreport, sendqueue, store, terminals, update, webterm  # noqa: E402
 from csl.terminals import tmux as tmux_term  # noqa: E402
 from csl.terminals import web as web_term  # noqa: E402
 
@@ -64,7 +64,7 @@ SESSION_COLUMNS = (
     "session_id, cwd, project_root, project_name, worktree, branch, title, title_source, recap, recap_at,"
     " state, state_detail, state_at, started_at, last_activity, last_seen_at, ended_at, archived, pinned, source,"
     " remote, rc_requested_at, model, effort, transcript_path, compact_at, compact_trigger, compact_ms, terminal, ask,"
-    " continued_from, branch_kind, branch_at, bg, permission_mode, team_agent"
+    " continued_from, branch_kind, branch_at, bg, permission_mode, team_agent, agent"
 )
 
 MAX_BODY = 40 * 1024 * 1024
@@ -115,8 +115,8 @@ def save_images(images):
 
 
 def session_row(conn, sid):
-    row = conn.execute("SELECT session_id, title, title_source, cwd, project_root, terminal, state, remote, rc_requested_at, ask"
-                       " FROM sessions WHERE session_id=?", (sid,)).fetchone()
+    row = conn.execute("SELECT session_id, title, title_source, cwd, project_root, terminal, state, remote, rc_requested_at, ask,"
+                       " agent, model, effort, last_activity FROM sessions WHERE session_id=?", (sid,)).fetchone()
     return dict(row) if row else None
 
 
@@ -427,7 +427,7 @@ def search_turns(conn, q, sid=None, who="all", limit=60, sort="recent", project=
         params.append(joiner.join(_phrase(w) for w in long_words))
     rows = conn.execute(
         "SELECT t.id, t.session_id, t.prompt, t.response, t.prompt_at, t.response_at,"
-        " s.title, s.project_name, s.project_root, s.cwd, s.state, s.archived,"
+        " s.title, s.project_name, s.project_root, s.cwd, s.state, s.archived, s.agent,"
         # 그 세션에서 뒤에서 몇 번째 턴인지(보드가 최근 N턴만 불러오므로 몇 턴까지 불러올지 계산용)
         " (SELECT COUNT(*) FROM turns t2 WHERE t2.session_id = t.session_id AND"
         "   (COALESCE(t2.prompt_at, t2.response_at) > COALESCE(t.prompt_at, t.response_at)"
@@ -450,7 +450,7 @@ def search_turns(conn, q, sid=None, who="all", limit=60, sort="recent", project=
             "turn_id": r["id"], "session_id": r["session_id"], "in": "prompt" if in_prompt else "response",
             "snippet": _snippet(text, words), "at": (r["prompt_at"] if in_prompt else r["response_at"]) or r["prompt_at"],
             "title": r["title"], "project_name": r["project_name"], "project_root": r["project_root"] or r["cwd"],
-            "state": r["state"], "archived": r["archived"], "from_end": r["from_end"],
+            "state": r["state"], "archived": r["archived"], "from_end": r["from_end"], "agent": r["agent"] or "claude",
         })
     return out
 
@@ -825,6 +825,348 @@ def _dirty_loop():
             DIRTY.pop(d, None)
 
 
+# ------------------------------------------------------------------ Codex 세션 조작
+# Claude Code 처럼 화면을 읽어 고르지 않는다. 보드 터미널(등 기록된 탭)에서 codex 가 돌면 그 입력창에 붙여 넣고 Enter,
+# 아니면(데스크톱 앱 스레드) `codex queue` — Codex 가 그 스레드에 메시지를 넣어 준다
+def codex_tab(conn, sess):
+    """그 Codex 세션의 codex 가 돌고 있는 터미널 Target 또는 None. 찾으면 이 요청이 끝날 때까지 잡아 둔다."""
+    conn.commit()
+    tg = codex.tab_of(sess)
+    return tg if tg and _hold_terminal(tg) else None
+
+
+def codex_send(conn, sess, body):
+    text = CONTROL_CHARS.sub("", (body.get("text") or "").replace("\r\n", "\n")).strip()
+    images = body.get("images") or []
+    if not text and not images:
+        return 400, {"error": "보낼 내용이 없습니다"}
+    if len(text) > 20000:
+        return 400, {"error": "메시지가 너무 깁니다(2만 자 이하)"}
+    if sess["state"] == "waiting":
+        return 409, {"error": "확인 필요 상태입니다. Codex 에서 승인·답변을 먼저 해 주세요"}
+    try:
+        paths = save_images(images)
+    except ValueError as e:
+        return 400, {"error": str(e)}
+    tg = codex_tab(conn, sess)
+    if tg:
+        ok, err = codex.paste(tg, text, paths)
+        if not ok:
+            return 502, {"error": "전송 실패: " + err}
+        msg = "보냈습니다" if sess["state"] != "working" else "보냈습니다 · 작업 중이라 Codex 가 이어서 처리합니다"
+        return 200, {"ok": True, "message": msg, "stages": [], "images": len(paths)}
+    desktop = codex.desktop_session(sess)
+    if not desktop and not codex.is_running(sess):
+        # 터미널 CLI 세션인데 codex 가 꺼져 있다 — 보드가 「새 탭에서 이어 열기」를 묻는다
+        return 409, {"error": "Codex 가 실행 중이 아닙니다", "resume": True}
+    # 데스크톱 앱의 대화, 또는 어느 터미널인지 모르는(훅 없이 띄운) CLI — Codex 가 그 스레드에 넣어 준다
+    if paths:
+        text += "\n\n" + "\n".join("첨부 이미지: " + p for p in paths)
+    ok, err = codex.queue(sess["session_id"], text)
+    if not ok:
+        return 502, {"error": "전송 실패: " + err}
+    return 200, {"ok": True, "message": "Codex 앱의 그 대화에 보냈습니다" if desktop else "Codex 에 보냈습니다",
+                 "stages": [], "images": len(paths)}
+
+
+def codex_model(conn, sess, model, effort):
+    """Codex 의 모델·추론 단계(이 세션만) — 보드 터미널 등 조작할 수 있는 탭에서 /model 창으로."""
+    names = {m["name"] for m in codex.models()}
+    if model and model not in names:
+        return 400, {"error": "모르는 모델입니다"}
+    tg = codex_tab(conn, sess)
+    if not tg:
+        return 409, {"error": "Codex 앱의 대화는 앱에서 바꿔 주세요" if codex.desktop_session(sess)
+                     else "Codex 가 도는 터미널을 찾지 못했습니다"}
+    ok, msg = codex.set_model_effort(tg, model, effort)
+    if not ok:
+        return 502, {"error": msg}
+    slug, got_effort = codex.changed_to(tg)
+    if not slug:
+        got_model, got_effort = codex.footer(tg)
+        slug = codex.slug_of(got_model) if got_model else None
+    if slug:
+        conn.execute("UPDATE sessions SET model=? WHERE session_id=?", (slug, sess["session_id"]))
+    if got_effort:
+        conn.execute("UPDATE sessions SET effort=? WHERE session_id=?", (got_effort, sess["session_id"]))
+    return 200, {"ok": True, "message": msg}
+
+
+def codex_interrupt(conn, sess):
+    if sess["state"] != "working":
+        return 409, {"error": "작업 중이 아닙니다"}
+    tg = codex_tab(conn, sess)
+    if not tg:
+        return 409, {"error": "Codex 앱의 대화는 앱에서 멈춰 주세요" if codex.desktop_session(sess)
+                     else "Codex 가 도는 터미널을 찾지 못했습니다"}
+    if not tg.terminal.write(tg.handle, "\x1b"):   # Codex 의 중단 키(Esc)
+        return 502, {"error": "중단 키를 보내지 못했습니다"}
+    stopped = False
+    for _ in range(10):
+        time.sleep(0.4)
+        if not codex.busy(tg):
+            stopped = True
+            break
+    if stopped:
+        t = store.now()
+        conn.execute("UPDATE turns SET status='interrupted', response=COALESCE(response, '(중단됨)'), response_at=COALESCE(response_at, ?)"
+                     " WHERE session_id=? AND response_at IS NULL AND status='running'", (t, sess["session_id"]))
+        conn.execute("UPDATE sessions SET state='done', state_detail='중단됨', state_at=? WHERE session_id=?", (t, sess["session_id"]))
+        store.add_event(conn, sess["session_id"], "error", "사용자가 중단함")
+    return 200, {"ok": True, "stopped": stopped,
+                 "message": "중단했습니다" if stopped else "중단 키를 보냈습니다 — 지금 단계가 정리되는 대로 멈춥니다"}
+
+
+def codex_launch(conn, cwd, model=None, effort=None, resume=None, prompt=None):
+    """보드 터미널에 codex 를 띄운다(resume: 그 스레드를 이어 열기). (Target, 오류)."""
+    b = codex.binary()
+    if not b:
+        return None, "codex 명령을 찾지 못했습니다 — Codex CLI 를 설치해 주세요(npm i -g @openai/codex 등)"
+    t = terminals.registry().get("web")
+    if not t or not t.available():
+        return None, "보드 터미널(tmux)을 쓸 수 없습니다"
+    cwd = os.path.realpath(os.path.expanduser(cwd or ""))
+    if not os.path.isdir(cwd):
+        return None, "폴더가 없습니다: " + cwd
+    cmd = "cd %s && %s" % (shlex.quote(cwd), shlex.quote(b))
+    if resume:
+        cmd += " resume " + shlex.quote(resume)
+    if model:
+        if not re.fullmatch(r"[\w.\-\[\]]{1,64}", model):
+            return None, "모르는 모델입니다"
+        cmd += " -m " + shlex.quote(model)
+    if effort:
+        if effort not in codex.EFFORTS:
+            return None, "모르는 추론 단계입니다"
+        cmd += " -c " + shlex.quote('model_reasoning_effort="%s"' % effort)
+    if prompt:   # 첫 요청 — Codex 는 첫 요청이 와야 대화 기록(스레드)을 만든다. 탭은 셸 자동완성이 되니 공백으로
+        cmd += " -- " + shlex.quote(prompt.replace("\t", "    "))
+    cmd += " && exit"   # 정상 종료(/quit)하면 셸도 끝낸다 — 빈 탭은 서버가 닫는다
+    handle, err = t.create(cwd, os.path.basename(cwd) or cwd, cmd)
+    if not handle:
+        return None, err
+    tg = terminals.Target(t, handle)
+    LAUNCHED[handle] = store.now()
+    codex.LAUNCHES[handle] = {"cwd": cwd, "at": store.now(), "resume": resume, "terminal": t.remember({}, handle)}
+    if not resume and not prompt:
+        # 첫 요청 없이 띄웠다 — Codex 는 첫 요청 전엔 기록도 훅도 없어 칸이 생기지 않는다. 입력창이 뜨면 세션 ID 를 읽어
+        # 빈 칸을 바로 만든다(보드 칸 입력창에서 첫 요청을 보내면 같은 ID 의 대화가 된다)
+        threading.Thread(target=_codex_claim, args=(tg, cwd), daemon=True).start()
+    return tg, None
+
+
+def _codex_claim(tg, cwd):
+    sid = codex.session_id_of(tg)
+    if not sid:
+        return
+    conn = store.connect()
+    try:
+        with conn:
+            g = store.git_info(cwd)
+            t = store.now()
+            conn.execute("INSERT OR IGNORE INTO sessions (session_id, agent, cwd, project_root, project_name, worktree, branch,"
+                         " state, state_at, started_at, last_activity, last_seen_at, source, terminal)"
+                         " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                         (sid, "codex", cwd, g["project_root"], g["project_name"], g["worktree"], g["branch"], "idle", t, t, t, t,
+                          "codex", json.dumps(tg.terminal.remember({}, tg.handle))))
+        codex.LAUNCHES.pop(tg.handle, None)
+    finally:
+        conn.close()
+
+
+def session_family(conn, sid):
+    """원본·갈래 묶음(칸 하나)의 세션 id 들(sid 포함) — continued_from 을 위아래로."""
+    seen, todo = set(), [sid]
+    while todo:
+        x = todo.pop()
+        if x in seen:
+            continue
+        seen.add(x)
+        r = conn.execute("SELECT continued_from FROM sessions WHERE session_id=?", (x,)).fetchone()
+        if r and r[0]:
+            todo.append(r[0])
+        todo += [c[0] for c in conn.execute("SELECT session_id FROM sessions WHERE continued_from=?", (x,))]
+    return seen
+
+
+def delete_sessions(conn, sid):
+    """끝난 세션(과 그 칸의 갈래들)을 보드 기록에서 지운다 — 칸·대화·넥스트 액션·활동. Claude Code·Codex 의 기록은 그대로.
+    (HTTP 코드, 본문). 아직 도는 것이 있으면 지우지 않는다."""
+    ids = session_family(conn, sid)
+    rows = [dict(r) for r in conn.execute("SELECT session_id, state, agent, terminal, cwd, last_activity, title FROM sessions"
+                                          " WHERE session_id IN (%s)" % ",".join("?" * len(ids)), list(ids))]
+    running = focus.running_sessions() or {}
+    for r in rows:
+        alive = codex.tab_of(r) if r["agent"] == "codex" else r["session_id"] in running
+        if r["state"] in ("working", "waiting") or alive:
+            return 409, {"error": "아직 열려 있는 세션입니다(「%s」) — 종료한 뒤 지워 주세요" % (r["title"] or r["session_id"][:8])}
+    marks, args = ",".join("?" * len(ids)), list(ids)
+    for table in ("turns", "notes", "events", "asides"):
+        conn.execute("DELETE FROM %s WHERE session_id IN (%s)" % (table, marks), args)
+    conn.execute("DELETE FROM sessions WHERE session_id IN (%s)" % marks, args)
+    gone = [r["session_id"] for r in rows if r["agent"] == "codex"]
+    if gone:   # Codex 기록 동기화가 다시 가져오지 않게 기억해 둔다(그 대화를 다시 이어 쓰면 새로 들어온다)
+        old = store.get_setting(conn, "codex_deleted", []) or []
+        store.set_setting(conn, "codex_deleted", (old + gone)[-1000:])
+        at = store.get_setting(conn, "codex_deleted_at", {}) or {}
+        at.update({g: store.now() for g in gone})
+        store.set_setting(conn, "codex_deleted_at", dict(sorted(at.items(), key=lambda kv: kv[1])[-1000:]))
+    return 200, {"ok": True, "message": "보드에서 지웠습니다(세션 %d개 · %s 기록은 그대로)" % (
+        len(rows), "Codex" if gone and len(gone) == len(rows) else "Claude Code·Codex")}
+
+
+def codex_family(conn, sid):
+    """원본·갈래(/fork) 묶음의 세션 id 들(sid 포함)."""
+    seen, todo = set(), [sid]
+    while todo:
+        x = todo.pop()
+        if x in seen:
+            continue
+        seen.add(x)
+        r = conn.execute("SELECT continued_from FROM sessions WHERE session_id=?", (x,)).fetchone()
+        if r and r[0]:
+            todo.append(r[0])
+        todo += [c[0] for c in conn.execute("SELECT session_id FROM sessions WHERE continued_from=? AND agent='codex'", (x,))]
+    return seen
+
+
+def codex_resume(conn, sess):
+    sid = sess["session_id"]
+    if codex_tab(conn, sess):
+        return 409, {"error": "이미 터미널에서 실행 중입니다"}
+    # 같은 가족(원본·갈래)이 열려 있는 탭이 있으면 그 탭에서 /resume <id> 로 바꾼다 — Codex 공유 데몬은 그 탭이 연 적 있는
+    # 대화를 계속 잡고 있어, 새 탭에서 열면 「다른 앱에서 열려 있음(읽기 전용)」이 된다
+    for other in codex_family(conn, sid) - {sid}:
+        o = session_row(conn, other)
+        tg = codex.tab_of(o) if o else None
+        if not tg:
+            continue
+        if o["state"] in ("working", "waiting") or codex.busy(tg):
+            return 409, {"error": "같은 탭의 「%s」가 작업 중입니다 — 끝난 뒤 바꿔 주세요" % (o["title"] or "")}
+        if not _hold_terminal(tg):
+            return 409, {"error": "그 터미널에서 다른 조작이 진행 중입니다 — 잠시 뒤 다시 해 주세요"}
+        ok, err = codex.paste(tg, "/resume " + sid)
+        if not ok:
+            return 502, {"error": err}
+        conn.execute("UPDATE sessions SET terminal=?, state=CASE WHEN state='ended' THEN 'idle' ELSE state END, ended_at=NULL,"
+                     " archived=0 WHERE session_id=?", (o["terminal"], sid))
+        conn.execute("UPDATE sessions SET terminal=? WHERE session_id=?", (json.dumps({"detached": True}), other))
+        time.sleep(1.5)
+        return 200, {"ok": True, "ready": True, "handle": tg.handle, "message": "같은 탭에서 이 대화로 바꿨습니다"}
+    cwd = sess["cwd"] or ""
+    if not os.path.isdir(cwd):
+        return 409, {"error": "세션 폴더가 없습니다: " + cwd}
+    tg, err = codex_launch(conn, cwd, resume=sid)
+    if not tg:
+        return 502, {"error": err}
+    term = tg.terminal.remember({}, tg.handle)
+    conn.execute("UPDATE sessions SET terminal=?, state=CASE WHEN state='ended' THEN 'idle' ELSE state END,"
+                 " state_detail=CASE WHEN state='ended' THEN NULL ELSE state_detail END, ended_at=NULL,"
+                 " archived=0 WHERE session_id=?", (json.dumps(term), sid))
+    conn.commit()
+    ready, end = False, time.time() + 25
+    while time.time() < end:   # 입력창(›)이 뜰 때까지 — 그래야 이어서 보낸 글이 들어간다
+        if any(line.startswith("› ") for line in tg.terminal.screen(tg.handle)):
+            ready = True
+            break
+        time.sleep(0.5)
+    return 200, {"ok": True, "ready": ready, "handle": tg.handle,
+                 "message": "보드 터미널에서 이어 열었습니다" if ready else "보드 터미널에서 여는 중입니다 — 터미널에 선택 창이 떠 있으면 먼저 골라 주세요"}
+
+
+def codex_import(conn, sess, body):
+    # 끝내고 다시 여는 사이(잠깐 「종료」)에도 칸을 두도록 가져오는 중으로 표시하고, 끝나면(성공·실패 모두) 바로 지운다
+    IMPORTING[sess["session_id"]] = store.now()
+    try:
+        return _codex_import(conn, sess, body)
+    finally:
+        IMPORTING.pop(sess["session_id"], None)
+
+
+def _codex_import(conn, sess, body):
+    """보드 터미널로 가져오기: Orca·tmux 에서 도는 Codex 를 끝내고(/quit) 보드 터미널에서 같은 대화로 이어 연다(codex resume).
+    보드가 조작할 수 없는 터미널이면 그쪽에서 끝낸 뒤 다시 누르게, 꺼져 있으면 바로 이어 연다. restart: 보드 터미널 것도 다시."""
+    if codex.desktop_session(sess):
+        return 409, {"error": "Codex 앱의 대화는 보드 터미널로 옮기지 않습니다 — 앱에서 이어 가 주세요"}
+    tg = codex_tab(conn, sess)
+    if tg and tg.terminal.name == "web" and not body.get("restart"):
+        return 409, {"error": "이미 보드 터미널에서 돌고 있습니다"}
+    if tg:
+        if sess["state"] in ("working", "waiting") or codex.busy(tg):
+            return 409, {"error": "작업 중이거나 확인을 기다리는 세션입니다 — 끝난 뒤 가져와 주세요"}
+        if tg.terminal.name not in ("orca", "tmux", "web"):
+            return 409, {"error": "보드가 이 터미널을 조작할 수 없습니다 — 그 터미널에서 /quit 로 끝낸 뒤 다시 눌러 주세요"}
+        tg.terminal.write(tg.handle, "/quit")
+        time.sleep(0.8)
+        tg.terminal.write(tg.handle, "\r")
+        _release_terminals()
+        for _ in range(24):   # codex 가 끝날 때까지
+            time.sleep(0.5)
+            info = tg.terminal.info(tg.handle) or {}
+            if info.get("agent") != "codex":
+                break
+        else:
+            return 409, {"error": "그 터미널의 Codex 가 끝나지 않았습니다 — 터미널을 확인해 주세요"}
+    elif codex.is_running(sess) and not body.get("restart"):
+        return 409, {"error": "보드가 이 터미널을 조작할 수 없습니다 — 그 터미널에서 /quit 로 끝낸 뒤 다시 눌러 주세요"}
+    return codex_resume(conn, dict(sess, state="ended"))
+
+
+def codex_quit(conn, sess, body):
+    tg = codex_tab(conn, sess)
+    if not tg:
+        if codex.desktop_session(sess):
+            return 409, {"error": "Codex 앱의 대화는 앱에서 닫아 주세요"}
+        t = store.now()
+        conn.execute("UPDATE sessions SET state='ended', state_at=?, ended_at=? WHERE session_id=?", (t, t, sess["session_id"]))
+        return 200, {"ok": True, "message": "종료로 표시했습니다(실행 중인 Codex 가 없었습니다)"}
+    if sess["state"] == "working" and not body.get("force"):
+        return 409, {"error": "작업 중입니다", "need_force": True}
+    if sess["state"] == "working":
+        tg.terminal.write(tg.handle, "\x1b")
+        time.sleep(0.8)
+    tg.terminal.write(tg.handle, "/quit")
+    time.sleep(0.8)   # 빠르게 들어온 글 바로 뒤의 Enter 는 Codex 가 줄바꿈으로 본다(codex.paste 와 같은 이유)
+    tg.terminal.write(tg.handle, "\r")
+    t = store.now()
+    conn.execute("UPDATE sessions SET state='ended', state_detail='quit', state_at=?, ended_at=? WHERE session_id=?",
+                 (t, t, sess["session_id"]))
+    store.add_event(conn, sess["session_id"], "end", "quit")
+    return 200, {"ok": True, "message": "Codex 를 종료했습니다"}
+
+
+_CODEX_INFO = {"at": 0, "v": None}
+
+
+def codex_info(conn):
+    """보드가 새 세션 창·칸에 쓰는 Codex 정보(설치·모델 목록·훅). 30초 기억 — 상태 요청마다 파일을 읽지 않게."""
+    if time.time() - _CODEX_INFO["at"] > 30:
+        _CODEX_INFO["v"] = {"available": bool(codex.binary()), "models": codex.models(), "efforts": codex.EFFORTS,
+                            "hooks": codex.hooks_state()[0]}
+        _CODEX_INFO["at"] = time.time()
+    return dict(_CODEX_INFO["v"], available=_CODEX_INFO["v"]["available"] and bool(config.get(conn, "codex_enabled")))
+
+
+def activity_of(row, since, until=None):
+    """세션의 작업 과정(중간 메시지·도구 호출) — 에이전트마다 기록 형식이 달라 읽는 곳이 다르다."""
+    if row["agent"] == "codex":
+        return codex.activity(row["session_id"], since, until)
+    return store.read_activity(row["transcript_path"], since, until)
+
+
+def _codex_loop():
+    """Codex 스레드(CLI·데스크톱 앱)를 보드 DB 로 — 바뀐 게 있을 때만 읽는다."""
+    conn = store.connect()
+    while True:
+        try:
+            if config.get(conn, "codex_enabled"):
+                codex.sync(conn)
+        except Exception:  # noqa: BLE001 - Codex 형식이 바뀌어도 서버는 계속
+            traceback.print_exc()
+            time.sleep(30)
+        time.sleep(3)
+
+
 def _reap_loop():
     while True:
         try:
@@ -908,8 +1250,10 @@ def list_state(conn, days, show_archived):
     ).fetchall()
     sessions = []
     running = focus.running_sessions()
+    cx_pids, cx_desktop = codex.running_pids() if any(r["agent"] == "codex" for r in rows) else (set(), False)
     for r in rows:
         s = dict(r)
+        cx = s.get("agent") == "codex"
         tg, is_brain = focus.target_of(s), brain.is_brain(s.get("cwd"))
         handle = tg.handle if tg else None
         # 요청도 기록 파일도 없는 세션은 아직 아무것도 안 한 것 — 백그라운드 데몬이 미리 띄워 둔 세션 등이라 숨긴다
@@ -918,8 +1262,9 @@ def list_state(conn, days, show_archived):
                 and handle not in LAUNCHED \
                 and not is_brain:   # 보드에서 방금 띄운 세션·브레인은 빈 칸으로 보인다
             continue
-        follow_rename(conn, s)
-        follow_compact(conn, s)
+        if not cx:   # Claude Code 기록 파일에서 /rename·컴팩트 경계를 따라간다
+            follow_rename(conn, s)
+            follow_compact(conn, s)
         s["term_handle"] = handle   # 보드에서 새로 띄운 세션을 찾는 데 쓴다
         s["term_web"] = bool(tg and tg.terminal.name == "web")   # 보드 터미널(xterm.js)에서 도는 세션 — 칸 안에서 터미널을 연다
         s["term_attach"] = tg.terminal.name if tg and tg.terminal.name in ATTACHABLE else ""   # 칸 안에서 열 수 있는 터미널(tmux 도)
@@ -928,16 +1273,27 @@ def list_state(conn, days, show_archived):
         s["brain"] = is_brain       # 브레인 세션은 칸 대신 브레인 패널에
         s["term_label"] = term_label(s.get("terminal"), tg)   # 어디서 도는지(보드 터미널이 아니면 칸에 띠로 보인다)
         # 프로세스가 살아 있는지(Claude Code 실행 목록) — 모르면 True. 꺼졌는데 「대기」로 남은 세션을 칸에 표시한다
-        s["running"] = running is None or s["session_id"] in running
-        # 원격(Remote Control): 실행 목록이 알려 주는 지금 연결된 원격 세션 — 훅 기록(환경 변수)보다 정확하다(자동 연결도 보인다)
-        if running is not None:
-            s["remote"] = (running.get(s["session_id"]) or {}).get("bridge") or None
+        if cx:
+            # Codex: CLI 는 훅이 적은 codex 프로세스, 데스크톱 스레드는 앱이 떠 있는지. 보드 터미널에서 띄웠으면 그 탭이 살아 있는지
+            s["running"] = codex.is_running(s, cx_pids, cx_desktop) or bool(
+                handle and (tg.terminal.info(handle) or {}).get("agent") == "codex")
+            s["desktop"] = "codex_desktop" in (s.get("terminal") or "")
+            s["remote"] = None
+        else:
+            s["running"] = running is None or s["session_id"] in running
+            # 원격(Remote Control): 실행 목록이 알려 주는 지금 연결된 원격 세션 — 훅 기록(환경 변수)보다 정확하다(자동 연결도 보인다)
+            if running is not None:
+                s["remote"] = (running.get(s["session_id"]) or {}).get("bridge") or None
         s.pop("terminal", None)
-        s["ctx"] = store.context_info(s["session_id"], s.get("transcript_path"))
-        s["goal"] = store.goal_info(s.get("transcript_path"))   # /goal (기록 파일이 그대로면 기억한 값)
-        # 그 세션이 띄운 백그라운드 작업(서브에이전트·백그라운드 명령) — 진행 중·끝난 지 30분 안 된 것. 늘어난 만큼만 읽는다
-        s["bg_tasks"] = [{k: x[k] for k in ("id", "kind", "desc", "started_at", "status", "finished_at", "summary")}
-                         for x in store.bg_tasks(s.get("transcript_path"))] if s["state"] != "ended" else []
+        if cx:
+            s["ctx"] = codex.context_info(s.get("transcript_path"))
+            s["goal"], s["bg_tasks"] = None, []
+        else:
+            s["ctx"] = store.context_info(s["session_id"], s.get("transcript_path"))
+            s["goal"] = store.goal_info(s.get("transcript_path"))   # /goal (기록 파일이 그대로면 기억한 값)
+            # 그 세션이 띄운 백그라운드 작업(서브에이전트·백그라운드 명령) — 진행 중·끝난 지 30분 안 된 것. 늘어난 만큼만 읽는다
+            s["bg_tasks"] = [{k: x[k] for k in ("id", "kind", "desc", "started_at", "status", "finished_at", "summary")}
+                             for x in store.bg_tasks(s.get("transcript_path"))] if s["state"] != "ended" else []
         # 커밋 안 한 변경 수 — 백그라운드에서 확인해 둔 값(변경 보기와 같은 폴더: 워크트리 없으면 cwd)
         s["dirty"] = dirty_of(s.get("worktree") or s.get("cwd")) if s["state"] != "ended" and not is_brain else None
         # 마지막·첫 요청과 마지막 응답은 위 SELECT 의 하위 쿼리로 한 번에(세션마다 쿼리 3개씩 돌던 것)
@@ -960,6 +1316,8 @@ def list_state(conn, days, show_archived):
     # 할 일 카드가 생긴 시각들 — 보드가 「마지막으로 인박스를 본 뒤 새로 온 카드」를 센다(본 시각은 브라우저에 기억)
     inbox_new_at = [r[0] for r in conn.execute("SELECT created_at FROM inbox WHERE status='new'")]
     return {"sessions": sessions, "notes": notes, "settings": settings, "usage": store.read_usage(), "now": store.now(),
+            "codex_usage": codex.rate_limits() if codex.available() else None,
+            "codex": codex_info(conn) if codex.available() else None,
             "inbox_new": len(inbox_new_at), "inbox_new_at": inbox_new_at, "boards": boards.listing(conn, show_archived),
             "update": update.summary(conn)}
 
@@ -1318,6 +1676,8 @@ class Handler(BaseHTTPRequestHandler):
             return (403, {"error": why})
         if sess["state"] == "ended":
             return (409, {"error": "이미 종료된 세션입니다"})
+        if sess.get("agent") == "codex":
+            return codex_quit(conn, sess, body)
         bg = conn.execute("SELECT bg FROM sessions WHERE session_id=?", (sess["session_id"],)).fetchone()["bg"]   # session_row 엔 없다
         x = live_agent(sess["session_id"]) if bg else None
         if x:
@@ -1453,6 +1813,8 @@ class Handler(BaseHTTPRequestHandler):
         if m and method == "GET":
             row = conn.execute("SELECT project_root, cwd FROM sessions WHERE session_id=?", (m.group(1),)).fetchone()
             root = (row["project_root"] or row["cwd"]) if row else None
+            if row and conn.execute("SELECT agent FROM sessions WHERE session_id=?", (m.group(1),)).fetchone()[0] == "codex":
+                return self._send(200, {"commands": codex.COMMANDS})
             return self._send(200, {"commands": commands.all_commands(root)})
 
         # ---------------------------------------------------------- 브레인·슬랙 인박스
@@ -1808,6 +2170,14 @@ class Handler(BaseHTTPRequestHandler):
             why = brain_guard(conn, body, "")
             if why:
                 return self._send(403, {"error": why})
+            if body.get("agent") == "codex":
+                # 새 Codex 세션 — 보드 터미널에 codex 를 띄운다. 세션은 훅(있으면)이나 Codex 기록 동기화가 찾아 칸에 잇는다
+                prompt = CONTROL_CHARS.sub("", (body.get("prompt") or "").replace("\r\n", "\n")).strip()[:20000]
+                tg, err = codex_launch(conn, cwd, (body.get("model") or "").strip() or None, body.get("effort") or None,
+                                       prompt=prompt or None)
+                if not tg:
+                    return self._send(502, {"error": err})
+                return self._send(200, {"ok": True, "handle": tg.handle, "terminal": tg.terminal.name, "label": tg.terminal.label})
             # 정하지 않았으면 설정의 기본값(새 세션 기본 effort) — 브레인 ./argus new 처럼 effort 없이 여는 경우
             effort = body.get("effort") or config.get(conn, "new_default_effort") or None
             if effort and effort not in config.EFFORTS:
@@ -2130,10 +2500,10 @@ class Handler(BaseHTTPRequestHandler):
                 sid, _, since = part.partition(":")
                 if re.fullmatch(r"[\w\-]+", sid):
                     want[sid] = float(since or 0)
-            paths = {r["session_id"]: r["transcript_path"] for r in conn.execute(
-                "SELECT session_id, transcript_path FROM sessions WHERE session_id IN (%s)" % ",".join("?" * len(want)),
+            rows = {r["session_id"]: r for r in conn.execute(
+                "SELECT session_id, transcript_path, agent FROM sessions WHERE session_id IN (%s)" % ",".join("?" * len(want)),
                 list(want))} if want else {}
-            return self._send(200, {"items": {sid: store.read_activity(paths[sid], want[sid] - 1) for sid in want if sid in paths}})
+            return self._send(200, {"items": {sid: activity_of(rows[sid], want[sid] - 1) for sid in want if sid in rows}})
         m = re.fullmatch(r"/api/sessions/([\w\-]+)", path)
         if m and method == "GET":
             limit = max(1, min(int((query.get("limit") or ["300"])[0]), 1000))
@@ -2148,6 +2518,8 @@ class Handler(BaseHTTPRequestHandler):
             why = brain_guard(conn, body, sess["session_id"])
             if why:
                 return self._send(403, {"error": why})
+            if sess.get("agent") == "codex":
+                return self._send(*codex_send(conn, sess, body))
             # 어느 터미널에서도 돌고 있지 않으면(종료·탭을 닫음) 보드가 「새 탭에서 이어 열기」를 물어본다(resume)
             if sess["state"] == "ended":
                 return self._send(409, {"error": "종료된 세션입니다",
@@ -2263,6 +2635,8 @@ class Handler(BaseHTTPRequestHandler):
             sess = session_row(conn, m.group(1))
             if sess is None:
                 return self._send(404, {"error": "no session"})
+            if sess.get("agent") == "codex":
+                return self._send(*codex_interrupt(conn, sess))
             if sess["state"] != "working" and not sess.get("compact_at"):
                 return self._send(409, {"error": "작업 중이 아닙니다"})
             handle, err = terminal_target(conn, sess)
@@ -2360,6 +2734,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(409, {"error": "작업 중이거나 확인 필요 상태에서는 바꿀 수 없습니다. 끝난 뒤 다시 해 주세요"})
             model = (body.get("model") or "").strip() or None
             effort = (body.get("effort") or "").strip() or None
+            if sess.get("agent") == "codex":
+                return self._send(*codex_model(conn, sess, model, effort))
             if model and model not in MODEL_CHOICES:
                 return self._send(400, {"error": "모르는 모델입니다"})
             handle, err = terminal_target(conn, sess)
@@ -2379,6 +2755,41 @@ class Handler(BaseHTTPRequestHandler):
                 conn.execute("UPDATE sessions SET effort=? WHERE session_id=?", (effort, sess["session_id"]))
             return self._send(200, {"ok": True, "message": msg})
 
+        m = re.fullmatch(r"/api/sessions/([\w\-]+)/delete", path)
+        if m and method == "POST":
+            if body.get("from"):   # 브레인·CLI 가 아니라 사람이 보드에서만
+                return self._send(403, {"error": "보드에서만 지울 수 있습니다"})
+            if not conn.execute("SELECT 1 FROM sessions WHERE session_id=?", (m.group(1),)).fetchone():
+                return self._send(404, {"error": "no session"})
+            return self._send(*delete_sessions(conn, m.group(1)))
+        m = re.fullmatch(r"/api/sessions/([\w\-]+)/codex-fork", path)
+        if m and method == "POST":
+            # Codex 의 /fork — 이 탭이 갈라진 새 대화로 넘어간다(새 칸은 훅·기록 동기화가 원본의 갈래로 잇는다)
+            sess = session_row(conn, m.group(1))
+            if sess is None or sess.get("agent") != "codex":
+                return self._send(404, {"error": "no session"})
+            if sess["state"] in ("working", "waiting"):
+                return self._send(409, {"error": "작업 중에는 가를 수 없습니다 — 끝난 뒤에"})
+            tg = codex_tab(conn, sess)
+            if not tg:
+                return self._send(409, {"error": "Codex 가 도는 터미널을 찾지 못했습니다"})
+            ok, msg = codex.fork(tg, bool(body.get("worktree")))
+            if not ok:
+                return self._send(502, {"error": msg})
+            # 이 탭은 이제 갈래 대화다 — 원본을 떼어(보낸 글이 갈래로 들어가지 않게) 「꺼진 세션」으로, 탭에 새로 생기는 대화는
+            # 원본의 갈래로 잇는다(훅이 없어도). 첫 요청을 주면 바로 보내 갈래 칸이 곧 생긴다
+            conn.execute("UPDATE sessions SET terminal=? WHERE session_id=?", (json.dumps({"detached": True}), sess["session_id"]))
+            conn.commit()
+            codex.LAUNCHES[tg.handle] = {"cwd": sess["cwd"], "at": store.now(), "resume": None, "fork_of": sess["session_id"],
+                                         "terminal": tg.terminal.remember({}, tg.handle)}
+            prompt = CONTROL_CHARS.sub("", (body.get("prompt") or "").replace("\r\n", "\n")).strip()[:20000]
+            if prompt:
+                time.sleep(1.2)
+                ok2, err = codex.paste(tg, prompt)
+                if not ok2:
+                    return self._send(200, {"ok": True, "message": msg + " · 첫 요청은 보내지 못했습니다: " + err})
+                msg += " · 갈래에 첫 요청을 보냈습니다"
+            return self._send(200, {"ok": True, "message": msg, "handle": tg.handle, "prompt": bool(prompt)})
         m = re.fullmatch(r"/api/sessions/([\w\-]+)/rename", path)
         if m and method == "POST":
             sess = session_row(conn, m.group(1))
@@ -2389,13 +2800,19 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, {"error": "이름은 1~100자로 적어 주세요"})
             title = store.mask(title)
             sent = False
-            if sess["state"] in ("idle", "done", "error"):
+            if sess["state"] in ("idle", "done", "error") and sess.get("agent") == "codex":
+                tg = codex_tab(conn, sess)   # Codex 도 /rename <이름> — 스레드 이름(앱·resume 목록)까지 바뀐다
+                if tg and not codex.busy(tg):
+                    sent, _ = codex.paste(tg, "/rename " + title)
+            elif sess["state"] in ("idle", "done", "error"):
                 handle, _ = terminal_target(conn, sess)
                 if handle:
                     sent, _, _ = focus.send_prompt(handle, "/rename " + title)
             conn.execute("UPDATE sessions SET title=?, title_source=? WHERE session_id=?",
                          (title, "custom" if sent else "board", sess["session_id"]))
-            msg = "세션 이름을 바꿨습니다(Claude Code·탭 제목도 함께)" if sent else \
+            msg = ("세션 이름을 바꿨습니다(Codex 대화 이름도 함께)" if sess.get("agent") == "codex" else
+                   "세션 이름을 바꿨습니다(Claude Code·탭 제목도 함께)") if sent else \
+                "보드의 이름만 바꿨습니다(작업 중이거나 터미널에 연결되지 않아 /rename 은 보내지 않음)" if sess.get("agent") == "codex" else \
                 "보드의 이름만 바꿨습니다(작업 중이거나 터미널에 연결되지 않아 /rename 은 보내지 않음)"
             return self._send(200, {"ok": True, "message": msg, "sent": sent})
 
@@ -2470,11 +2887,15 @@ class Handler(BaseHTTPRequestHandler):
         if m and method == "POST":
             # 갈래 탭 닫기: 보드에서 보관(숨김). 백그라운드 갈래(/fork)면 Claude Code 쪽 세션도 멈추고 목록에서 뺀다.
             # 이 갈래에서 또 갈라진 갈래는 한 단계 위 원본에 다시 잇는다. 원본·지금 터미널에서 도는 갈래는 닫지 않는다
-            row = conn.execute("SELECT session_id, continued_from, branch_kind, bg, state, title FROM sessions WHERE session_id=?",
+            row = conn.execute("SELECT session_id, continued_from, branch_kind, bg, state, title, agent FROM sessions WHERE session_id=?",
                                (m.group(1),)).fetchone()
             if row is None or row["branch_kind"] not in ("branch", "fork"):
                 return self._send(400, {"error": "갈래만 닫을 수 있습니다(원본은 칸 메뉴의 보관으로)"})
-            if not row["bg"] and row["state"] != "ended":
+            if row["agent"] == "codex":
+                # Codex 갈래: 어느 탭에서도 열려 있지 않으면 닫는다(보드에서 숨김 — Codex 기록은 그대로)
+                if codex.tab_of(session_row(conn, row["session_id"])):
+                    return self._send(409, {"error": "지금 터미널에서 열려 있는 갈래입니다 — 그 탭에서 닫거나(/quit) 다른 대화로 바꾼 뒤 닫아 주세요"})
+            elif not row["bg"] and row["state"] != "ended":
                 return self._send(409, {"error": "지금 터미널에서 돌고 있는 갈래입니다 — 다른 갈래로 전환한 뒤 닫아 주세요"})
             msg = "갈래를 닫았습니다"
             if row["bg"]:
@@ -2504,6 +2925,8 @@ class Handler(BaseHTTPRequestHandler):
             # restart: 이미 보드 터미널에 있는 세션도 같은 방법(끝내고 같은 대화로 이어 열기)으로 다시 연다 — 환경이 꼬인 세션을
             # 깨끗한 환경에서 다시 띄울 때(실행 중인 프로세스의 환경 변수는 바꿀 수 없다)
             restart = bool(body.get("restart"))
+            if sess.get("agent") == "codex":
+                return self._send(*codex_import(conn, sess, body))
             if brain.is_brain(sess["cwd"]) and not restart:
                 return self._send(409, {"error": "브레인은 늘 보드 터미널에서 돕니다 — 브레인 패널에서 다시 시작해 주세요"})
             tg = focus.target_of(sess)
@@ -2542,6 +2965,8 @@ class Handler(BaseHTTPRequestHandler):
             why = brain_guard(conn, body, sid)
             if why:
                 return self._send(403, {"error": why})
+            if sess.get("agent") == "codex":
+                return self._send(*codex_resume(conn, sess))
             if sid in (focus.running_sessions() or {}):
                 return self._send(409, {"error": "이미 다른 터미널에서 실행 중입니다 — 「터미널로 이동」으로 찾아 주세요"})
             if sess["state"] != "ended" and not not_running(conn, sid):
@@ -2571,6 +2996,14 @@ class Handler(BaseHTTPRequestHandler):
             if sess is None:
                 return self._send(404, {"error": "no session"})
             full = conn.execute("SELECT cwd, bg, state FROM sessions WHERE session_id=?", (sess["session_id"],)).fetchone()
+            if sess.get("agent") == "codex":
+                # Codex 갈래 전환: 열려 있지 않은 갈래를 보드 터미널 새 탭에서 이어 연다(codex resume)
+                if codex.tab_of(sess):
+                    return self._send(409, {"error": "이미 터미널에서 열려 있습니다"})
+                code, res = codex_resume(conn, dict(sess, state="ended"))
+                if code == 200 and res.get("message", "").startswith("보드 터미널"):
+                    res["message"] = "보드 터미널 새 탭에서 이 갈래를 열었습니다"
+                return self._send(code, res)
             if m.group(2) == "attach":
                 # 백그라운드 갈래(/fork)를 새 터미널 탭에 붙인다 — 그 탭을 이 세션의 터미널로 기억해 보드에서 바로 보낸다.
                 # attach 는 claude agents 의 id 를 받는다(세션 ID 앞자리와 다르다)
@@ -2623,12 +3056,12 @@ class Handler(BaseHTTPRequestHandler):
 
         m = re.fullmatch(r"/api/sessions/([\w\-]+)/activity", path)
         if m and method == "GET":
-            row = conn.execute("SELECT transcript_path FROM sessions WHERE session_id=?", (m.group(1),)).fetchone()
+            row = conn.execute("SELECT session_id, transcript_path, agent FROM sessions WHERE session_id=?", (m.group(1),)).fetchone()
             if row is None:
                 return self._send(404, {"error": "no session"})
             since = float((query.get("since") or ["0"])[0]) - 1
             until = query.get("until")
-            items = store.read_activity(row["transcript_path"], since, float(until[0]) + 1 if until else None)
+            items = activity_of(row, since, float(until[0]) + 1 if until else None)
             return self._send(200, {"items": items})
 
         if path == "/api/pins" and method == "POST":
@@ -2762,6 +3195,8 @@ def main():
     update.start_scheduler(restart_server)   # 몇 시간마다 새 버전 확인 · 자동이면 조용할 때 받기
     threading.Thread(target=_reap_loop, daemon=True).start()   # 정상 종료한 세션의 빈 탭 닫기
     threading.Thread(target=_dirty_loop, daemon=True).start()  # 칸 머리 변경 보기 버튼용 커밋 안 한 변경 수
+    if codex.available():
+        threading.Thread(target=_codex_loop, daemon=True).start()  # OpenAI Codex 세션 모으기
     print("Argus: http://127.0.0.1:%d" % store.PORT, flush=True)
     try:
         httpd.serve_forever()
