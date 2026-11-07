@@ -1711,7 +1711,80 @@ function openXMenu(anchor, html, align = "left") {
   if (first) first.focus();
   return m;
 }
-function closeXMenu() { $("#xMenu").hidden = true; }
+function closeXMenu() {
+  const m = $("#xMenu");
+  // 보드에서 연 Codex 선택 창을 고르지 않고 닫으면 터미널의 그 창도 닫는다(입력창이 막히지 않게)
+  if (!m.hidden && m.dataset.kind === "cxcmd" && m._cxOpen) api("POST", cmdApi(m._cxSid), { cancel: true }).catch(() => {});
+  m._cxOpen = false;
+  m.hidden = true;
+}
+// ------------------------------------------------------------------ Codex / 명령을 보드에서
+// 선택 창(/permissions·/review·/usage …)은 보드 창에 목록으로, 출력(/status·/ps·/mcp …)은 글로 보여 준다.
+// 전체 화면을 쓰는 것(/resume·/agents …)만 터미널로
+const CX_TERMINAL = new Set(["resume", "agents", "subagents", "side", "mention", "statusline", "title", "keymap", "theme", "pets", "voice", "tui",
+  "hooks", "config", "plugins", "presets", "warnings", "experimental", "skills", "memories", "import"]);   // 전체 화면 창(탭·검색·토글) — 터미널에서
+function cmdApi(sid) { return `/api/sessions/${sid}/${isCodex(sessionById(sid)) ? "codex" : "claude"}-cmd`; }
+async function runCodexCmd(sid, anchor, text, body) {
+  const m = openXMenu(anchor, `<div class="xm-head">${esc(text || "")} <span class="muted">실행하는 중…</span></div>`, "left");
+  m.dataset.kind = "cxcmd";
+  m.classList.add("wide");
+  m._cxAnchor = anchor;
+  m._cxSid = sid;
+  m._cxText = text || m._cxText;
+  let r;
+  try { r = await api("POST", cmdApi(sid), body || { text }); }
+  catch (err) { m._cxOpen = false; m.innerHTML = `<div class="xm-head">${esc(m._cxText)}</div><div class="xm-note warn">${esc(err.message)}</div>`; return; }
+  if (m.hidden || m._cxSid !== sid) return;
+  drawCodexCmd(m, sid, r);
+}
+function drawCodexCmd(m, sid, r) {
+  _drawCodexCmd(m, sid, r);
+  // 내용이 커지면 자리를 다시 — 입력창(아래쪽)에 붙인 창이 화면 밖으로 잘리지 않게
+  if (!m.hidden && m._cxAnchor && m._cxAnchor.isConnected) placeMenu(m, m._cxAnchor, "left");
+}
+function _drawCodexCmd(m, sid, r) {
+  const termBtn = `<button class="btn ghost" data-cxterm="${esc(sid)}" title="이 창을 터미널에서 이어서">⌨ 터미널에서</button>`;
+  if (r.picker) {
+    m._cxOpen = true;
+    const p = r.picker, extra = (p.keys || []).filter(k => k.key !== "enter");
+    m.innerHTML = `<div class="xm-head">${esc(p.title || m._cxText)} ${p.sub ? `<span class="muted">${esc(p.sub)}</span>` : ""}</div>
+      <div class="cx-rows">${p.rows.map(x => `<div class="cx-row ${x.cursor ? "cur" : ""}">
+        <button class="cx-pick" data-cxpick="${x.n}" data-cxlabel="${esc(x.raw || x.label)}"><b>${esc(x.label)}</b>${x.current ? ' <span class="cx-now">지금</span>' : ""}
+          ${x.desc ? `<span class="muted">${esc(x.desc)}</span>` : ""}</button>
+        ${extra.map(k => `<button class="btn ghost cx-key" data-cxpick="${x.n}" data-cxkey="${esc(k.key)}">${esc(k.key)} · ${esc(k.label)}</button>`).join("")}</div>`).join("")}</div>
+      <div class="xm-row cx-foot"><span class="muted">고르면 터미널의 그 창에서 보드가 대신 고릅니다</span>${termBtn}</div>`;
+    return;
+  }
+  m._cxOpen = false;
+  if (r.terminal) {   // 검색·슬라이더 같은 창 — 터미널에서(그 창은 그대로 떠 있다)
+    closeXMenu();
+    toast("이 창은 터미널에서 조작합니다");
+    return focusTerminal(sid);
+  }
+  const out = (r.output || r.panel || "").trim();
+  if (!out) { closeXMenu(); toast("실행했습니다"); return refresh(sid); }
+  m.innerHTML = `<div class="xm-head">${esc(m._cxText)}</div><pre class="cx-out">${esc(out)}</pre>
+    <div class="xm-row cx-foot"><span class="muted"></span>${termBtn}<button class="btn" data-cxclose>닫기</button></div>`;
+  refresh(sid);
+}
+// /clear 로 같은 탭에 새 세션이 생기면 그 칸으로 간다(이전 세션은 종료돼 칸이 사라진다)
+async function followClear(sid, handle) {
+  for (let i = 0; i < 12; i++) {
+    await new Promise(r => setTimeout(r, 800));
+    await poll();
+    const n = S.sessions.find(x => x.term_handle === handle && x.session_id !== sid && x.state !== "ended");
+    if (n) { await focusCol(n.session_id); return toast("새 대화로 옮겼습니다"); }
+  }
+}
+async function copyLastResponse(sid) {
+  const s = sessionById(sid), cached = S.boardCache.get(sid);
+  const turns = (cached && cached.detail && cached.detail.turns) || [];
+  const last = [...turns].reverse().find(t => t.response);
+  const text = last ? last.response : (s && s.last_response && s.last_response.response) || "";
+  if (!text) return toast("복사할 응답이 없습니다");
+  try { await navigator.clipboard.writeText(text); toast("마지막 응답을 복사했습니다"); }
+  catch (e) { toast("복사하지 못했습니다: " + e.message); }
+}
 async function sendCmd(sid, text) {
   try {
     const r = await api("POST", `/api/sessions/${sid}/send`, { text, images: [] });
@@ -1870,6 +1943,17 @@ function openForkMenu(btn) {
       <div class="xm-row"><input name="v" placeholder="곁일" required><button class="btn" ${busy ? "disabled" : ""}>맡기기</button></div></form>`);
 }
 $("#xMenu").addEventListener("click", async e => {
+  const xp = e.target.closest("[data-cxpick]"), xt = e.target.closest("[data-cxterm]"), xc = e.target.closest("[data-cxclose]");
+  if (xp || xt || xc) {
+    const m = $("#xMenu"), sid = m._cxSid;
+    if (xc) return closeXMenu();
+    if (xt) { m._cxOpen = false; closeXMenu(); return focusTerminal(xt.dataset.cxterm); }
+    m.innerHTML = `<div class="xm-head">${esc(m._cxText)} <span class="muted">고르는 중…</span></div>`;
+    let r;
+    try { r = await api("POST", cmdApi(sid), { pick: +xp.dataset.cxpick, key: xp.dataset.cxkey || "enter", label: xp.dataset.cxlabel || "", echo: m._cxText }); }
+    catch (err) { m._cxOpen = false; m.innerHTML = `<div class="xm-head">${esc(m._cxText)}</div><div class="xm-note warn">${esc(err.message)}</div>`; return; }
+    return drawCodexCmd(m, sid, r);
+  }
   const cf = e.target.closest("[data-cxfork]"), cs = e.target.closest("[data-cxside]");
   if (cf || cs) {
     const sid = (cf || cs).dataset.sid;
@@ -4643,6 +4727,52 @@ async function sendCompose(el) {
     openDiff(sid);
     return;
   }
+  // Codex 의 / 명령 중 보드에서 할 수 있는 것은 보드에서(터미널로 넘어가지 않게)
+  const cs = sessionById(sid), cm0 = !images.length && /^\/([\w:-]+)$/.exec(text);
+  // /recap: 요약이 터미널에만 찍혀 보드에 안 남았다 — 서버가 기다렸다가 칸의 recap 에 넣는다
+  if (cs && !cs.brain && cm0 && cm0[1] === "recap") {
+    ta.value = ""; exitRich(el, false); autoGrow(ta); S.drafts.delete(sid);
+    toast("요약하는 중…");
+    try { toast((await api("POST", `/api/sessions/${sid}/recap`, {})).message); S.recapOpen.add(sid); }
+    catch (err) { toast(err.message); }
+    return refresh(sid);
+  }
+  if (isCodex(cs) && cm0) {
+    const name = cm0[1], col = colEl(sid);
+    const clear = () => { ta.value = ""; exitRich(el, false); autoGrow(ta); S.drafts.delete(sid); };
+    const chip = sel => col && col.querySelector(sel);
+    if (name === "model" && !cs.desktop && cs.state !== "ended") { clear(); return openModelMenu(chip('.model-chip[data-action]') || el); }
+    if (name === "fork" && chip(".fork-chip")) { clear(); return openForkMenu(chip(".fork-chip")); }
+    if (name === "rename" && chip(".rename-btn")) { clear(); return startRename(chip(".rename-btn")); }
+    if (name === "copy") { clear(); return copyLastResponse(sid); }
+    if (name === "clear" || name === "new") {   // 같은 탭의 새 대화 — Codex 는 훅이 없어 보드가 새 칸을 만든다
+      clear();
+      toast("새 대화를 시작하는 중…");
+      try {
+        const r = await api("POST", `/api/sessions/${sid}/codex-new-chat`, { cmd: name });
+        toast(r.message);
+        await poll();
+        if (r.session_id) await focusCol(r.session_id);
+      } catch (err) { toast(err.message); }
+      return;
+    }
+    const cmd = (S.cmds.get(sid) || []).find(c => c.name === name);
+    if (cmd && cmd.kind === "interactive" && !CX_TERMINAL.has(name)) { clear(); return runCodexCmd(sid, el, text); }
+  }
+  // Claude Code 도 같게: 보드 기능이 있는 명령은 그 창으로, 선택 창·읽기 창은 보드 창에서, 나머지(검색·슬라이더 창)만 터미널로
+  if (cs && !isCodex(cs) && !cs.brain && cm0) {
+    const name = cm0[1], col = colEl(sid);
+    const clear = () => { ta.value = ""; exitRich(el, false); autoGrow(ta); S.drafts.delete(sid); };
+    const chip = sel => col && col.querySelector(sel);
+    // 모델 칩이 아직 없으면(모델을 모르는 새 세션) 입력창에 붙여 연다 — 터미널의 /model 창으로 넘어가지 않게
+    if (["model", "effort"].includes(name) && cs.state !== "ended") { clear(); return openModelMenu(chip('.model-chip[data-action]') || el); }
+    if (["fork", "branch", "subtask"].includes(name) && chip(".fork-chip")) { clear(); return openForkMenu(chip(".fork-chip")); }
+    if (name === "goal") { clear(); return openGoalMenu(sid, chip(".col-menu-btn") || el); }
+    if (name === "rename" && chip(".rename-btn")) { clear(); return startRename(chip(".rename-btn")); }
+    if (name === "copy") { clear(); return copyLastResponse(sid); }
+    const cmd = (S.cmds.get(sid) || []).find(c => c.name === name);
+    if (cmd && cmd.kind === "interactive" && !CL_TERMINAL.has(name)) { clear(); return runCodexCmd(sid, el, text); }
+  }
   // 보내는 동안은 흐리게 하고 고칠 수 없게(멈춘 것처럼 보이지 않도록 버튼에 회전 표시)
   el.classList.add("sending");
   ta.readOnly = true;
@@ -4671,6 +4801,7 @@ async function sendCompose(el) {
     const cm = /^\/([\w:-]+)$/.exec(text);
     const cmd = cm && (S.cmds.get(sid) || []).find(c => c.name === cm[1]);
     if (cmd && cmd.kind === "interactive") setTimeout(() => focusTerminal(sid), 400);
+    if (/^\/clear$/.test(text) && cs && cs.term_handle) followClear(sid, cs.term_handle);
     setTimeout(refresh, 600);
   } catch (err) {
     if (err.data && err.data.resume) openResume(sid, el);
@@ -4806,16 +4937,27 @@ async function updateSlash(ta) {
   pop._q = q;
   drawSlash(pop, q);
 }
+const CX_BOARD = new Set(["model", "fork", "rename", "copy", "diff", "recap", "clear", "new"]);   // Codex: 보드 창·메뉴로 여는 명령
+// Claude Code: 보드 메뉴로 여는 명령 · 터미널에서만(세션 목록·전체 화면·설치·로그인처럼 터미널 밖으로 나가는 것)
+const CL_BOARD = new Set(["model", "effort", "fork", "branch", "subtask", "goal", "rename", "copy", "diff", "recap"]);
+const CL_TERMINAL = new Set(["resume", "config", "plugin", "permissions", "theme", "scroll-speed", "autocompact", "usage", "artifacts",
+  "powerup", "agents", "tui", "teleport", "login", "logout", "upgrade", "install", "install-github-app", "terminal-setup",
+  "setup-bedrock", "setup-vertex", "web-setup", "design-login", "remote-env", "cloud-plugins", "ide", "desktop", "background",
+  "daemon", "btw", "skills", "loops", "workflows", "ultraplan", "ultrareview"]);
 function drawSlash(pop, q) {
   const list = pop._list || [];
   if (!list.length) { pop.hidden = true; return; }
+  const cx = isCodex(sessionById((pop.closest(".composer") || {}).dataset?.sid));
+  // Codex 의 선택 창·출력 명령은 보드 창에서 — 전체 화면을 쓰는 것만 「터미널 창」
+  const kindOf = c => BOARD_SLASH[c.name] || (cx ? (CX_BOARD.has(c.name) || c.kind === "interactive" && !CX_TERMINAL.has(c.name))
+    : (CL_BOARD.has(c.name) || c.kind === "interactive" && !CL_TERMINAL.has(c.name))) ? "board" : c.kind;
   pop.innerHTML = list.map((c, i) => {
     const n = esc(c.name);
     const hl = q && c.name.toLowerCase().startsWith(q) ? `<b>${esc(c.name.slice(0, q.length))}</b>${esc(c.name.slice(q.length))}` : n;
     return `<div class="sp-row ${i === pop._sel ? "on" : ""}" data-action="slash-pick" data-idx="${i}">
       <span class="sp-name">/${hl}${c.hint ? ` <span class="sp-hint">${esc(c.hint)}</span>` : ""}</span>
       <span class="sp-desc${BOARD_SLASH[c.name] ? " sp-board" : ""}">${esc(BOARD_SLASH[c.name] || c.desc || "")}</span>
-      ${(k => SLASH_KIND[k] ? `<span class="sp-kind sk-${k}">${SLASH_KIND[k]}</span>` : "")(BOARD_SLASH[c.name] ? "board" : c.kind)}</div>`;
+      ${(k => SLASH_KIND[k] ? `<span class="sp-kind sk-${k}">${SLASH_KIND[k]}</span>` : "")(kindOf(c))}</div>`;
   }).join("");
   pop.hidden = false;
   const on = pop.querySelector(".sp-row.on");
@@ -5755,7 +5897,9 @@ async function mountTerm(box, q) {   // q: { sid } · 막 띄운 세션의 { han
   Object.assign(rec, { term, fit });
   const enc = new TextEncoder();
   const send = data => { if (rec.ws && rec.ws.readyState === 1) rec.ws.send(data); };
-  term.onData(d => send(enc.encode(d)));
+  // 마우스 「이동」 보고(SGR 버튼 35 — 누른 버튼 없이 움직임)는 보내지 않는다. 앱이 모든 움직임 보고를 켜 두면 마우스를
+  // 움직일 때마다 쏟아지고, 보드가 붙여 넣는 글과 섞여 입력창에 「[<35;26;49M」 같은 글자로 들어갔다. 클릭·휠·끌기는 그대로
+  term.onData(d => { d = d.replace(/\x1b\[<35;\d+;\d+M/g, ""); if (d) send(enc.encode(d)); });
   term.onBinary(d => send(Uint8Array.from(d, c => c.charCodeAt(0) & 255)));
   term.onResize(({ cols, rows }) => send(JSON.stringify({ resize: [cols, rows] })));
   rec.ro = new ResizeObserver(() => { if (box.offsetParent) try { fit.fit(); } catch (e) { /* 숨김 */ } });

@@ -743,6 +743,12 @@ def busy(tg):
 def paste(tg, text, paths=()):
     """Codex 입력창에 붙여 넣고 Enter. 붙여넣기 괄호로 감싸야 줄바꿈이 보내기가 되지 않는다.
     이미지 경로를 붙여 넣으면 Codex 가 첨부로 바꾼다. (성공, 오류)"""
+    # 입력창이 안 보이면(선택 창·대화 기록 찾기 「Find:」 등이 떠 있음) — 글·/ 가 그 창으로 들어가지 않게 Esc 로 입력창을 되찾는다
+    for _ in range(3):
+        if ready(tg) or not tg.terminal.screen(tg.handle):
+            break
+        tg.terminal.write(tg.handle, "\x1b")
+        time.sleep(0.35)
     payload = text + ("\n" if text and paths else "") + "\n".join(paths)
     if not tg.terminal.write(tg.handle, "\x1b[200~" + payload + "\x1b[201~"):
         return False, "터미널에 쓰지 못했습니다"
@@ -898,9 +904,13 @@ def footer(tg):
 
 
 def _esc_all(tg):
+    """떠 있는 창을 닫는다 — 입력창이 돌아오면 멈춘다. 빈 입력창에서 Esc 를 두 번 누르면 Codex 가 「이전 메시지로 돌아가기」
+    (대화 기록 보기)를 열고, 거기서 / 가 「찾기」가 되어 다음에 보낸 /quit 등이 검색어로 들어갔다."""
     for _ in range(3):
+        if ready(tg) and not picker(tg):
+            return
         tg.terminal.write(tg.handle, "\x1b")
-        time.sleep(0.3)
+        time.sleep(0.35)
 
 
 def set_model_effort(tg, model_name=None, effort=None):
@@ -984,6 +994,142 @@ def fork(tg, new_worktree=False):
             return False, "갈래 위치 창을 읽지 못했습니다"
         time.sleep(0.2)
     return True, "갈랐습니다 · 이 탭은 갈래 대화로 넘어갔고, 원본은 꺼진 채 남습니다"
+
+
+# ------------------------------------------------------------------ 보드에서 / 명령 실행(선택 창·출력을 보드 창으로)
+# Codex 의 선택 창은 「제목 · › N. 이름  설명 … · enter select · esc back」 모양이 같다. 보드가 그 목록을 읽어 보여 주고,
+# 고르면 화살표로 그 줄에 가서 키(Enter·s …)를 누른다. 다음 창이 뜨면 또 보여 주고, 입력창으로 돌아오면 새로 찍힌 글을 돌려준다
+# 번호 목록이 아닌 전체 화면 창(탭·검색·토글)이라 보드에서 그리지 않고 터미널로 여는 명령
+TERMINAL_ONLY = {"resume", "agents", "subagents", "side", "mention", "statusline", "title", "keymap", "theme", "pets", "voice", "tui",
+                 "hooks", "config", "plugins", "presets", "warnings", "experimental", "skills", "memories", "import"}
+_PICK_ROW = re.compile(r"^\s*(›)?\s*(\d+)\.\s+(.+?)(?:\s{2,}(\S.*))?$")
+_HINT = re.compile(r"(enter|esc|space|tab|[a-z])\s+([a-z][\w /-]*?)(?=\s+·|\s*$)", re.I)
+
+
+def picker(tg):
+    """지금 화면의 선택 창 {title, sub, rows:[{n, label, desc, current, cursor}], keys:[{key, label}]} 또는 None.
+    칸이 좁으면 긴 설명이 여러 줄로 접힌다 — 번호 줄 아래의 깊게 들여 쓴 줄은 그 선택지 설명으로 붙인다."""
+    lines = tg.terminal.screen(tg.handle)
+    hint_i = next((i for i in range(len(lines) - 1, -1, -1) if "esc" in lines[i] and "·" in lines[i]
+                   and re.search(r"\b(enter|esc)\b", lines[i])), None)
+    if hint_i is None:
+        return None
+    rows, pending, i = [], [], hint_i - 1
+    while i >= 0:
+        line = lines[i]
+        m = _PICK_ROW.match(line)
+        if m:
+            label = m.group(3).strip()
+            cur = bool(re.search(r"\((current|default)\)", label))
+            desc = " ".join([(m.group(4) or "").strip()] + pending).strip()
+            rows.insert(0, {"n": int(m.group(2)), "label": re.sub(r"\s*\((current|default)\)", "", label).strip(),
+                            "desc": desc, "current": cur, "cursor": bool(m.group(1))})
+            pending = []
+        elif not line.strip():
+            if rows:   # 목록 위 빈 줄 — 그 위는 제목
+                break
+        elif len(line) - len(line.lstrip()) >= 6 and not line.strip().startswith(("›", "•")):
+            pending.insert(0, line.strip())   # 접힌 설명 줄
+        else:
+            break
+        i -= 1
+    if not rows:
+        return None
+    # 제목: 목록 바로 위(빈 줄을 건너)에 붙어 있는 줄 묶음 — 그 위의 지난 출력은 섞지 않는다
+    while i >= 0 and not lines[i].strip():
+        i -= 1
+    head = []
+    while i >= 0 and lines[i].strip() and len(head) < 3:
+        head.insert(0, lines[i].strip())
+        i -= 1
+    keys = [{"key": k.lower(), "label": v.strip()} for k, v in _HINT.findall(lines[hint_i])]
+    return {"title": head[0] if head else "", "sub": " ".join(head[1:]),
+            "rows": rows, "keys": [k for k in keys if k["key"] not in ("esc",)]}
+
+
+def _clean_output(lines, cmd):
+    out = []
+    for line in lines:
+        st = line.strip()
+        if not st or st == "/" + cmd or st.startswith(("› ", "← for agents", "? for shortcuts")) or _FOOT.match(line) or st.startswith("Worked for"):
+            continue
+        out.append(line.rstrip())
+    while out and not out[-1].strip():
+        out.pop()
+    return "\n".join(out).strip()
+
+
+_BASE = {}   # 탭 → 명령을 보내기 직전 화면(선택 창을 고른 뒤 새로 찍힌 글을 가려낼 기준)
+
+
+def _new_lines(before, after):
+    """after 에 새로 생긴 줄 — 선택 창에 가려졌다 다시 보이는 지난 줄은 빼고, 마지막 공통 줄 뒤의 것만."""
+    import difflib
+    sm = difflib.SequenceMatcher(a=before, b=after, autojunk=False)
+    blocks = [b for b in sm.get_matching_blocks() if b.size]
+    start = 0
+    for b in blocks:
+        if any(x.strip() for x in after[b.b:b.b + b.size]) and not all(
+                x.strip().startswith(("› ", "← for agents")) or _FOOT.match(x) for x in after[b.b:b.b + b.size] if x.strip()):
+            start = max(start, b.b + b.size)
+    return after[start:]
+
+
+def run_command(tg, text, wait=1.6):
+    """/명령을 보내고 결과 — {"picker": …} 또는 {"output": 새로 찍힌 글}."""
+    import difflib
+    before = tg.terminal.screen(tg.handle)
+    _BASE[tg.handle] = before
+    ok, err = paste(tg, text)
+    if not ok:
+        return {"error": err}
+    end, last = time.time() + wait + 2.5, None
+    time.sleep(wait)
+    while time.time() < end:   # 화면이 멈출 때까지(출력이 길면 조금 더)
+        cur = tg.terminal.screen(tg.handle)
+        pk = picker(tg)
+        if pk:
+            return {"picker": pk}
+        if cur == last:
+            break
+        last = cur
+        time.sleep(0.4)
+    after = tg.terminal.screen(tg.handle)
+    sm = difflib.SequenceMatcher(a=before, b=after, autojunk=False)
+    new = [l for op, _a1, _a2, b1, b2 in sm.get_opcodes() if op in ("insert", "replace") for l in after[b1:b2]]
+    return {"output": _clean_output(new, text.lstrip("/").split()[0])}
+
+
+def choose(tg, n, key="enter"):
+    """선택 창에서 n 번 줄을 key 로 고른다. 다음 창이 뜨면 {"picker"}, 아니면 {"output"}."""
+    import difflib
+    pk = picker(tg)
+    if not pk:
+        return {"error": "선택 창이 닫혔습니다"}
+    for _ in range(20):
+        cur = next((r for r in pk["rows"] if r["cursor"]), None)
+        if not cur:
+            return {"error": "선택 창을 읽지 못했습니다"}
+        if cur["n"] == n:
+            break
+        tg.terminal.write(tg.handle, "\x1b[B" if n > cur["n"] else "\x1b[A")
+        time.sleep(0.2)
+        pk = picker(tg) or pk
+    else:
+        return {"error": "그 줄로 가지 못했습니다"}
+    tg.terminal.write(tg.handle, "\r" if key == "enter" else key[:1])
+    time.sleep(1.2)
+    pk2 = picker(tg)
+    if pk2 and pk2 != pk:
+        return {"picker": pk2}
+    after = tg.terminal.screen(tg.handle)
+    base = _BASE.pop(tg.handle, [])
+    seen = {ln.strip() for ln in base if ln.strip()}   # 고른 뒤 결과 — 명령 전 화면에 이미 있던 줄(가려졌다 다시 보이는 것)은 뺀다
+    return {"output": _clean_output([ln for ln in _new_lines(base, after) if ln.strip() not in seen], "")}
+
+
+def cancel(tg):
+    _esc_all(tg)
 
 
 _SESSION_LINE = re.compile(r"Session:\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")

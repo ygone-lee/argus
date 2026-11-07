@@ -828,6 +828,189 @@ def _dirty_loop():
 # ------------------------------------------------------------------ Codex 세션 조작
 # Claude Code 처럼 화면을 읽어 고르지 않는다. 보드 터미널(등 기록된 탭)에서 codex 가 돌면 그 입력창에 붙여 넣고 Enter,
 # 아니면(데스크톱 앱 스레드) `codex queue` — Codex 가 그 스레드에 메시지를 넣어 준다
+# ------------------------------------------------------------------ Claude Code / 명령을 보드에서
+# 보내고 화면을 본다: 번호 선택 창이면 보드 창에 목록(고르면 focus.answer_prompt), 읽기만 하는 창(아래 줄이 「Esc to cancel·close」
+# 뿐)이면 그 내용을 보여 주고 닫는다, 바로 끝나는 명령이면 그 결과 줄. 검색·슬라이더·토글 같은 창은 터미널로 넘긴다
+_CL_READONLY_FOOT = re.compile(r"^(?:(?:↑/↓|↑↓)\s*to (?:select|scroll|navigate)\s*·\s*)?(?:Enter to (?:view|open)\s*·\s*)?Esc to (?:cancel|close|go back|exit)$", re.I)
+_CL_CHROME = re.compile(r"^\s*(?:[─━▔╌]{4,}|\[.*\|.*\]\s*│|Context [░█]|⏵⏵|⏸|❯|\? for shortcuts|.*\(shift\+tab to cycle\))|^\s{40,}\S")
+
+
+def _claude_picker(pv):
+    head = [h for h in pv["head"] if not h.startswith(("❯", "⎿", "│", "╰", "╭"))]
+    return {"title": head[0] if head else "", "sub": " ".join(head[1:3]),
+            "rows": [{"n": o["n"], "label": o["label"].replace("✔", "").strip(), "raw": o["label"], "desc": o["hint"],
+                      "current": "✔" in o["label"], "cursor": o["on"]} for o in pv["options"]], "keys": [], "claude": True}
+
+
+def _local_command_output(path, name, since):
+    """기록 파일 끝에서 since 뒤에 실행된 /name 의 결과(<local-command-stdout>) — 없으면 ""."""
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as f:
+            f.seek(max(0, size - 256 * 1024))
+            data = f.read()
+    except OSError:
+        return ""
+    want, out = ("<command-name>%s</command-name>" % name).encode(), ""
+    hit = False
+    for raw in data.splitlines():
+        if want in raw:
+            try:
+                hit = (store.parse_ts(json.loads(raw).get("timestamp")) or 0) >= since - 2
+            except ValueError:
+                hit = False
+            continue
+        if hit and b"<local-command-std" in raw:   # 시스템 줄(subtype local_command) 또는 사용자 메시지 줄 — 명령마다 다르다
+            try:
+                d = json.loads(raw)
+            except ValueError:
+                continue
+            c = d.get("content") or (d.get("message") or {}).get("content") or ""
+            if not isinstance(c, str):
+                continue
+            m = re.search(r"<local-command-std(?:out|err)>(.*?)</local-command-std(?:out|err)>", c, re.S)
+            if m and m.group(1).strip():
+                out = re.sub(r"\x1b\[[0-9;]*m", "", m.group(1)).strip()
+            hit = False
+    return out
+
+
+def _claude_after(tg, echo, before=None, transcript=None, since=0):
+    """명령을 보낸(골랐다) 뒤 화면 — {"picker"} · {"output"} · {"panel"}(읽고 닫음) · {"terminal": True}(복잡한 창)."""
+    lines, last = [], None
+    for _ in range(12):   # 화면이 멈출 때까지(사용량 집계처럼 늦게 채워지는 창)
+        time.sleep(0.5)
+        lines = [ln.replace("\xa0", " ").rstrip() for ln in focus._screen(tg)]
+        if lines == last and not any("Scanning" in ln or "Loading" in ln for ln in lines[-12:]):
+            break
+        last = lines
+    pv = focus.prompt_view(tg)
+    if pv and pv.get("options") and not any("Search" in h or "⌕" in h for h in pv["head"]):
+        return {"picker": _claude_picker(pv)}
+    if focus._input_line_of(lines) is not None:
+        # 바로 끝난 명령 — 보내기 전 화면에 없던, 입력칸 위의 새 줄(「❯ /명령」 메아리·입력칸·상태 줄은 뺀다)
+        # 입력칸(❯) 바로 위 경계까지 — 앞서 열렸던 창이 남긴 가로줄에 속지 않게 입력칸 줄을 기준으로
+        prompt_i = next((i for i in range(len(lines) - 1, 0, -1) if lines[i].lstrip().startswith("❯")
+                         and lines[i - 1].lstrip().startswith("──")), None)
+        end = prompt_i - 1 if prompt_i else len(lines)
+        new = codex._new_lines(before or [], lines[:end]) if before is not None else lines[:end]
+        out = [ln.rstrip() for ln in new if ln.strip() and not _CL_CHROME.match(ln)]
+        text = "\n".join(out[-30:]).strip()
+        if transcript and echo:
+            # 화면은 다시 그려지며 비기도 한다(/focus 등) — 기록 파일의 그 명령 결과(로컬 명령 출력)가 더 정확하다
+            text = _local_command_output(transcript, echo.split()[0], since) or text
+        return {"output": text}
+    foot = next((i for i in range(len(lines) - 1, -1, -1) if "Esc to" in lines[i] or "esc to" in lines[i]), None)
+    if foot is None:
+        return {"terminal": True}
+    if not _CL_READONLY_FOOT.match(lines[foot].strip()):
+        return {"terminal": True}   # 검색·슬라이더·토글 — 터미널에서
+    top = max([i for i in range(foot) if lines[i].lstrip().startswith(("▔", "──", "╭"))] or [-1])
+    text = "\n".join(ln for ln in lines[top + 1:foot] if ln.strip() and not ln.lstrip().startswith("▔")).strip()
+    _claude_close(tg)   # 읽기만 하는 창 — 보드에 옮겼으니 닫는다
+    return {"panel": text}
+
+
+def _claude_close(tg):
+    """입력칸이 돌아올 때까지 Esc(창에 따라 처음 Esc 는 검색만 지우거나 탭을 벗어난다) — 최대 세 번."""
+    for _ in range(3):
+        if focus._input_line_of(focus._screen(tg)) is not None and not focus.prompt_view(tg):
+            return True
+        focus._raw(tg, focus.ESC)
+        time.sleep(0.5)
+    return focus._input_line_of(focus._screen(tg)) is not None
+
+
+def run_recap(conn, sess):
+    """/recap — Claude Code·Codex 모두 요약을 터미널에만 찍고(대화 턴·훅이 아님) 보드에는 남지 않았다.
+    보내고 요약 줄이 나올 때까지 기다렸다가 칸의 recap 자리에 넣는다. (HTTP 코드, 본문)."""
+    cx = sess.get("agent") == "codex"
+    if cx:
+        tg = codex_tab(conn, sess)
+        if not tg:
+            return 409, {"error": "Codex 가 도는 터미널을 찾지 못했습니다"}
+    else:
+        tg, err = terminal_target(conn, sess)
+        if not tg:
+            return 409, {"error": err}
+    if sess["state"] in ("working", "waiting"):
+        return 409, {"error": "작업 중에는 요약하지 않습니다 — 끝난 뒤에"}
+    scr = lambda: [ln.replace("\xa0", " ").rstrip() for ln in tg.terminal.screen(tg.handle)]
+    before = scr()
+    if cx:
+        ok, err = codex.paste(tg, "/recap")
+    else:
+        ok, _, err = focus.send_prompt(tg, "/recap")
+    if not ok:
+        return 502, {"error": "전송 실패: " + err}
+    text, end = "", time.time() + 45
+    while time.time() < end and not text:
+        time.sleep(1.0)
+        lines = scr()
+        if cx:   # 「↳ Recap: …」 + 들여 쓴 이어지는 줄
+            idx = [i for i, ln in enumerate(lines) if "Recap:" in ln and ln not in before]
+            if idx:
+                i = idx[-1]
+                parts = [lines[i].split("Recap:", 1)[1].strip()]
+                for ln in lines[i + 1:]:
+                    if not ln.strip() or not ln.startswith("   "):
+                        break
+                    parts.append(ln.strip())
+                text = " ".join(parts)
+        else:    # 「❯ /recap」 다음 「⎿ …」 + 들여 쓴 이어지는 줄
+            echo = [i for i, ln in enumerate(lines) if ln.strip() == "❯ /recap"]
+            if echo and len(lines) > echo[-1] + 1 and lines[echo[-1] + 1].strip().startswith("⎿"):
+                parts = [lines[echo[-1] + 1].strip().lstrip("⎿").strip()]
+                for ln in lines[echo[-1] + 2:]:
+                    if not ln.strip() or not ln.startswith("     ") or ln.lstrip().startswith(("❯", "─")):
+                        break
+                    parts.append(ln.strip())
+                text = " ".join(parts)
+    if not text:
+        return 504, {"error": "요약이 나오지 않았습니다 — 터미널을 확인해 주세요"}
+    t = store.now()
+    conn.execute("UPDATE sessions SET recap=?, recap_at=? WHERE session_id=?", (store.mask(text, private=False), t, sess["session_id"]))
+    return 200, {"ok": True, "recap": text, "message": "요약했습니다 · 칸 위 recap 에 보입니다"}
+
+
+_CL_BASE = {}   # 탭 → 명령을 보내기 직전 화면(고른 뒤 새로 찍힌 결과를 가려낼 기준)
+_CL_AT = {}     # 탭 → 명령을 보낸 시각(기록 파일에서 그 뒤 결과만)
+
+
+def _cl_transcript(conn, sess):
+    r = conn.execute("SELECT transcript_path FROM sessions WHERE session_id=?", (sess["session_id"],)).fetchone()
+    return r[0] if r else None
+
+
+def claude_cmd(conn, sess, body):
+    tg, err = terminal_target(conn, sess)
+    if not tg:
+        return 409, {"error": err}
+    if body.get("cancel"):
+        _claude_close(tg)
+        return 200, {"ok": True}
+    if body.get("pick") is not None:
+        ok, msg = focus.answer_prompt(tg, int(body["pick"]), body.get("label") or "")
+        if not ok:
+            return 502, {"error": msg}
+        base = _CL_BASE.pop(tg.handle, None)
+        return 200, _claude_after(tg, body.get("echo") or "", base, _cl_transcript(conn, sess), _CL_AT.get(tg.handle, 0))
+    text = CONTROL_CHARS.sub("", body.get("text") or "").strip()
+    if not text.startswith("/"):
+        return 400, {"error": "/ 명령만"}
+    if sess["state"] in ("working", "waiting"):
+        return 409, {"error": "작업 중에는 보드에서 실행하지 않습니다 — 끝난 뒤에(또는 터미널에서)"}
+    if focus.dialog_text(tg):
+        return 409, {"error": "터미널에 선택 창이 떠 있습니다 — 먼저 닫아 주세요"}
+    before = [ln.replace("\xa0", " ").rstrip() for ln in focus._screen(tg)]
+    _CL_BASE[tg.handle] = before
+    _CL_AT[tg.handle] = store.now()
+    ok, _, err = focus.send_prompt(tg, text)
+    if not ok:
+        return 502, {"error": "전송 실패: " + err}
+    return 200, _claude_after(tg, text, before, _cl_transcript(conn, sess), _CL_AT[tg.handle])
+
+
 def codex_tab(conn, sess):
     """그 Codex 세션의 codex 가 돌고 있는 터미널 Target 또는 None. 찾으면 이 요청이 끝날 때까지 잡아 둔다."""
     conn.commit()
@@ -890,6 +1073,37 @@ def codex_model(conn, sess, model, effort):
     if got_effort:
         conn.execute("UPDATE sessions SET effort=? WHERE session_id=?", (got_effort, sess["session_id"]))
     return 200, {"ok": True, "message": msg}
+
+
+def codex_new_chat(conn, sess, cmd):
+    """Codex 의 /clear·/new — 같은 탭에서 새 대화를 시작한다. Codex 는 이때 훅도 기록도 남기지 않아(첫 요청 전까지) 보드가
+    직접: 보내고 새 세션 ID 를 읽어 빈 칸을 만들고, 이전 대화는 Claude Code 의 /clear 처럼 「종료(clear)」로 둔다."""
+    tg = codex_tab(conn, sess)
+    if not tg:
+        return 409, {"error": "Codex 가 도는 터미널을 찾지 못했습니다"}
+    if sess["state"] in ("working", "waiting") or codex.busy(tg):
+        return 409, {"error": "작업 중에는 새 대화를 시작하지 않습니다 — 끝난 뒤에"}
+    ok, err = codex.paste(tg, "/" + cmd)
+    if not ok:
+        return 502, {"error": "전송 실패: " + err}
+    time.sleep(1.0)
+    new = codex.session_id_of(tg, timeout=20)
+    if not new or new == sess["session_id"]:
+        return 502, {"error": "새 대화의 세션을 읽지 못했습니다 — 터미널을 확인해 주세요"}
+    t = store.now()
+    g = store.git_info(sess["cwd"] or "")
+    with conn:
+        conn.execute("INSERT OR IGNORE INTO sessions (session_id, agent, cwd, project_root, project_name, worktree, branch,"
+                     " state, state_at, started_at, last_activity, last_seen_at, source, terminal, model, effort)"
+                     " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                     (new, "codex", sess["cwd"], g["project_root"], g["project_name"], g["worktree"], g["branch"], "idle", t, t, t, t,
+                      "codex", json.dumps(tg.terminal.remember({}, tg.handle)), sess.get("model"), sess.get("effort")))
+        conn.execute("UPDATE sessions SET terminal=?, state='ended', state_detail=?, state_at=?, ended_at=? WHERE session_id=?",
+                     (json.dumps({"detached": True}), cmd, t, t, sess["session_id"]))
+        store.add_event(conn, sess["session_id"], "end", cmd)
+        store.add_event(conn, new, "start", cmd)
+    LAUNCHED[tg.handle] = t   # 요청이 없어도 빈 칸으로 보이게
+    return 200, {"ok": True, "session_id": new, "message": "새 대화를 시작했습니다 · 이전 대화는 종료됨(%s)" % cmd}
 
 
 def codex_interrupt(conn, sess):
@@ -1125,9 +1339,23 @@ def codex_quit(conn, sess, body):
     if sess["state"] == "working":
         tg.terminal.write(tg.handle, "\x1b")
         time.sleep(0.8)
-    tg.terminal.write(tg.handle, "/quit")
-    time.sleep(0.8)   # 빠르게 들어온 글 바로 뒤의 Enter 는 Codex 가 줄바꿈으로 본다(codex.paste 와 같은 이유)
-    tg.terminal.write(tg.handle, "\r")
+    gone = lambda: (tg.terminal.info(tg.handle) or {}).get("agent") != "codex"
+    # /quit(입력창을 되찾은 뒤 — 찾기·선택 창이 떠 있으면 / 가 거기로 들어갔다) → 안 끝나면 한 번 더 → Ctrl+C 두 번
+    for attempt in ("quit", "quit", "ctrl-c"):
+        if attempt == "quit":
+            codex.paste(tg, "/quit")
+        else:
+            tg.terminal.write(tg.handle, "\x03")
+            time.sleep(0.5)
+            tg.terminal.write(tg.handle, "\x03")
+        for _ in range(6):
+            time.sleep(0.5)
+            if gone():
+                break
+        if gone():
+            break
+    if not gone():
+        return 502, {"error": "Codex 가 끝나지 않았습니다 — 터미널을 확인해 주세요"}
     t = store.now()
     conn.execute("UPDATE sessions SET state='ended', state_detail='quit', state_at=?, ended_at=? WHERE session_id=?",
                  (t, t, sess["session_id"]))
@@ -2762,6 +2990,49 @@ class Handler(BaseHTTPRequestHandler):
             if not conn.execute("SELECT 1 FROM sessions WHERE session_id=?", (m.group(1),)).fetchone():
                 return self._send(404, {"error": "no session"})
             return self._send(*delete_sessions(conn, m.group(1)))
+        m = re.fullmatch(r"/api/sessions/([\w\-]+)/codex-new-chat", path)
+        if m and method == "POST":
+            sess = session_row(conn, m.group(1))
+            if sess is None or sess.get("agent") != "codex":
+                return self._send(404, {"error": "no session"})
+            cmd = body.get("cmd") if body.get("cmd") in ("clear", "new") else "clear"
+            return self._send(*codex_new_chat(conn, sess, cmd))
+        m = re.fullmatch(r"/api/sessions/([\w\-]+)/recap", path)
+        if m and method == "POST":
+            sess = session_row(conn, m.group(1))
+            if sess is None:
+                return self._send(404, {"error": "no session"})
+            return self._send(*run_recap(conn, sess))
+        m = re.fullmatch(r"/api/sessions/([\w\-]+)/claude-cmd", path)
+        if m and method == "POST":
+            sess = session_row(conn, m.group(1))
+            if sess is None or sess.get("agent") == "codex":
+                return self._send(404, {"error": "no session"})
+            return self._send(*claude_cmd(conn, sess, body))
+        m = re.fullmatch(r"/api/sessions/([\w\-]+)/codex-cmd", path)
+        if m and method == "POST":
+            # Codex 의 / 명령을 보드에서: 보내고 선택 창이 뜨면 그 목록, 아니면 새로 찍힌 글을 돌려준다.
+            # pick: 지금 뜬 선택 창에서 고르기 · cancel: 닫기
+            sess = session_row(conn, m.group(1))
+            if sess is None or sess.get("agent") != "codex":
+                return self._send(404, {"error": "no session"})
+            tg = codex_tab(conn, sess)
+            if not tg:
+                return self._send(409, {"error": "Codex 앱의 대화는 앱에서 해 주세요" if codex.desktop_session(sess)
+                                        else "Codex 가 도는 터미널을 찾지 못했습니다"})
+            if body.get("cancel"):
+                codex.cancel(tg)
+                return self._send(200, {"ok": True})
+            if body.get("pick") is not None:
+                res = codex.choose(tg, int(body["pick"]), str(body.get("key") or "enter"))
+                return self._send(502 if res.get("error") else 200, res)
+            text = CONTROL_CHARS.sub("", body.get("text") or "").strip()
+            if not text.startswith("/"):
+                return self._send(400, {"error": "/ 명령만"})
+            if sess["state"] in ("working", "waiting") or codex.busy(tg):
+                return self._send(409, {"error": "작업 중에는 보드에서 실행하지 않습니다 — 끝난 뒤에(또는 터미널에서)"})
+            res = codex.run_command(tg, text)
+            return self._send(502 if res.get("error") else 200, res)
         m = re.fullmatch(r"/api/sessions/([\w\-]+)/codex-fork", path)
         if m and method == "POST":
             # Codex 의 /fork — 이 탭이 갈라진 새 대화로 넘어간다(새 칸은 훅·기록 동기화가 원본의 갈래로 잇는다)

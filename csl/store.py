@@ -573,14 +573,27 @@ def scan_transcript_meta(path, tail_bytes=4 * 1024 * 1024):
             data = f.read()
     except OSError:
         return meta
+    recap_cmd = False   # 바로 앞 줄이 /recap 명령이었는지 — 그 결과(로컬 명령 출력)도 recap 이다
     for raw in data.splitlines():
-        if b'"custom-title"' not in raw and b'"ai-title"' not in raw and b'"away_summary"' not in raw:
+        if b'"custom-title"' not in raw and b'"ai-title"' not in raw and b'"away_summary"' not in raw \
+                and b"/recap</command-name>" not in raw and not (recap_cmd and b"<local-command-stdout>" in raw):
             continue
         try:
             d = json.loads(raw)
         except ValueError:
             continue
         t = d.get("type")
+        if b"/recap</command-name>" in raw:
+            recap_cmd = True
+            continue
+        if recap_cmd and b"<local-command-stdout>" in raw:   # 시스템 줄 또는 사용자 메시지 줄
+            recap_cmd = False
+            c = d.get("content") or (d.get("message") or {}).get("content") or ""
+            m = re.search(r"<local-command-stdout>(.*?)</local-command-stdout>", c if isinstance(c, str) else "", re.S)
+            if m and m.group(1).strip():
+                meta["recap"] = m.group(1).strip()
+                meta["recap_at"] = parse_ts(d.get("timestamp"))
+            continue
         if t == "custom-title" and d.get("customTitle"):
             meta["custom_title"] = d["customTitle"]
         elif t == "ai-title" and d.get("aiTitle"):
@@ -622,9 +635,10 @@ def apply_transcript_meta(conn, session_id, path, meta=None):
             (mask(title), "custom" if meta.get("custom_title") else "ai", session_id),
         )
     if meta.get("recap"):
+        # 더 새 것만 — 보드에서 /recap 으로 넣은 요약을 그보다 앞선 기록 파일의 요약이 덮지 않게
         conn.execute(
-            "UPDATE sessions SET recap=?, recap_at=? WHERE session_id=?",
-            (mask(meta["recap"]), meta.get("recap_at"), session_id),
+            "UPDATE sessions SET recap=?, recap_at=? WHERE session_id=? AND COALESCE(recap_at, 0) <= COALESCE(?, 0) + 1",
+            (mask(meta["recap"]), meta.get("recap_at"), session_id, meta.get("recap_at")),
         )
 
 
