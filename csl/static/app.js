@@ -5977,9 +5977,17 @@ async function mountTerm(box, q) {   // q: { sid } · 막 띄운 세션의 { han
   host.className = "term-host";
   box.append(host);
   const mono = getComputedStyle(document.documentElement).getPropertyValue("--mono").trim() || "Menlo, monospace";
-  const term = new Terminal({ fontFamily: mono, fontSize: 12.5, cursorBlink: true, macOptionIsMeta: true, scrollback: 2000, theme: TERM_THEME });
+  const term = new Terminal({ fontFamily: mono, fontSize: 12.5, cursorBlink: true, macOptionIsMeta: true, scrollback: 2000, theme: TERM_THEME,
+    macOptionClickForcesSelection: true });
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
+  // 끌어서 고르기는 xterm 이 직접 한다. tmux 가 마우스를 받고 있어(휠로 기록 스크롤) 그냥 끌면 tmux 가 고르고, 놓는 순간
+  // 선택을 지워 복사할 수 없었다. xterm 은 Mac 에서 Option+끌기(macOptionClickForcesSelection)를 앱에 보내지 않고
+  // 직접 고르므로, 왼쪽 버튼 끌기를 Option 을 누른 것으로 바꿔 넘긴다 — 고른 글은 남아 있고 ⌘C 로 복사된다. 휠은 그대로 tmux 로
+  host.addEventListener("mousedown", e => {
+    if (e.button === 0 && !e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey) Object.defineProperty(e, "altKey", { value: true });
+  }, true);
+  host.addEventListener("wheel", () => term.clearSelection(), { capture: true, passive: true });   // 화면이 스크롤되면 고른 자리가 다른 글이 된다
   term.open(host);
   try { fit.fit(); } catch (e) { /* 아직 크기가 없다 */ }
   Object.assign(rec, { term, fit });
