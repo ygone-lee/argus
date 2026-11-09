@@ -376,14 +376,22 @@ def _landed(t, text, wait=2.0):
     """보낸 글이 입력칸에 들어갔는지 — Enter 를 누르기 전에 화면을 다시 본다(글이 다 그려질 때까지 잠깐 기다림).
     첫 줄 앞부분(빈칸 무시)이 입력칸에 보이거나, 길어서 [Pasted text …]·이미지 [Image #…] 로 접혔으면 들어간 것.
     화면을 못 읽거나 입력칸이 안 보이면(창이 떴다) False."""
-    first = next((ln for ln in IMAGE_TOKEN.sub("", text).splitlines() if ln.strip()), "")
-    want = re.sub(r"\s+", "", re.sub(r"^\s*!", "", first))[:30]
+    lines = [ln for ln in IMAGE_TOKEN.sub("", text).splitlines() if ln.strip()]
+    want = re.sub(r"\s+", "", re.sub(r"^\s*!", "", lines[0] if lines else ""))[:30]
+    want_end = re.sub(r"\s+", "", lines[-1])[-30:] if len(lines) > 1 else ""
     end = time.time() + wait
     while True:
-        got = _input_line_of(_screen(t))
+        screen = _screen(t)
+        got = _input_line_of(screen)
         if got is not None:
             g = re.sub(r"\s+", "", got)
             if (want and want in g) or "[Pastedtext" in g or "[Image#" in g or (not want and g):
+                return True
+        elif want_end:
+            # 여러 줄 글이 화면보다 길면 입력칸 윗부분(위 가로줄과 「❯」 첫 줄)이 화면 위로 밀려 안 보인다 —
+            # 그때는 아래 가로줄 바로 위에 글의 마지막 줄이 보이면 들어간 것
+            tail = _input_tail(screen)
+            if tail is not None and want_end in re.sub(r"\s+", "", tail):
                 return True
         if time.time() >= end:
             return False
@@ -512,6 +520,17 @@ def _input_line_of(lines):
             rest = [ln.replace("\xa0", " ")[2:].rstrip() for ln in body[1:]]
             return "\n".join([first] + rest).strip()
     return None
+
+
+def _input_tail(lines):
+    """입력칸 윗부분이 화면 위로 밀려 첫 줄(❯)이 안 보일 때, 맨 아래 가로줄 위에 보이는 입력칸 글. 가로줄이 없으면 None."""
+    rules = [i for i, ln in enumerate(lines) if ln.lstrip().startswith("──")]
+    if not rules:
+        return None
+    b = rules[-1]
+    a = rules[-2] if len(rules) > 1 else -1
+    body = [ln.replace("\xa0", " ")[2:].rstrip() for ln in lines[a + 1:b]]
+    return "\n".join(body).strip() or None
 
 
 _BUSY = re.compile(r"…\s*\((?:\d+h\s*)?(?:\d+m\s*)?\d+s\b")   # 「✽ Honking… (29s · ↓ 2.7k tokens)」 — 끝나면 「Brewed for 45s」
