@@ -3210,7 +3210,13 @@ class Handler(BaseHTTPRequestHandler):
             task = next((x for x in store.bg_tasks(row["transcript_path"]) if x["id"] == m.group(2)), None) if row else None
             if not task:
                 return self._send(404, {"error": "그 작업을 찾지 못했습니다(끝난 지 30분이 지났거나 기록에 없음)"})
-            view = store.bg_task_view(task)
+            mate = conn.execute(
+                "SELECT transcript_path FROM sessions WHERE continued_from=? AND branch_kind='team' AND team_agent=?"
+                " ORDER BY started_at DESC LIMIT 1", (m.group(1), task["teammate"])).fetchone() if task.get("teammate") else None
+            if mate:   # 팀원: 그 팀원 세션의 기록에서 Claude 텍스트·도구 호출
+                view = {"items": store.read_activity(mate["transcript_path"], (task["started_at"] or 0) - 5, limit=60), "text": None}
+            else:
+                view = store.bg_task_view(task)
             task.pop("output", None)
             return self._send(200, {"task": task, **view})
         m = re.fullmatch(r"/api/sessions/([\w\-]+)/diff", path)

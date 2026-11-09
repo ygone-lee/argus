@@ -168,6 +168,7 @@ const I18N_ROWS = [
   ["📡 원격 끄기", "📡 リモートをオフ", "📡 Turn remote off"], ["원격(Remote Control)을 껐습니다", "リモート(Remote Control)をオフにしました", "Remote Control turned off"],
   ["이미 꺼져 있습니다", "すでにオフです", "Already off"],
   ["↻ 다시 열기", "↻ 開き直す", "↻ Restart"], ["끝내고 같은 대화로 새로", "終了して同じ会話で開き直す", "end and reopen the same conversation"],
+  ["👥 팀원 {*}", "👥 チームメイト {*}", "👥 Teammate {*}"],
   ["↻ 세션 다시 시작", "↻ セッションを再起動", "↻ Restart session"], ["업데이트 반영 · 같은 대화로", "アップデートを反映・同じ会話で", "apply updates · same conversation"],
   ["이 세션을 다시 시작할까요?", "このセッションを再起動しますか?", "Restart this session?"], ["다시 시작", "再起動", "Restart"], ["세션을 다시 시작했습니다", "セッションを再起動しました", "Restarted the session"],
   ["작업 중이거나 확인을 기다리는 중입니다.", "作業中か、確認を待っています。", "It is working or waiting for you."], ["끝난 뒤 다시 시작해 주세요.", "終わってから再起動してください。", "Restart it once it's done."],

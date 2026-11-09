@@ -547,6 +547,14 @@ def handle(data):
                     "SELECT 1 FROM turns WHERE session_id=? AND response_at IS NULL AND status='running')))",
                     (store.now(), sid, sid),
                 )
+                # 에이전트 팀의 팀원은 팀장의 메시지(메일함)나 백그라운드 작업 알림으로 요청 훅 없이 다시 일을 시작한다 —
+                # 응답이 끝난 팀원에서 도구가 돌면 새 턴을 열어 작업 중으로(진행 상황이 보이게). Stop 이 이 턴을 닫는다
+                if conn.execute("SELECT 1 FROM sessions WHERE session_id=? AND team_agent IS NOT NULL AND state IN ('done', 'idle')"
+                                " AND NOT EXISTS (SELECT 1 FROM turns WHERE session_id=? AND response_at IS NULL AND status='running')",
+                                (sid, sid)).fetchone():
+                    conn.execute("INSERT INTO turns (session_id, prompt, prompt_at, status) VALUES (?, NULL, ?, 'running')",
+                                 (sid, store.now()))
+                    set_state(conn, sid, "working")
                 if data.get("tool_name") == "AskUserQuestion":
                     conn.execute("UPDATE sessions SET ask=NULL WHERE session_id=?", (sid,))
             elif event == "PreModelSwitch":

@@ -2232,7 +2232,7 @@ async function drawBgTask(first) {
   const x = r.task, s = sessionById(sid);
   const [, label] = x.status === "running" ? ["", "진행 중"] : BGT_STATUS[x.status] || ["", x.status];
   box.querySelector(".task-title").textContent = (BGT_ICON[x.kind] || "⚙") + " " + x.desc;
-  box.querySelector(".task-meta").textContent = [s ? sessionTitle(s) : "", x.kind === "agent" ? "서브에이전트" : "백그라운드 명령", label,
+  box.querySelector(".task-meta").textContent = [s ? sessionTitle(s) : "", x.teammate ? `👥 팀원 ${x.teammate}` : x.kind === "agent" ? "서브에이전트" : "백그라운드 명령", label,
     bgTaskTime(x), x.summary || ""].filter(Boolean).join(" · ");
   const body = box.querySelector(".task-body");
   const atEnd = first || body.scrollHeight - body.scrollTop - body.clientHeight < 60;

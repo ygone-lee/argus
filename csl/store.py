@@ -1015,6 +1015,9 @@ _OUT_FILE = re.compile(r"(/[^\s'\"<>]+\.output)")
 _TN_TAG = re.compile(r"<(task-id|tool-use-id|status|summary|output-file)>(.*?)</\1>", re.S)
 
 
+_TEAMMATE = re.compile(r"^name: (\S+)", re.M)
+
+
 def _bg_scan(st, raw):
     try:
         d = json.loads(raw)
@@ -1052,6 +1055,9 @@ def _bg_scan(st, raw):
                 task = tasks[b["tool_use_id"]]
                 m = _OUT_FILE.search(t)
                 task["output"] = task["output"] or (m.group(1) if m else None)
+                tm = _TEAMMATE.search(t) if "Spawned successfully" in t else None
+                if tm:   # 에이전트 팀의 팀원 — 따로 도는 세션이라 출력 파일이 없고, 진행은 그 팀원 세션의 기록에 있다
+                    task["teammate"] = tm.group(1)
                 if b.get("is_error"):
                     task.update(status="failed", finished_at=ts, summary=mask(t[:200]))
     for t in texts:
