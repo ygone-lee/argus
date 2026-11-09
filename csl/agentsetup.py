@@ -4,7 +4,7 @@
 그대로 쓴다. 보드에서 누른 설치는:
 - Claude Code: install.py 를 다시 돌린다(훅·상태줄 탭·스킬 링크 — 여러 번 돌려도 한 벌, 바꾸기 전 원본 백업).
   업데이트를 받은 뒤 훅이 새로 늘었을 때도 이것으로 맞춘다.
-- Codex: ~/.codex/hooks.json 에 훅만 넣는다(처음 설치할 땐 Codex 가 없었다가 나중에 깐 경우). Codex 는 새 훅을
+- Codex: ~/.codex/hooks.json 에 훅과 ~/.codex/skills 에 스킬을 넣는다(처음 설치할 땐 Codex 가 없었다가 나중에 깐 경우). Codex 는 새 훅을
   한 번 승인받아야 돌린다 — 승인은 보드가 대신할 수 없어 안내만 한다(Codex CLI 의 /hooks).
 """
 import importlib.util
@@ -79,10 +79,10 @@ def issues(conn):
 
 
 def install_claude():
-    """install.py 를 다시 돌린다(묻지 않는 모드 — tmux 설치·새 Codex 스킬은 건너뛴다). (ok, 메시지)."""
+    """install.py 를 다시 돌린다(묻지 않는 모드 — tmux 설치는 건너뛴다. Codex 스킬은 기본대로). (ok, 메시지)."""
     i = inst()
     try:
-        r = subprocess.run([i.PYTHON, os.path.join(REPO, "install.py"), "--no-open", "--tmux", "skip", "--codex-skills", "skip"],
+        r = subprocess.run([i.PYTHON, os.path.join(REPO, "install.py"), "--no-open", "--tmux", "skip"],
                            capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.SubprocessError) as e:
         return False, "설치 프로그램을 실행하지 못했습니다: %s" % e
@@ -100,8 +100,12 @@ def install_codex():
         return False, "Codex 를 한 번 실행한 뒤(~/.codex 가 생긴 뒤) 다시 눌러 주세요"
     try:
         msg = i.codex_hooks()
+        try:
+            i.codex_skills()   # 설치 프로그램과 같이 스킬도(설정 창에서 뺀 것은 빼고)
+        except OSError:
+            pass
     finally:
         forget()
     if not msg or msg.startswith("not installed"):
         return False, "Codex 훅을 넣지 못했습니다" + (": " + msg.split("—", 1)[-1].strip() if msg else "")
-    return True, "Codex 훅을 넣었습니다 · Codex CLI 에서 /hooks 를 열어 한 번 승인해 주세요"
+    return True, "Codex 훅·스킬을 넣었습니다 · Codex CLI 에서 /hooks 를 열어 한 번 승인해 주세요"

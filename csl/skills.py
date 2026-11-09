@@ -1,11 +1,14 @@
-"""Argus 스킬 관리: 저장소 skills/* 를 Claude Code·Codex 에 설치하거나 뺀다(설정 창 「스킬」에서 사용자가 누를 때만).
+"""Argus 스킬 관리: 저장소 skills/* 를 Claude Code·Codex 에 설치하거나 뺀다(설치 프로그램과 설정 창 「스킬」).
 
 - Claude Code(~/.claude/skills/<이름>): 저장소 폴더를 가리키는 링크 하나(install.py 와 같은 방식).
 - Codex($CODEX_HOME/skills/<이름>, 기본 ~/.codex/skills): 진짜 폴더를 만든다. SKILL.md 는 Codex 용으로 고쳐 쓰고
   (Claude 전용 allowed-tools 줄을 빼고, ~/.claude/skills/<이름> 경로를 Codex 쪽 경로로), 나머지 파일은 저장소 파일로의 링크.
   표시 파일(.argus-skill)이 든 폴더만 Argus 가 만든 것으로 보고 고치거나 지운다 — 같은 이름의 다른 스킬은 건드리지 않는다.
   저장소의 SKILL.md 가 바뀌면 서버가 뜰 때 Codex 쪽 사본을 새로 쓴다(refresh_codex).
+- 설치 프로그램은 Codex 에도 스킬을 기본으로 넣는다. 설정 창에서 「제거」한 스킬은 기록해 두고(skills-off.json)
+  업데이트 때 다시 넣지 않는다 — 다시 「설치」하면 기록을 지운다.
 """
+import json
 import os
 import re
 import shutil
@@ -14,6 +17,34 @@ REPO = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
 SRC = os.path.join(REPO, "skills")
 MARK = ".argus-skill"
 AGENTS = ("claude", "codex")
+OFF_PATH = os.path.join(os.path.expanduser(os.environ.get("CSL_DATA_DIR", "~/.claude/session-log")), "skills-off.json")
+
+
+def opted_out(agent):
+    """사용자가 설정 창에서 뺀 스킬 이름들(설치 프로그램이 다시 넣지 않는다)."""
+    try:
+        with open(OFF_PATH, encoding="utf-8") as f:
+            return set(json.load(f).get(agent) or [])
+    except (OSError, ValueError, AttributeError):
+        return set()
+
+
+def _set_opt_out(agent, name, off):
+    cur = opted_out(agent)
+    if (name in cur) == off:
+        return
+    try:
+        with open(OFF_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        data = data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        data = {}
+    data[agent] = sorted(cur | {name} if off else cur - {name})
+    os.makedirs(os.path.dirname(OFF_PATH), exist_ok=True)
+    tmp = OFF_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+    os.replace(tmp, OFF_PATH)
 
 
 def claude_dir():
@@ -123,6 +154,7 @@ def install(name, agent):
             os.makedirs(claude_dir(), exist_ok=True)
             os.symlink(src, dst)
         return True, "Claude Code 에 설치했습니다 · 새로 여는 세션부터 쓸 수 있습니다"
+    _set_opt_out("codex", name, False)
     dst = os.path.join(codex_dir(), name)
     os.makedirs(dst, exist_ok=True)
     with open(os.path.join(dst, MARK), "w", encoding="utf-8") as f:
@@ -148,6 +180,8 @@ def remove(name, agent):
         return False, "모르는 스킬입니다"
     src = os.path.join(SRC, name)
     st = state(name, agent)
+    if agent == "codex" and st != "conflict":
+        _set_opt_out("codex", name, True)   # 업데이트 때 설치 프로그램이 다시 넣지 않게
     if st == "missing":
         return True, "설치되어 있지 않습니다"
     if st == "conflict":

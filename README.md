@@ -104,12 +104,11 @@ curl -fsSL https://raw.githubusercontent.com/ygone-lee/argus/main/install.sh | s
 ```
 
 It downloads Argus into **`~/.argus`** and runs the installer. The installer backs up your Claude Code settings
-(`~/.claude/settings.json`) and then adds Argus's hooks; your other hooks and settings are kept. If [OpenAI Codex](#openai-codex-sessions) is installed, it adds Codex hooks too. It asks up to three questions:
+(`~/.claude/settings.json`) and then adds Argus's hooks; your other hooks and settings are kept. If [OpenAI Codex](#openai-codex-sessions) is installed, it adds Codex hooks and the `argus-recall` skill too. It asks up to two questions:
 
 | Question | If you say yes |
 |---|---|
 | tmux is missing — install it with Homebrew? | Runs `brew install tmux`. Say no and install it yourself later |
-| Codex is installed — also add the `argus-recall` skill to Codex? | Codex sessions can search past conversations too. Say no and add it later in ⋮ → ⚙ 설정 → 스킬 (Skills) |
 | Open the board now? | Opens http://127.0.0.1:7799 in your browser |
 
 That's it. Keep working in Claude Code as usual — every open session shows up on the board from its next prompt, and new sessions appear as soon as they start.
@@ -221,7 +220,7 @@ If you also use [OpenAI Codex](https://github.com/openai/codex) (the CLI or the 
 - **Reply, stop, end:** the column's input box types into a Codex that runs in the board terminal. For a conversation in the Codex app, or a CLI running somewhere the board can't type into, the message goes in through `codex queue`. ■ stops a turn (Esc) and ⋮ → ⏻ ends it (`/quit`). An ended CLI conversation can be resumed in the board terminal (`codex resume`).
 - **How it's collected:** Argus reads Codex's own records in `~/.codex` (the session list in `state_*.sqlite`, the conversation in `sessions/…/rollout-*.jsonl` and `thread_history_*.sqlite`) every few seconds and never writes to them. The installer also adds hooks to `~/.codex/hooks.json` (next to any hooks you already have) so states such as *needs you* (an approval prompt) show up at once. Codex asks you to trust new hooks once — open `/hooks` in the Codex CLI. Without the hooks everything else still works, a few seconds later.
 - **Installed Codex after Argus?** Argus notices: a banner on the board offers **훅 넣기** (Add hooks), and ⋮ → ⚙ 설정 → **에이전트 연결** (Agent connections) shows each agent's hooks — Claude Code hooks *n/13*, status line tap, Codex hooks *n/9* and whether Codex has trusted them — with a button to add what's missing. The same page reruns the installer for Claude Code (for example when an update adds a hook). Trusting the Codex hooks has to happen in Codex: open `/hooks` in the Codex CLI. From a terminal, `~/.argus/ctl.sh install` does the same and `~/.argus/ctl.sh check` lists it all.
-- **Skills for Codex:** ⋮ → ⚙ 설정 → **스킬** (Skills) lists Argus's skills with an install button per agent. Press **설치** (Install) next to Codex to put `argus-recall` into `~/.codex/skills` (or `$CODEX_HOME/skills`), so Codex sessions can search past Claude Code and Codex conversations too. Nothing is written there until you press it; a copy that falls behind the repository is refreshed when the board starts, and **제거** (Remove) only deletes what Argus put there.
+- **Skills for Codex:** the installer puts `argus-recall` into `~/.codex/skills` (or `$CODEX_HOME/skills`) next to the Claude Code one, so Codex sessions can search past Claude Code and Codex conversations too. Codex calls skills with `$`, not `/`: type `$argus-recall` (or just ask about a past conversation). ⋮ → ⚙ 설정 → **스킬** (Skills) has an install and remove button per agent. **제거** (Remove) only deletes what Argus put there, and the installer and updates leave a skill you removed alone until you install it again (`--codex-skills skip` skips it at install). A copy that falls behind the repository is refreshed when the board starts.
 - **Model, fork and slash commands:** for a Codex the board can type into, the model chip opens `/model` for that session, ⑂ forks it (`/fork`, optionally into a new worktree) or opens a side chat (`/side`), and slash commands complete in the input box. Pickers such as `/permissions`, `/review` and `/usage` open as a board popup. A conversation in the Codex app is shown read-only.
 - **Not available for Codex:** the permission mode chip (use `/permissions`), rewind, Remote Control and `/btw` (use ⑂ → `/side`).
 

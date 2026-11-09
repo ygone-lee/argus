@@ -343,8 +343,8 @@ def codex_hooks(remove=False):
 
 def codex_skills(want=None, remove=False):
     """Codex 에 Argus 스킬(skills/*)을 넣거나 뺀다(csl/skills.py — Codex 용으로 고친 SKILL.md 사본 + 저장소 파일 링크).
-    want: True 넣기 · False 새로 넣지 않기 · None 터미널이면 묻고, 아니면(업데이트·보드의 다시 설치) 이미 넣은 것만 맞춘다.
-    결과 문구(Codex 를 안 쓰면 "")."""
+    want: True 모두 넣기 · False 새로 넣지 않기(이미 넣은 것만 맞춤) · None 기본 — Claude Code 처럼 넣되, 설정 창에서
+    「제거」한 스킬은 다시 넣지 않는다. 결과 문구(Codex 를 안 쓰면 "")."""
     if codex_mod() is None:
         return ""
     from csl import skills as sk
@@ -355,15 +355,16 @@ def codex_skills(want=None, remove=False):
     have = [n for n in names if sk.state(n, "codex") in ("installed", "outdated")]
     missing = [n for n in names if sk.state(n, "codex") == "missing"]
     taken = [n for n in names if sk.state(n, "codex") == "conflict"]
-    if missing and want is None:
-        want = ask("Codex found. Also add the %s skill to Codex (%s) so Codex sessions can search past conversations?"
-                   % (", ".join(missing), home(sk.codex_dir())))
-    done = have + (missing if want else [])
+    off = sk.opted_out("codex")
+    add = missing if want else [] if want is False else [n for n in missing if n not in off]
+    done = have + add
     for n in done:
         sk.install(n, "codex")
     out = "%s in %s" % (", ".join(done), home(sk.codex_dir())) if done else ""
-    if missing and not want:
-        out += ("; " if out else "") + "not added: %s — add later in the board (⋮ → ⚙ 설정 → 스킬) or with --codex-skills install" % ", ".join(missing)
+    left = [n for n in missing if n not in add]
+    if left:
+        why = "removed in the board" if want is None else "skipped"
+        out += ("; " if out else "") + "not added (%s): %s — add in the board (⋮ → ⚙ 설정 → 스킬) or with --codex-skills install" % (why, ", ".join(left))
     if taken:
         out += ("; " if out else "") + "skipped %s: a different skill with that name exists" % ", ".join(taken)
     return out
@@ -383,7 +384,7 @@ def codex_rows():
         rows.append(("Codex hook trust", ok == total, "%d of %d trusted" % (ok, total) + (
             "" if ok == total else " — open /hooks in the Codex CLI (or the app's settings) and trust the Argus hooks")))
     rows.append(("Codex skill", len(inst) == len(names), ", ".join(inst) if inst
-                 else "not added — optional: board ⋮ → ⚙ 설정 → 스킬, or %s install --codex-skills install" % ctl()))
+                 else "not added — %s install adds it (or board ⋮ → ⚙ 설정 → 스킬)" % ctl()))
     return rows
 
 
@@ -434,7 +435,8 @@ def main():
     ap.add_argument("--autostart", choices=("on", "off"), help=argparse.SUPPRESS)   # 예전 옵션 — 받기만 하고 쓰지 않는다
     ap.add_argument("--tmux", choices=("install", "skip"), help="install tmux with Homebrew if it's missing, or don't — asked if not given")
     ap.add_argument("--codex-skills", choices=("install", "skip"),
-                    help="add Argus's skills to Codex (~/.codex/skills) too, or don't — asked if not given (only when Codex is installed)")
+                    help="add Argus's skills to Codex (~/.codex/skills) too, or don't — added by default when Codex is installed, "
+                         "except skills you removed in the board")
     ap.add_argument("--remove-autostart", action="store_true",
                     help="only remove the old start-at-login item left by earlier versions, then exit")
     args = ap.parse_args()
