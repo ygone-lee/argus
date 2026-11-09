@@ -425,7 +425,7 @@ body.view-board .board {
 .col .md pre { font-size: calc(11.5px * var(--fs, 1)); }
 
 /* 보드 좌우 여백. 스크롤 스냅은 쓰지 않는다(앞에 칸이 끼어들면 스냅이 스크롤을 옮겨 1번 칸이 화면 밖으로 밀림) */
-body.view-board .board { padding: 16px 20px 18px; gap: 14px; overflow-anchor: none; }
+body.view-board .board { padding: 16px 20px 10px; gap: 14px; overflow-anchor: none; }
 body.view-board .board::after { content: ""; flex: 0 0 6px; }
 
 
