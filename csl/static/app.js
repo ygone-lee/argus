@@ -2666,6 +2666,7 @@ function openColMenu(btn) {
     menu.innerHTML = `
       <button class="cm-item" data-cm="archive">🗄 ${s.archived ? "보관 해제" : "보관"} <span class="muted">${s.archived ? "" : "보드에서 숨기기"}</span></button>
       ${canImport ? `<button class="cm-item" data-cm="import">⇄ 보드 터미널로 가져오기 <span class="muted">${off ? "이어 열기" : "다른 터미널에서 옮기기"}</span></button>` : ""}
+      ${s.term_web && !off ? `<button class="cm-item" data-cm="restart">↻ 세션 다시 시작 <span class="muted">업데이트 반영 · 같은 대화로</span></button>` : ""}
       ${s.state !== "ended" && !s.desktop ? `<button class="cm-item danger" data-cm="quit">⏻ 세션 종료 <span class="muted">Codex 를 닫고(/quit) 터미널 탭도 닫기</span></button>` : ""}
       <button class="cm-item" data-cm="pin">📌 ${pinOf(s) ? "고정 풀기" : "맨 앞에 고정"} <span class="muted">P</span></button>
       <button class="cm-item" data-cm="diff">🧾 변경 보기 <span class="muted">커밋 안 한 변경</span></button>
@@ -2677,7 +2678,7 @@ function openColMenu(btn) {
   }
   menu.innerHTML = `
     ${s.brain ? "" : `<button class="cm-item" data-cm="archive">🗄 ${s.archived ? "보관 해제" : "보관"} <span class="muted">${s.archived ? "" : "보드에서 숨기기"}</span></button>`}
-    ${s.term_web && s.state !== "ended" && s.running !== false ? `<button class="cm-item" data-cm="restart">↻ 다시 열기 <span class="muted">끝내고 같은 대화로 새로</span></button>` : ""}
+    ${s.term_web && s.state !== "ended" && s.running !== false ? `<button class="cm-item" data-cm="restart">↻ 세션 다시 시작 <span class="muted">업데이트 반영 · 같은 대화로</span></button>` : ""}
     ${!s.term_web && !s.brain ? `<button class="cm-item" data-cm="import">⇄ 보드 터미널로 가져오기 <span class="muted">${s.state === "ended" ? "이어 열기" : "다른 터미널에서 옮기기"}</span></button>` : ""}
     ${s.state !== "ended" ? `<button class="cm-item danger" data-cm="quit">⏻ 세션 종료 <span class="muted">Claude Code 를 닫고(/exit) 터미널 탭도 닫기</span></button>` : ""}
     ${remote}
@@ -2717,11 +2718,15 @@ $("#colMenu").addEventListener("click", async e => {
     return;
   }
   if (s && item.dataset.cm === "restart") {
-    // 보드 터미널 세션을 끝내고 같은 대화로 새로 연다 — 환경이 꼬인 세션(다른 세션의 변수를 물려받은 것 등)을 깨끗하게
+    // 보드 터미널 세션을 끝내고 같은 대화로 새로 연다 — 에이전트 업데이트를 반영하거나(「Restart to update」), 환경이 꼬인 세션
+    // (다른 세션의 변수를 물려받은 것 등)을 깨끗하게. 칸·넥스트 액션은 같은 세션 ID 로 이어진다
     const busy = ["working", "waiting"].includes(displayState(s));
+    const how = isCodex(s)
+      ? "Codex 를 끝내고(/quit) 보드 터미널에서 같은 대화로 새로 엽니다(codex resume). 새로 깐 Codex 버전으로 뜹니다"
+      : "Claude Code 를 끝내고(워크트리는 남김) 보드 터미널에서 같은 대화로 새로 엽니다. 새로 깐 Claude Code 버전으로 뜨고, 모델·effort·권한 모드는 그대로 넘깁니다(권한 확인 건너뛰기 모드는 빼고). 그 세션에서 돌던 백그라운드 작업은 끊깁니다";
     item.outerHTML = `<div class="cm-confirm">
-      <div>${busy ? "<b>작업 중이거나 확인을 기다리는 중입니다.</b> 끝난 뒤 다시 열어 주세요." : "이 세션을 다시 열까요?"}<br><span class="muted">Claude Code 를 끝내고(워크트리는 남김) 보드 터미널에서 같은 대화로 새로 엽니다. 모델·effort·권한 모드는 그대로 넘깁니다(권한 확인 건너뛰기 모드는 빼고). 그 세션에서 돌던 백그라운드 작업은 끊깁니다</span></div>
-      <div class="cm-confirm-btns"><button class="btn" data-cm="cancel">취소</button>${busy ? "" : `<button class="btn primary" data-cm="restart-yes">다시 열기</button>`}</div>
+      <div>${busy ? "<b>작업 중이거나 확인을 기다리는 중입니다.</b> 끝난 뒤 다시 시작해 주세요." : "이 세션을 다시 시작할까요?"}<br><span class="muted">${how}</span></div>
+      <div class="cm-confirm-btns"><button class="btn" data-cm="cancel">취소</button>${busy ? "" : `<button class="btn primary" data-cm="restart-yes">다시 시작</button>`}</div>
     </div>`;
     (menu.querySelector('[data-cm="restart-yes"]') || menu.querySelector('[data-cm="cancel"]')).focus();
     return;
@@ -2785,7 +2790,7 @@ $("#colMenu").addEventListener("click", async e => {
     S.importing.set(sid, job);
     S.uiVer++;
     renderBoard();
-    try { toast((await api("POST", `/api/sessions/${sid}/import`, { restart: true })).message.replace("보드 터미널로 가져왔습니다", "다시 열었습니다")); }
+    try { toast((await api("POST", `/api/sessions/${sid}/import`, { restart: true })).message.replace(/보드 터미널로 가져왔습니다|보드 터미널에서 이어 열었습니다/, "세션을 다시 시작했습니다")); }
     catch (err) { S.importing.delete(sid); toast(err.message); }
     Object.assign(job, { done: true, at: Date.now() });
     S.uiVer++;
