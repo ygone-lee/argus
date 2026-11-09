@@ -224,7 +224,7 @@ const I18N_ROWS = [
   ["세션 이름 바꾸기(/rename)", "セッション名を変更(/rename)", "Rename session (/rename)"], ["(아직 요청 없음)", "(まだ依頼なし)", "(no prompt yet)"], ["(제목 없음)", "(タイトルなし)", "(untitled)"],
   ["끌어서 너비 조절 · 더블클릭: 기본 너비", "ドラッグで幅を調整・ダブルクリックで標準の幅", "Drag to resize · double-click: default width"],
   ["컴팩트 중", "コンパクト中", "Compacting"], ["컨텍스트를 요약하는 중", "コンテキストを要約中", "Summarizing the context"],
-  ["워크트리 {}", "ワークツリー {}", "worktree {}"], ["브랜치", "ブランチ", "branch"],
+  ["워크트리 {}", "ワークツリー {}", "worktree {}"], ["브랜치", "ブランチ", "branch"], ["브랜치 {}", "ブランチ {}", "branch {}"],
   // ---- 칸 메뉴
   ["보관", "保管", "Archive"], ["보관 해제", "保管を解除", "Unarchive"], ["보드에서 숨기기", "ボードから隠す", "hide from board"], ["맨 앞에 고정", "先頭に固定", "Pin to front"],
   ["고정 풀기", "固定を解除", "Unpin"], ["↔ 기본 너비로", "↔ 標準の幅に戻す", "↔ Default width"], ["📡 원격 켜기", "📡 リモートをオン", "📡 Turn on remote"], ["📡 원격으로 열기", "📡 リモートで開く", "📡 Open remotely"],

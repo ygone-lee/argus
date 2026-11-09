@@ -269,7 +269,7 @@ function placeChips(s, full) {
     return `<span class="chip wt" title="워크트리 ${esc(s.worktree)}">🌿 ${esc(br)}</span>`;
   }
   return (wt ? `<span class="chip wt" title="워크트리 ${esc(s.worktree)}">🌿 ${esc(wt)}</span>` : "") +
-    (br ? `<span class="chip br" title="브랜치">${esc(br)}</span>` : "");
+    (br ? `<span class="chip br" title="브랜치 ${esc(s.branch)}">${esc(br)}</span>` : "");
 }
 
 // ------------------------------------------------------------------ 마크다운
@@ -8550,3 +8550,34 @@ function boardCardHtml(s, rank) {
     <div class="sc-recap-none muted">${s.board === "md" ? esc(boardRelPath(s)) : esc(s.cwd.replace(/^\/Users\/[^/]+/, "~"))}</div>
   </article>`;
 }
+
+// 칸 머리의 프로젝트·워크트리·브랜치·경로 칩: 말줄임된 전체 이름을 마우스를 올리자마자 보인다.
+// 브라우저 기본 title 은 1~2초 늦게 떠서, 올려 둔 동안은 title 을 잠시 빼 두고 바로 뜨는 말풍선으로 대신한다
+(() => {
+  const SEL = ".col-head .col-meta > :is(.chip.proj, .chip.wt, .chip.br, .chip.bd-path)";
+  let tip = null, cur = null;
+  function hide() {
+    if (cur) { if (cur.dataset.qtip != null) { cur.title = cur.dataset.qtip; delete cur.dataset.qtip; } cur = null; }
+    if (tip) tip.hidden = true;
+  }
+  function show(el) {
+    const text = el.title || el.textContent.trim();
+    if (!text) return;
+    if (!tip) { tip = document.createElement("div"); tip.className = "qtip"; tip.setAttribute("role", "tooltip"); document.body.append(tip); }
+    cur = el; el.dataset.qtip = el.title; el.removeAttribute("title");
+    tip.textContent = text; tip.hidden = false;
+    const r = el.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight;
+    const x = Math.max(8, Math.min(r.left, innerWidth - w - 8));
+    const y = r.bottom + 6 + h > innerHeight ? r.top - 6 - h : r.bottom + 6;
+    tip.style.left = `${x}px`; tip.style.top = `${y}px`;
+  }
+  document.addEventListener("pointerover", e => {
+    const el = e.target.closest?.(SEL);
+    if (el === cur && cur?.isConnected) return;
+    hide();
+    if (el) show(el);
+  });
+  document.addEventListener("pointerdown", hide, true);
+  addEventListener("scroll", hide, true);
+  addEventListener("blur", hide);
+})();

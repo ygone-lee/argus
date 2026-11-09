@@ -251,7 +251,7 @@ body.view-board .board {
 }
 /* 상태(작업 중·확인 필요·오류)는 머리의 상태 표시로만 보인다. 예전 위쪽 색 띠는 왼쪽 프로젝트 색 띠와
    둥근 모서리에서 겹쳐 깨져 보여서 없앴다 */
-.col-head { padding: 12px 14px 10px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+.col-head { padding: 9px 14px 8px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
 .col-top { display: flex; align-items: center; gap: 6px; font-size: calc(12px * var(--fs, 1)); color: var(--text-3); min-width: 0; }
 /* 첫 줄이 넘칠 때(fitTop): 칩은 줄지 않고, 백그라운드 작업 칩만 말줄임. tight — 원격·고정·터미널 버튼은 아이콘만,
    tighter — 「몇 분 전」도 숨김. 메뉴(⋮)는 늘 보인다 */
@@ -270,6 +270,16 @@ body.view-board .board {
 .col-meta { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; font-size: calc(12px * var(--fs, 1)); color: var(--text-3); }
 /* 칩 줄 높이를 권한 칩(22px)에 맞춘다 — 권한 칩이 없는 탭으로 바꿔도 아래 탭 줄이 움직이지 않게 */
 .col-meta > .chip, .col-meta > .model-chip { margin-block: 1.5px; }
+/* 칸 머리의 칩 줄은 한 줄로 — 넘치면 프로젝트·워크트리·브랜치·경로 칩이 줄며 말줄임(전체 이름은 마우스를 올리면).
+   상태·변경·모델·권한 칩은 줄지 않는다 */
+.col-head .col-meta { flex-wrap: nowrap; overflow: hidden; min-width: 0; }
+.col-head .col-meta > * { flex-shrink: 0; }
+.col-head .col-meta > :is(.chip.proj, .chip.wt, .chip.br, .chip.bd-path) {
+  flex-shrink: 1; min-width: 28px; display: block; line-height: 19px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.col-head .col-meta > .chip.wt { max-width: 34%; }
+.col-head .col-meta > .chip.br { max-width: 30%; }
 .col-detail { margin-top: 6px; font-size: calc(12.5px * var(--fs, 1)); color: var(--waiting); }
 .col.error .col-detail { color: var(--error); }
 .cf-label { font-size: calc(11.5px * var(--fs, 1)); font-weight: 700; color: var(--text-3); margin-bottom: 6px; display: flex; gap: 6px; }
@@ -423,7 +433,7 @@ body.view-board .board::after { order: 999999; }
 
 /* ---------------------------------------------------------------- 이름 바꾸기 */
 .title-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.col-title-line { margin: 5px 0 6px; min-height: 24px; }   /* 이름 바꾸기 버튼(24px)이 없는 칸(끝난 팀원 탭 등)도 같은 높이 */
+.col-title-line { margin: 3px 0 4px; min-height: 24px; }   /* 이름 바꾸기 버튼(24px)이 없는 칸(끝난 팀원 탭 등)도 같은 높이 */
 .col-title-line .col-title { margin: 0; min-width: 0; }
 .rename-btn {
   flex: none; width: 24px; height: 24px; border: 0; border-radius: 6px; background: transparent;
@@ -2104,3 +2114,11 @@ li.note.note-moved { outline: 2px solid transparent; outline-offset: -2px; borde
 .title-line .agent-logo { margin-right: 0; }
 .agent-logo.codex { width: 1.05em; height: 1.05em; vertical-align: -0.15em; }
 .agent-logo .oa-knot { fill: var(--text); }
+
+/* 바로 뜨는 말풍선(칸 머리의 말줄임된 칩) */
+.qtip {
+  position: fixed; z-index: 10000; max-width: min(560px, calc(100vw - 16px)); padding: 5px 8px; border-radius: 6px;
+  background: var(--text); color: var(--surface); font-size: calc(12px * var(--fs, 1)); line-height: 1.4;
+  box-shadow: var(--shadow); pointer-events: none; overflow-wrap: anywhere; white-space: normal;
+}
+.qtip[hidden] { display: none; }
