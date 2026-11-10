@@ -2122,3 +2122,7 @@ li.note.note-moved { outline: 2px solid transparent; outline-offset: -2px; borde
   box-shadow: var(--shadow); pointer-events: none; overflow-wrap: anywhere; white-space: normal;
 }
 .qtip[hidden] { display: none; }
+
+/* 알림·활동에서 에이전트 팀 팀원: 팀원 이름 칩 + 흐린 「팀장 세션의 팀원」 */
+.ev-team { display: inline-block; padding: 0 6px; border-radius: 5px; background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+.ev-lead { margin-left: 6px; font-weight: 500; color: var(--text-3); }

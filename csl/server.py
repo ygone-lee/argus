@@ -606,6 +606,9 @@ def list_events(conn, kinds=None, unseen=False, project=None, before=None, limit
     rows = conn.execute(
         "SELECT e.id, e.session_id, e.kind, e.text, e.turn_id, e.at, s.title, s.project_name, s.cwd,"
         " COALESCE(s.project_root, s.cwd) AS project_root, s.worktree, s.branch, s.state, s.archived,"
+        # 에이전트 팀의 팀원: 제목이 없어 팀원 이름과 팀장 세션 제목으로 보인다
+        " CASE WHEN s.branch_kind = 'team' THEN s.team_agent END AS team_agent,"
+        " CASE WHEN s.branch_kind = 'team' THEN (SELECT l.title FROM sessions l WHERE l.session_id = s.continued_from) END AS lead_title,"
         " (e.at > COALESCE(s.last_seen_at, 0)) AS unseen,"
         " (SELECT COUNT(*) FROM turns t2, turns t WHERE t.id = e.turn_id AND t2.session_id = t.session_id AND"
         "   (COALESCE(t2.prompt_at, t2.response_at) > COALESCE(t.prompt_at, t.response_at)"

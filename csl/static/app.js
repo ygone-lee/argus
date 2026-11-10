@@ -33,6 +33,7 @@ const S = {
   showEnded: load("csl.showEnded", false),
   notify: load("csl.notify", true),
   sound: load("csl.sound", true),
+  teamNotify: load("csl.teamNotify", false),   // 에이전트 팀 팀원의 새 응답도 알릴지(팀장이 결과를 다시 알려 주므로 기본은 끔)
   boardCache: new Map(),   // session_id → { sig, detail }
   boardOrder: "",
   boardLimit: 12,
@@ -619,7 +620,7 @@ function checkAlerts() {
         alertUser(s, "확인 필요 · " + sessionTitle(s), s.state_detail || agentName(s) + " 가 입력을 기다립니다");
       } else if (n.disp === "error" && p.disp !== "error") {
         alertUser(s, "오류 · " + sessionTitle(s), s.state_detail || "응답이 실패했습니다");
-      } else if (s.unread && n.resp && p.resp !== n.resp) {
+      } else if (s.unread && n.resp && p.resp !== n.resp && (S.teamNotify || !s.team_agent)) {
         alertUser(s, "새 응답 · " + sessionTitle(s), respSummary(s.last_response.response, 140));
       }
     }
@@ -5678,7 +5679,18 @@ function renderToggles() {
   const sb = $("#soundBtn");
   sb.textContent = S.sound ? "🔊 소리" : "🔈 무음";
   sb.classList.toggle("on", S.sound);
+  const tb = $("#teamNotifyBtn");
+  tb.textContent = S.teamNotify ? "👥 팀원 응답 알림 켜짐" : "👥 팀원 응답 알림 꺼짐";
+  tb.classList.toggle("on", S.teamNotify);
 }
+$("#teamNotifyBtn").addEventListener("click", () => {
+  S.teamNotify = !S.teamNotify;
+  save("csl.teamNotify", S.teamNotify);
+  renderToggles();
+  viewsAt = 0;
+  refreshViews();   // 🔔 숫자를 바로 다시 센다
+  toast(S.teamNotify ? "팀원의 새 응답도 알립니다" : "팀원의 새 응답은 알리지 않습니다(확인 필요·오류는 알림)");
+});
 $("#notifyBtn").addEventListener("click", async () => {
   if (!("Notification" in window)) return toast("이 브라우저는 알림을 지원하지 않습니다");
   if (Notification.permission === "denied") return toast("브라우저 사이트 설정에서 알림을 허용해 주세요");
@@ -6969,7 +6981,7 @@ function refreshViews() {
   api("GET", "/api/events?unseen=1&limit=99" + (S.projFilter ? "&project=" + encodeURIComponent(S.projFilter) : ""))
     .then(r => {
       // 보관(숨긴) 세션은 칸이 없어 눌러 볼 수 없다 — 세지 않는다
-      const items = r.items.filter(x => !x.brain && !x.archived);
+      const items = r.items.filter(notifWanted);
       S.unseenSids = new Set(items.map(x => x.session_id));
       const n = items.length;
       $("#vtActivity").textContent = n ? (n >= 99 ? "99+" : String(n)) : "";
@@ -6983,12 +6995,22 @@ function refreshViews() {
 // ------------------------------------------------------------------ 알림(상단 🔔): 활동을 드롭다운으로
 // 안 본 활동은 모두(최대 99, 새것 순), 안 본 것이 적으면 이미 본 최근 활동으로 채워 30개. 고르면 그 세션 칸의 그 대화로 가서 강조
 const NOTIF = { items: [], sel: 0, open: false };
+// 알림 목록·숫자에 넣을 활동: 브레인·보관 세션은 빼고, 팀원의 새 응답은 「👥 팀원 알림」을 켰을 때만
+function notifWanted(x) {
+  return !x.brain && !x.archived && (S.teamNotify || !(x.team_agent && x.kind === "response"));
+}
+// 활동의 세션 이름(HTML) — 팀원은 제목이 없어 「팀원 이름」 칩 + 흐린 「팀장 세션의 팀원」
+function evTitleHtml(x) {
+  if (x.team_agent) return `<span class="ev-team">👥 ${esc(x.team_agent)}</span>` +
+    (x.lead_title ? `<span class="ev-lead">${esc(x.lead_title)} 의 팀원</span>` : "");
+  return esc(x.title || "(제목 없음)");
+}
 async function loadNotif() {
   const kinds = "&kind=" + EV_MAIN.join(",") + (S.projFilter ? "&project=" + encodeURIComponent(S.projFilter) : "");
   let unseen = [], recent = [];
   try {
     [unseen, recent] = await Promise.all([api("GET", "/api/events?unseen=1&limit=99" + kinds), api("GET", "/api/events?limit=30" + kinds)])
-      .then(rs => rs.map(r => r.items.filter(x => !x.brain && !x.archived)));
+      .then(rs => rs.map(r => r.items.filter(notifWanted)));
   } catch (e) { /* 다음에 */ }
   const ids = new Set(unseen.map(x => x.id));
   NOTIF.items = unseen.concat(recent.filter(x => !ids.has(x.id)).slice(0, Math.max(0, 30 - unseen.length)));
@@ -7001,7 +7023,7 @@ function drawNotif() {
     const [icon, label] = EV[x.kind] || ["•", x.kind];
     return `<button class="nt-row k-${x.kind} ${x.unseen ? "unseen" : ""} ${i === NOTIF.sel ? "sel" : ""}" data-nt="${i}" title="${esc(label)}">
       <span class="nt-icon">${icon}</span>
-      <span class="nt-main"><span class="nt-top"><b class="nt-title">${esc(x.title || "(제목 없음)")}</b><span class="nt-time">${rel(x.at)}</span></span>
+      <span class="nt-main"><span class="nt-top"><b class="nt-title">${evTitleHtml(x)}</b><span class="nt-time">${rel(x.at)}</span></span>
         <span class="nt-text">${esc(clamp(plainLine(x.text || label), 120))}</span></span>
       ${x.unseen ? '<span class="nt-dot" aria-label="안 봄"></span>' : ""}</button>`;
   }).join("");
@@ -7134,7 +7156,7 @@ function drawActivity() {
     rows += `<button class="act-row k-${x.kind} ${x.unseen ? "unseen" : ""} ${S.actOpen === String(x.id) ? "open" : ""}" data-act-ev="${x.id}">
       <span class="act-time">${hm(x.at)}</span>
       <span class="act-kind">${icon} ${label}</span>
-      <span class="act-main"><b>${esc(x.title || "(제목 없음)")}</b> <span class="muted">${esc(where)}</span>
+      <span class="act-main"><b>${evTitleHtml(x)}</b> <span class="muted">${esc(where)}</span>
         ${actAskHtml(x)}${x.text ? `<span class="act-text">${esc(clamp(plainLine(x.text), 220))}</span>` : ""}</span>
       ${x.unseen ? '<span class="act-dot" title="아직 안 봄"></span>' : ""}</button>` +
       (S.actOpen === String(x.id) ? `<div class="act-detail" data-act-detail="${x.id}">${actDetailHtml(x)}</div>` : "");
