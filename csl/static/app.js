@@ -917,7 +917,9 @@ function turnHtml(t, s, lastRunId) {
   const promptLong = t.prompt && (t.prompt.length > 500 || t.prompt.split("\n").length > 8);
   const promptOpen = S.promptOpen.has(t.id);
   const notice = taskNotice(t.prompt);
-  const user = t.prompt == null ? "" : notice ? noticeHtml(notice, at ? hm(at) : "") : `
+  const agentMsgs = notice ? null : agentMessages(t.prompt);
+  const user = t.prompt == null ? "" : notice ? noticeHtml(notice, at ? hm(at) : "")
+    : agentMsgs ? agentMsgHtml(agentMsgs, t, at) : `
     <div class="msg-meta">${t.status !== "rewound" && t.prompt && s.state !== "ended" && !isCodex(s) ? `<button class="turn-rw" data-action="rewind-menu" data-sid="${esc(s.session_id)}" data-tid="${t.id}" title="이 요청 앞으로 되돌리기(/rewind)">↶</button>` : ""}${at ? dateLabel(at) + " " + hm(at) : ""}</div>
     <div class="msg-user"><div class="bubble md ${promptLong && !promptOpen ? "clamped" : ""}">${promptHtml(t)}</div></div>
     ${promptLong ? `<div class="msg-user"><button class="linkish" data-action="toggle-prompt" data-tid="${t.id}">${promptOpen ? "접기" : "요청 전체 보기"}</button></div>` : ""}`;
@@ -1180,6 +1182,41 @@ function noticeHtml(n, time) {
   return `<div class="msg-notice" title="Claude Code 가 넣은 자동 메시지 — 사용자가 보낸 요청이 아닙니다">
       <span class="dot ${n.ok ? "done" : "error"}"></span><span>백그라운드 작업 ${esc(label)}</span>
       ${n.summary ? `<span class="notice-sum">· ${esc(n.summary)}</span>` : ""}<span class="muted"> ${time}</span></div>`;
+}
+// 사람이 아니라 에이전트·Argus 가 대화에 넣은 메시지 — 서브에이전트 보고(<agent-message>), 에이전트 팀의 팀장·팀원 메시지
+// (<teammate-message>), 브레인에게 가는 Argus 자동 알림([자동 알림]). 내 요청 말풍선(오른쪽) 대신 왼쪽에 보낸 쪽 이름과 함께.
+// 둘러싼 태그와 하네스 안내문은 걷어 내고 본문만. 아니면 null
+function agentMessages(prompt) {
+  if (!prompt) return null;
+  const p = prompt.trim();
+  let m = /^<agent-message from="([^"]*)">\s*([\s\S]*?)\s*(?:<\/agent-message>)?$/.exec(p);
+  if (m) {
+    let body = m[2].replace(/^\[Subagent hand-back\][\s\S]*?The report follows:\s*\n/, "");
+    const lines = body.split("\n");
+    const ind = Math.min(...lines.filter(l => l.trim()).map(l => /^ */.exec(l)[0].length));
+    body = lines.map(l => l.slice(Number.isFinite(ind) ? ind : 0)).filter(l => !/^\[harness: [\s\S]*\]$/.test(l.trim())).join("\n").trim();
+    return [{ icon: "🤖", who: "서브에이전트 보고", tip: "이 세션이 맡긴 서브에이전트(" + m[1] + ")가 돌려준 최종 보고", body }];
+  }
+  if (/^<teammate-message\b/.test(p)) {
+    const out = [];
+    for (const x of p.matchAll(/<teammate-message\b([^>]*)>([\s\S]*?)(?:<\/teammate-message>|$)/g)) {
+      const id = (/teammate_id="([^"]*)"/.exec(x[1]) || [])[1] || "";
+      const lead = id === "team-lead";
+      out.push({ icon: "👥", who: lead ? "팀장" : "팀원 " + id, tip: lead ? "에이전트 팀의 팀장이 보낸 메시지" : "에이전트 팀의 팀원이 보낸 메시지", body: x[2].trim() });
+    }
+    return out.length ? out : null;
+  }
+  m = /^\[자동 알림\]\s*([\s\S]*)$/.exec(p);
+  if (m) return [{ icon: "🔔", who: "Argus 자동 알림", tip: "Argus 가 브레인에게 넣은 자동 알림 — 사용자가 보낸 요청이 아닙니다", body: m[1].trim() }];
+  return null;
+}
+function agentMsgHtml(list, t, at) {
+  const open = S.promptOpen.has(t.id);
+  const long = list.reduce((n, x) => n + x.body.length, 0) > 500 || list.some(x => x.body.split("\n").length > 8);
+  return list.map((x, i) => `<div class="msg-agent">
+      <div class="ma-head" title="${esc(x.tip)}"><span class="ma-who">${x.icon} ${esc(x.who)}</span>${i === 0 && at ? `<span class="ma-time">${dateLabel(at)} ${hm(at)}</span>` : ""}</div>
+      <div class="bubble md ma-bubble ${long && !open ? "clamped" : ""}">${mdCached(x.body)}</div></div>`).join("") +
+    (long ? `<div class="msg-agent"><button class="linkish" data-action="toggle-prompt" data-tid="${t.id}">${open ? "접기" : "전체 보기"}</button></div>` : "");
 }
 // 백그라운드 작업(명령·에이전트)이 끝났을 때 Claude Code 가 대화에 넣는 알림. 요청 훅으로 와서 요청처럼 기록된다
 function taskNotice(prompt) {
@@ -7638,7 +7675,9 @@ function sessionCardHtml(s, rank) {
   const body = recapFresh(s) ? `<div class="sc-recap"><b>recap</b> ${esc(clamp(s.recap, 220))}</div>`
     : s.last_response ? `<div class="sc-recap">${esc(plainOneLine(s.last_response.response, 220))}</div>`
     : '<div class="sc-recap-none muted">아직 응답이 없습니다</div>';
-  const lp = s.last_prompt && s.last_prompt.prompt;
+  const lp0 = s.last_prompt && s.last_prompt.prompt;
+  const am = agentMessages(lp0);   // 마지막 「요청」이 에이전트·Argus 메시지면 보낸 쪽과 본문으로
+  const lp = am ? am[0].icon + " " + am[0].who + ": " + am[0].body : lp0;
   const notes = +s.open_notes || 0;
   const key = rank <= 9 ? `<span class="sc-key">⌘${rank}</span>` : "";
   return `<article class="scard ${d} ${pinOf(s) ? "pinned" : ""}" data-scard="${esc(s.session_id)}" style="--proj:${projColor(s.project_root || s.cwd)}">

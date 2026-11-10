@@ -2126,3 +2126,12 @@ li.note.note-moved { outline: 2px solid transparent; outline-offset: -2px; borde
 /* 알림·활동에서 에이전트 팀 팀원: 팀원 이름 칩 + 흐린 「팀장 세션의 팀원」 */
 .ev-team { display: inline-block; padding: 0 6px; border-radius: 5px; background: var(--accent-soft); color: var(--accent); font-weight: 650; }
 .ev-lead { margin-left: 6px; font-weight: 500; color: var(--text-3); }
+
+/* 에이전트·Argus 가 넣은 메시지(서브에이전트 보고·팀장/팀원 메시지·자동 알림): 내 요청과 반대로 왼쪽 말풍선 + 보낸 쪽 이름 */
+.msg-agent { display: flex; flex-direction: column; align-items: flex-start; }
+.ma-head { display: flex; align-items: baseline; gap: 8px; margin: 0 4px 4px; font-size: calc(11.5px * var(--fs, 1)); color: var(--text-3); }
+.ma-who { font-weight: 650; color: var(--text-2); }
+.ma-time { font-variant-numeric: tabular-nums; }
+.bubble.ma-bubble { border-radius: 16px 16px 16px 4px; background: var(--surface-2); border: 1px solid var(--border); }
+.msg-agent + .msg-agent { margin-top: 8px; }
+.msg-agent .linkish { margin: 2px 4px 0; }
