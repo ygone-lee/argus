@@ -1941,8 +1941,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(409, {"error": "작업 중이거나 확인을 기다리는 세션입니다 — 끝난 뒤 가져와 주세요"})
             if not tg or tg.terminal.name not in ("orca", "tmux", "web"):
                 return self._send(409, {"error": "보드가 이 터미널을 조작할 수 없습니다 — 그 터미널에서 /exit 로 끝낸 뒤 다시 눌러 주세요"})
-            # stop_tasks: 그 세션에서 도는 백그라운드 작업(개발 서버 등)도 끄고 옮긴다 — 아니면 종료가 물을 때 취소한다
-            code, res = self._quit(conn, sid, {"worktree": "keep", "abort_prompt": True, "stop_tasks": bool(body.get("stop_tasks"))})
+            # stop_tasks: 그 세션에서 도는 백그라운드 작업(개발 서버 등)도 끄고 옮긴다 — 아니면 종료가 물을 때 취소한다.
+            # 세션 다시 시작(restart)은 확인 창에서 「백그라운드 작업은 끊깁니다」를 보고 누른 것이라 늘 끄고 다시 연다 — 아니면
+            # 백그라운드 셸(개발 서버 등)이 도는 세션은 종료가 「Background work is running」을 물어 매번 취소됐다
+            code, res = self._quit(conn, sid, {"worktree": "keep", "abort_prompt": True,
+                                               "stop_tasks": bool(body.get("stop_tasks") or body.get("restart"))})
             if code != 200 or res.get("pending"):
                 return self._send(409 if code == 200 else code, {"error": "종료하지 못해 가져오지 않았습니다: " + (res.get("error") or res.get("message") or "")})
             for _ in range(20):   # 프로세스 목록에서 빠질 때까지
