@@ -1003,14 +1003,20 @@ function thumbsIn(text) {
   return paths.length ? `<div class="mid-files resp-thumbs">${paths.map(thumbHtml).join("")}</div>` : "";
 }
 // 요청 글 — 붙인 이미지 자리([Image #N], Claude Code 가 남기는 표시)에 대화 기록 속 그 이미지를 썸네일로. 누르면 새 탭에서 크게
+// 글 속 그 자리에는 작은 「🖼 N」 표시만 두고, 이미지는 글 아래 한 줄로 모은다 — 글자 사이에 끼워 넣으면 문장 끝에 붙거나
+// 줄이 엉뚱하게 바뀌어 정렬이 어긋났다
 function promptHtml(t) {
   const html = mdCached(t.prompt);
   if (!t.id || !html.includes("[Image #")) return html;
   let k = 0;
-  return html.replace(/\[Image #(\d+)\]/g, (m, n) => {
-    const url = `/api/turns/${t.id}/image/${n}?i=${k++}`;
-    return `<a class="prompt-img" href="${url}" target="_blank" rel="noopener" title="Image #${n} — 눌러서 크게 보기"><img src="${url}" alt="${m}" loading="lazy"></a>`;
+  const thumbs = [];
+  // 번호는 이 메시지 안에서 1, 2 … — Claude Code 의 [Image #N] 은 세션 안에서 계속 늘어나(18·19 …) 헷갈려서. 원래 번호는 툴팁에
+  const body = html.replace(/\[Image #(\d+)\]/g, (m, n) => {
+    const url = `/api/turns/${t.id}/image/${n}?i=${k++}`, no = k, tip = `이미지 ${no} (Claude Code 의 Image #${n}) — 눌러서 크게 보기`;
+    thumbs.push(`<a class="prompt-img" href="${url}" target="_blank" rel="noopener" title="${tip}"><img src="${url}" alt="${m}" loading="lazy"><span class="pi-n">${no}</span></a>`);
+    return `<a class="prompt-img-ref" href="${url}" target="_blank" rel="noopener" title="${tip}">🖼 ${no}</a>`;
   });
+  return body + `<div class="prompt-imgs">${thumbs.join("")}</div>`;
 }
 // 크게 보기 — 보드 위 팝업. 아무 데나 누르거나 Esc 로 닫는다(⌘·Ctrl·Shift 클릭은 새 탭 그대로)
 // 이미지 팝업: 보낸 메시지·넥스트 액션·변경 보기의 이미지를 크게. 같은 묶음(같은 메시지·넥스트 액션·변경 보기)에 여러 장이면
@@ -1136,8 +1142,12 @@ function stepImgView(d) {
   showImgView();
 }
 document.addEventListener("click", e => {
-  const a = e.target.closest && e.target.closest(".prompt-img, .zoom-img");
+  let a = e.target.closest && e.target.closest(".prompt-img, .zoom-img, .prompt-img-ref");
   if (!a || e.metaKey || e.ctrlKey || e.shiftKey) return;
+  if (a.classList.contains("prompt-img-ref")) {   // 글 속 「🖼 N」 — 아래 줄의 그 이미지로 연다(같은 묶음에서 넘기기)
+    const box = a.closest(".turn, .act-dbody") || a.parentElement;
+    a = [...box.querySelectorAll(".prompt-img")].find(x => x.getAttribute("href") === a.getAttribute("href") && !x.hidden) || a;
+  }
   e.preventDefault();
   if (e.altKey && a.dataset.path) {   // 넥스트 액션 이미지: ⌥ 클릭이면 Finder 에서 보기(예전 동작)
     api("POST", "/api/open", { path: a.dataset.path, reveal: true }).then(() => toast("Finder 에서 보여 줍니다")).catch(err => toast(err.message));
@@ -1173,8 +1183,12 @@ document.addEventListener("error", e => {
     (a || e.target).hidden = true;
     return;
   }
-  const a = e.target.closest(".prompt-img");   // 기록에서 이미지를 못 찾으면 원래 글자로
-  if (a) a.replaceWith(document.createTextNode(e.target.alt));
+  const a = e.target.closest(".prompt-img");   // 기록에서 이미지를 못 찾으면 — 아래 줄에서는 빼고, 글 속 「🖼 N」은 원래 글자로
+  if (a) {
+    const ref = [...(a.closest(".turn, .act-dbody, .md") || document).querySelectorAll(".prompt-img-ref")].find(x => x.getAttribute("href") === a.getAttribute("href"));
+    if (ref) ref.replaceWith(document.createTextNode(e.target.alt));
+    a.hidden = true;
+  }
   const z = e.target.closest(".zoom-img");   // 변경 보기의 이미지 — 못 읽으면 한 줄 안내로
   if (z) z.outerHTML = '<div class="dv-note">이미지를 불러오지 못했습니다</div>';
 }, true);
@@ -4894,6 +4908,8 @@ function insertImageToken(sid, n) {
   const before = v.slice(0, at), after = v.slice(end);
   const tok = (before && !/\s$/.test(before) ? " " : "") + `[이미지 ${n}]` + (after && /^\s/.test(after) ? "" : " ");
   ta.value = before + tok + after;
+  const im = (S.compose.get(sid) || [])[n - 1];
+  if (im) im.tok = true;   // 이 이미지는 입력창에 자리 표시가 있다 — 표시를 지우면 첨부도 뺀다(syncImageTokens)
   const pos = before.length + tok.length;
   ta.setSelectionRange(pos, pos);
   S.drafts.set(sid, ta.value);
@@ -4906,6 +4922,25 @@ function removeImageToken(sid, n) {
   ta.value = ta.value.replace(IMG_TOKEN, (m, k) => (+k === n ? "" : +k > n ? `[이미지 ${+k - 1}]` : m)).replace(/ {2,}/g, " ");
   S.drafts.set(sid, ta.value);
   autoGrow(ta);
+}
+// 입력창에서 [이미지 N] 표시를 지우면(백스페이스 등) 그 첨부도 뺀다 — 남겨 두면 보낼 때 글 끝에 붙어 같이 갔다.
+// 자리 표시가 처음부터 없던 이미지(넥스트 액션에서 가져온 것 등)는 건드리지 않는다. 뒤 번호는 하나씩 당기고 커서는 그대로
+function syncImageTokens(sid, ta) {
+  const arr = S.compose.get(sid) || [];
+  if (!arr.length) return;
+  const have = new Set([...ta.value.matchAll(IMG_TOKEN)].map(m => +m[1]));
+  const gone = arr.map((im, i) => (im.tok && !have.has(i + 1) ? i : -1)).filter(i => i >= 0);
+  if (!gone.length) return;
+  const a0 = ta.selectionStart, a1 = ta.selectionEnd;
+  let v = ta.value;
+  for (const i of gone.reverse()) {
+    arr.splice(i, 1);
+    v = v.replace(IMG_TOKEN, (m, k) => (+k > i + 1 ? `[이미지 ${+k - 1}]` : m));   // 6장까지라 한 자리 — 길이가 같아 커서가 안 밀린다
+  }
+  if (v !== ta.value) { ta.value = v; ta.setSelectionRange(a0, a1); }
+  S.compose.set(sid, arr);
+  S.drafts.set(sid, ta.value);
+  renderComposerImages(sid);
 }
 function addNoteImages(sid, files) { return readImages(files, S.noteImgs, sid, renderNoteImages); }
 function renderNoteImages(sid) {
@@ -5098,6 +5133,7 @@ document.addEventListener("input", e => {
   if (!e.target.classList.contains("cmp-text")) return;
   markSeen(e.target.closest(".col"));   // 입력창에 있던 채로 새 응답이 왔으면 타이핑할 때 확인
   S.drafts.set(e.target.closest(".composer").dataset.sid, e.target.value);
+  syncImageTokens(e.target.closest(".composer").dataset.sid, e.target);
   autoGrow(e.target);
   updateSlash(e.target);
 });

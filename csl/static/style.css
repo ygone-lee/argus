@@ -352,11 +352,21 @@ body.view-board .board {
 .md li { margin: 2px 0; }
 .md li > ul, .md li > ol { margin: 2px 0 0; }
 .md li > .code-wrap { margin: 4px 0 6px; }
-.prompt-img { display: inline-block; vertical-align: top; margin: 4px 4px 4px 0; }
+/* 보낸 요청의 이미지: 글 속 자리엔 「🖼 N」, 이미지는 글 아래 한 줄(왼쪽부터, 같은 높이) */
+.prompt-img-ref { display: inline-block; padding: 0 6px; margin: 0 2px; border-radius: 5px; background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text-2); font-size: .88em; line-height: 1.5; text-decoration: none; white-space: nowrap; cursor: zoom-in; }
+.prompt-img-ref:hover { color: var(--accent); }
+.prompt-imgs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.prompt-imgs:empty { display: none; }
+.prompt-img { position: relative; display: block; }
+.prompt-img[hidden] { display: none; }
 .prompt-img img {
-  display: block; max-width: min(120px, 100%); max-height: 80px; border-radius: 5px; border: 1px solid var(--border); cursor: zoom-in;
+  display: block; height: 72px; width: auto; max-width: 160px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); cursor: zoom-in;
+  background: var(--surface);
 }
 .prompt-img:hover img { border-color: var(--accent); }
+.prompt-img .pi-n { position: absolute; left: 4px; bottom: 4px; min-width: 16px; padding: 0 4px; border-radius: 4px; background: rgb(0 0 0 / .55);
+  color: #fff; font-size: 10.5px; line-height: 15px; text-align: center; }
 .img-view {
   position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
   padding: 40px; background: rgba(20, 18, 15, .78); cursor: zoom-out;
