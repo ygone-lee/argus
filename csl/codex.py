@@ -518,6 +518,143 @@ def _last_token_count(path):
     return found
 
 
+_PERM_CACHE = {}
+_PERM_SET = {}   # 세션 id → (권한 상태, 바꾼 시각) — 보드에서 /permissions 로 바꾼 뒤 다음 요청 전까지
+_PERM_UPDATED = re.compile(r"Permissions updated to (.+?)\.?\s*$")
+
+
+def _perm_of_name(name):
+    """/permissions 창의 이름(Ask for approval · Approve for me · Full Access · Read Only) → 권한 상태."""
+    n = (name or "").lower()
+    return ("bypassPermissions" if "full" in n else "readonly" if "read" in n else
+            "auto" if "approve for me" in n or "auto" in n else "default" if "default" in n or "ask" in n else None)
+
+
+def note_perm_change(sid, text):
+    """/permissions 를 고른 뒤 찍힌 「Permissions updated to …」로 칩을 바로 바꾼다(기록에는 다음 요청 때 적힌다)."""
+    found = [m.group(1) for m in map(_PERM_UPDATED.search, (text or "").splitlines()) if m]
+    mode = _perm_of_name(found[-1]) if found else None
+    if sid and mode:
+        _PERM_SET[sid] = (mode, time.time())
+    return mode
+
+
+def _perm_of(approval, sandbox, reviewer, collab=None):
+    if collab == "plan":
+        return "plan"
+    if (reviewer or "user") != "user":
+        return "auto"
+    if sandbox == "danger-full-access" and approval == "never":
+        return "bypassPermissions"
+    if sandbox == "read-only":
+        return "readonly"
+    return "default"
+
+
+_CFG_CACHE = {}
+
+
+def _config_perm(cwd):
+    """첫 요청 전(기록이 아직 없을 때) — config.toml 의 기본값(approval_policy·sandbox_mode·approvals_reviewer)과
+    그 폴더의 신뢰(untrusted 면 읽기 전용)로 본 권한 상태."""
+    path = os.path.join(HOME, "config.toml")
+    try:
+        mt = os.path.getmtime(path)
+    except OSError:
+        return "default"
+    hit = _CFG_CACHE.get(path)
+    if not hit or hit[0] != mt:
+        try:
+            import tomllib
+            with open(path, "rb") as f:
+                hit = (mt, tomllib.load(f))
+        except Exception:  # noqa: BLE001 - 못 읽으면 Codex 기본값
+            hit = (mt, {})
+        _CFG_CACHE[path] = hit
+    cfg = hit[1]
+    sandbox = cfg.get("sandbox_mode") or "workspace-write"
+    trust = None
+    projects = cfg.get("projects") or {}
+    d = os.path.realpath(cwd) if cwd else ""
+    while d and trust is None:   # 그 폴더나 위 폴더 중 가장 가까운 것
+        trust = (projects.get(d) or {}).get("trust_level")
+        up = os.path.dirname(d)
+        d = "" if up == d else up
+    if trust == "untrusted" and "sandbox_mode" not in cfg:
+        sandbox = "read-only"
+    return _perm_of(cfg.get("approval_policy") or "on-request", sandbox, cfg.get("approvals_reviewer"))
+
+
+def perm_mode(path, cwd=None, sid=None):
+    """권한 상태 — "plan"(계획) · "auto"(Approve for me — 자동 검토) · "bypassPermissions"(Full Access) ·
+    "readonly"(Read Only) · "default"(Ask for approval). rollout 의 마지막 turn_context 로 본다. 요청마다 적히므로
+    /permissions 로 바꾼 것은 다음 요청부터 보인다(보드에서 바꾸면 바로). 첫 요청 전(기록이 없음)이면 config.toml 기본값."""
+    over = _PERM_SET.get(sid) if sid else None
+    st = None
+    if path and os.path.isfile(path):
+        try:
+            st = os.stat(path)
+        except OSError:
+            st = None
+    if st is None:
+        return over[0] if over else _config_perm(cwd)
+    key = (st.st_mtime, st.st_size, over)
+    hit = _PERM_CACHE.get(path)
+    if hit and hit[0] == key:
+        return hit[1]
+    ctx, ctx_at = None, 0
+    try:
+        with open(path, "rb") as f:
+            f.seek(max(0, st.st_size - 2 * 1024 * 1024))
+            data = f.read()
+        for raw in reversed(data.splitlines()):
+            if b'"turn_context"' not in raw:
+                continue
+            try:
+                d = json.loads(raw)
+            except ValueError:
+                continue
+            if d.get("type") == "turn_context":
+                ctx = d.get("payload") or {}
+                ctx_at = _ts(d.get("timestamp")) or 0
+                break
+    except OSError:
+        return None
+    if ctx:
+        mode = _perm_of(ctx.get("approval_policy"), (ctx.get("sandbox_policy") or {}).get("type") or "",
+                        ctx.get("approvals_reviewer"), (ctx.get("collaboration_mode") or {}).get("mode"))
+    else:
+        mode = _config_perm(cwd)
+    if over and over[1] > ctx_at:   # 보드에서 바꾼 뒤 아직 새 요청이 없다
+        mode = over[0]
+    _PERM_CACHE[path] = (key, mode)
+    return mode
+
+
+def set_perm(tg, mode, sid=None):
+    """/permissions 창에서 mode(auto·default·bypassPermissions·readonly)에 맞는 줄을 고른다. (성공, 문구)"""
+    if busy(tg):
+        return False, "작업 중이라 바꾸지 않았습니다"
+    res = run_command(tg, "/permissions")
+    pk = res.get("picker")
+    if not pk:
+        _esc_all(tg)
+        return False, res.get("error") or "권한 선택 창을 읽지 못했습니다"
+    row = next((r for r in pk["rows"] if _perm_of_name(r["label"]) == mode), None)
+    if not row:
+        _esc_all(tg)
+        return False, "권한 선택 창에 그 항목이 없습니다(있는 것: %s)" % ", ".join(r["label"] for r in pk["rows"])
+    out = choose(tg, row["n"])
+    if out.get("picker"):   # 확인 창이 더 뜨면(전부 허용 경고 등) 터미널에서 — 보드가 대신 동의하지 않는다
+        return False, "확인 창이 더 떴습니다 — 터미널에서 이어서 골라 주세요"
+    if out.get("error"):
+        return False, out["error"]
+    got = note_perm_change(sid, out.get("output")) or mode
+    if sid:
+        _PERM_SET[sid] = (got, time.time())
+    return True, row["label"]
+
+
 def context_info(transcript_path):
     """{used, size, pct} — 마지막 요청이 쓴 입력 토큰 / 모델 컨텍스트 창. 모르면 None."""
     p = _last_token_count(transcript_path)
@@ -1143,6 +1280,92 @@ def choose(tg, n, key="enter"):
 
 def cancel(tg):
     _esc_all(tg)
+
+
+# ------------------------------------------------------------------ 권한 승인 창(명령 실행·파일 고치기·권한 늘리기 …)
+# 입력창 자리에 「Would you like to run the following command? / Reason: … / $ 명령 / › 1. Yes, proceed (y) / 2. … /
+# Press enter to confirm or esc to cancel」이 뜬다. 보드 칸의 🔐 카드가 이것을 그대로 보여 주고, 고르면 화살표로 그 줄에 가서
+# 커서 줄을 다시 확인한 뒤 Enter. 형식은 Claude 쪽(focus.prompt_view)과 같다 — {"head", "options", "code"}
+_APPROVAL_Q = re.compile(r"^(Would you like to .+\?|Allow .+\?|Do you want to .+\?)$")
+_SHORTCUT = re.compile(r"\s*\((?:[a-z]|esc|enter)\)$", re.I)
+
+
+def approval_view(tg):
+    lines = [ln.replace("\xa0", " ").rstrip() for ln in tg.terminal.screen(tg.handle)]
+    q = next((i for i in range(len(lines) - 1, -1, -1) if _APPROVAL_Q.match(lines[i].strip())), None)
+    if q is None:
+        return None
+    rows, first, i = [], None, q + 1
+    while i < len(lines):
+        ln = lines[i]
+        m = _PICK_ROW.match(ln)
+        if m and (rows or ln.lstrip().startswith("›") or m.group(2) == "1"):
+            if first is None:
+                first = i
+            if int(m.group(2)) != len(rows) + 1:
+                break
+            rows.append([ln, m])
+        elif rows and ln.strip() and len(ln) - len(ln.lstrip()) >= 5 and not ln.lstrip().startswith("›"):
+            rows[-1][0] += " " + ln.strip()   # 좁은 칸에서 접힌 선택지 글
+        elif rows:
+            break
+        i += 1
+    if not rows:
+        return None
+    # 창 아래로 입력창(› …)이 다시 보이면 이미 닫힌 창의 흔적이다
+    if any(ln.startswith("› ") and not _PICK_ROW.match(ln) for ln in lines[i:]):
+        return None
+    head, code = [lines[q].strip()], []
+    for ln in lines[q + 1:first]:
+        st = ln.strip()
+        if not st:
+            continue
+        if st.startswith("$ ") or (code and len(ln) - len(ln.lstrip()) >= 4 and not st.startswith(("Reason:", "Permission rule:"))):
+            code.append(len(head))
+        head.append(st)
+    if len(head) > 12:   # 긴 명령·고칠 파일 목록은 앞부분만
+        head = head[:11] + ["…"]
+        code = [c for c in code if c < 11]
+    options = []
+    for full, m in rows:
+        text = re.sub(r"^\s*›?\s*\d+\.\s+", "", full).strip()
+        options.append({"n": int(m.group(2)), "label": _SHORTCUT.sub("", text).strip(), "hint": "", "on": bool(m.group(1))})
+    return {"head": head, "options": options, "code": code}
+
+
+def _norm(s):
+    return re.sub(r"\s+", " ", s or "").strip().lower()
+
+
+def answer_approval(tg, n, label):
+    """승인 창에서 n 번(그 줄 글이 label 일 때만)을 고른다. (성공, 문구)"""
+    v = approval_view(tg)
+    if not v:
+        return False, "승인 창이 없습니다(이미 골랐거나 닫힘)"
+    opt = next((o for o in v["options"] if o["n"] == n), None)
+    if not opt or _norm(opt["label"]) != _norm(label):
+        return False, "승인 창이 바뀌었습니다 — 다시 확인해 주세요"
+    for _ in range(len(v["options"]) + 2):
+        cur = next((o for o in v["options"] if o["on"]), None)
+        if not cur:
+            return False, "승인 창의 커서를 읽지 못했습니다 — 터미널에서 골라 주세요"
+        if cur["n"] == n:
+            break
+        tg.terminal.write(tg.handle, "\x1b[B" if n > cur["n"] else "\x1b[A")
+        time.sleep(0.25)
+        v = approval_view(tg)
+        if not v:
+            return False, "승인 창이 닫혔습니다"
+    else:
+        return False, "그 줄로 가지 못했습니다 — 터미널에서 골라 주세요"
+    if _norm(next((o["label"] for o in v["options"] if o["on"]), "")) != _norm(label):
+        return False, "선택지를 맞추지 못했습니다 — 터미널에서 골라 주세요"
+    tg.terminal.write(tg.handle, "\r")
+    for _ in range(10):
+        time.sleep(0.3)
+        if approval_view(tg) != v:
+            return True, "「%s」를 골랐습니다" % opt["label"]
+    return False, "골랐지만 창이 그대로입니다 — 터미널에서 확인해 주세요"
 
 
 _SESSION_LINE = re.compile(r"Session:\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")

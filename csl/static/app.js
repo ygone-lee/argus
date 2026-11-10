@@ -1714,7 +1714,7 @@ function updateCol(col, s, rank, lastPin) {
       </div>
       ${s.brain /* 브레인은 늘 같은 폴더라 프로젝트·브랜치 칩은 빼고 모델·권한만(패널이 좁아 윗줄에 두면 넘친다) */
         ? `<div class="col-meta">${modelChip(s, d)}${permChip(s, d)}</div>`
-        : `<div class="col-meta">${agentChip(s)}<span class="chip proj" data-action="proj-color" data-root="${esc(s.project_root || s.cwd || "")}" title="${esc(s.project_root || "")} · 눌러서 색 바꾸기">${esc(s.project_name || base(s.project_root))}</span>${placeChips(s)}${diffChip(s)}${modelChip(s, d)}${permChip(s, d)}</div>`}
+        : `<div class="col-meta">${agentChip(s)}<span class="chip proj" data-action="proj-color" data-root="${esc(s.project_root || s.cwd || "")}" title="${esc(s.project_root || "")} · 눌러서 색 바꾸기">${esc(s.project_name || base(s.project_root))}</span>${placeChips(s)}${diffChip(s)}${modelChip(s, d)}${permChip(s, d)}${isCodex(s) ? cxPermChip(s, d) : ""}</div>`}
       ${goalChip(s, d)}
       ${s.state_detail && (d === "waiting" || d === "error") ? `<div class="col-detail">${esc(s.state_detail)}</div>` : ""}`);
   }
@@ -1853,6 +1853,7 @@ async function runCodexCmd(sid, anchor, text, body) {
   m._cxAnchor = anchor;
   m._cxSid = sid;
   m._cxText = text || m._cxText;
+  fitCodexCmd(m, anchor);
   let r;
   try { r = await api("POST", cmdApi(sid), body || { text }); }
   catch (err) { m._cxOpen = false; m.innerHTML = `<div class="xm-head">${esc(m._cxText)}</div><div class="xm-note warn">${esc(err.message)}</div>`; return; }
@@ -1862,7 +1863,14 @@ async function runCodexCmd(sid, anchor, text, body) {
 function drawCodexCmd(m, sid, r) {
   _drawCodexCmd(m, sid, r);
   // 내용이 커지면 자리를 다시 — 입력창(아래쪽)에 붙인 창이 화면 밖으로 잘리지 않게
-  if (!m.hidden && m._cxAnchor && m._cxAnchor.isConnected) placeMenu(m, m._cxAnchor, "left");
+  if (!m.hidden && m._cxAnchor && m._cxAnchor.isConnected) fitCodexCmd(m, m._cxAnchor);
+}
+// 칸 안에 맞춘다 — 넓은 창(520px)이 좁은 칸·칸 머리 칩에서 열리면 칸 밖(옆 칸)으로 넘어가던 것
+function fitCodexCmd(m, anchor) {
+  const col = anchor.closest(".col"), cr = col && col.getBoundingClientRect();
+  m.style.width = cr ? Math.min(520, Math.max(260, cr.width - 16)) + "px" : "";
+  placeMenu(m, anchor, "left");
+  if (cr) m.style.left = Math.max(8, Math.max(cr.left + 8, Math.min(parseFloat(m.style.left), cr.right - 8 - m.offsetWidth))) + "px";
 }
 function _drawCodexCmd(m, sid, r) {
   const termBtn = `<button class="btn ghost" data-cxterm="${esc(sid)}" title="이 창을 터미널에서 이어서">⌨ 터미널에서</button>`;
@@ -1973,6 +1981,15 @@ function permChip(s, d) {
   const p = PERM[s.permission_mode];
   if (!p || d === "ended" || s.bg && !s.term_handle || isCodex(s)) return "";
   return `<button class="perm-chip pm-${esc(s.permission_mode)}" data-action="perm-menu" data-sid="${esc(s.session_id)}" title="권한 모드 — 눌러서 바꾸기(터미널의 Shift+Tab)">${p[0]} ${p[1]} ▾</button>`;
+}
+// Codex 권한 상태(/permissions — 기록의 마지막 요청 기준) — 누르면 보드에서 /permissions 선택 창
+const CX_PERM = { auto: ["⏵⏵", "자동 검토", "Approve for me — 위험한 것만 Codex 검토를 거쳐 묻기"], default: ["⏸", "묻기", "Default — 작업 폴더 밖·네트워크는 물어보기"],
+  bypassPermissions: ["⚠", "전부 허용", "Full Access — 묻지 않고 폴더 밖·네트워크까지"], readonly: ["👁", "읽기 전용", "Read Only — 고치기·네트워크는 물어보기"],
+  plan: ["⏸", "계획", "Plan 모드 — 계획만 세우기"] };
+function cxPermChip(s, d) {
+  const p = CX_PERM[s.cx_perm];
+  if (!p || d === "ended" || s.desktop || s.running === false) return "";
+  return `<button class="perm-chip pm-${esc(s.cx_perm)}" data-action="cx-perm" data-sid="${esc(s.session_id)}" title="${esc(p[2])} · 눌러서 바꾸기(/permissions)">${p[0]} ${p[1]} ▾</button>`;
 }
 // keyboard: ⇧Tab 으로 연 것 — 지금 모드에 포커스를 두고 ⇧Tab·↓ 다음 · ↑ 이전 · Enter 적용 · Esc 닫기(포커스는 입력칸으로 돌아간다)
 function openPermMenu(btn, keyboard) {
@@ -4620,8 +4637,9 @@ async function syncPrompts() {
 }
 // 창 머리 줄: 첫 줄은 제목, 물음표로 끝나는 마지막 줄은 질문, 「Bash command / 설명 / 명령 / 질문」처럼 4줄 이상이면
 // 둘째 줄은 설명이고 나머지가 명령(고정폭). 짧은 창(종료 때 워크트리 묻기 등)은 안내 문장이라 고정폭으로 쓰지 않는다
-function pcLineClass(head, i) {
+function pcLineClass(head, i, code) {
   const last = head.length - 1;
+  if (code) return i === 0 ? "pc-title" : code.includes(i) ? "pc-line" : "pc-desc";   // Codex 승인 창 — 명령 줄은 서버가 짚는다
   if (i === 0) return "pc-title";
   if (i === last && /\?$/.test(head[i])) return "pc-q";
   return head.length > 3 && i > 1 ? "pc-line" : "pc-desc";
@@ -4637,7 +4655,7 @@ function updatePrompt(el, s) {
   const sid = s.session_id;
   el.innerHTML = `<div class="ask-head"><b>🔐 확인 필요</b><span class="muted">터미널의 선택 창 — 골라서 넣습니다</span>
       <span class="spacer"></span><button class="linkish" data-action="ask-term" data-sid="${esc(sid)}">터미널로 ↗</button></div>
-    <div class="pc-head">${v.head.map((ln, i) => `<div class="${pcLineClass(v.head, i)}">${esc(ln)}</div>`).join("")}</div>
+    <div class="pc-head">${v.head.map((ln, i) => `<div class="${pcLineClass(v.head, i, v.code)}">${esc(ln)}</div>`).join("")}</div>
     <div class="pc-opts">${v.options.map(o => `<button class="btn pc-opt ${o.n === 1 ? "primary" : ""} ${/^(no|remove|delete|discard)\b|아니|삭제|지우/i.test(o.label) ? "pc-no" : ""}"
         data-action="prompt-pick" data-sid="${esc(sid)}" data-n="${o.n}" data-label="${esc(o.label)}" title="${esc(o.hint || o.label)}">
         <b>${o.n}.</b> ${esc(o.label)}${o.hint ? `<span class="muted">${esc(o.hint)}</span>` : ""}</button>`).join("")}</div>
@@ -5520,6 +5538,7 @@ document.addEventListener("click", async e => {
     return renderBoard();
   }
   if (a === "perm-menu") return openPermMenu(el);
+  if (a === "cx-perm") return runCodexCmd(el.dataset.sid, el, "/permissions");
   if (a === "goal-menu") return openGoalMenu(el.dataset.sid, el);
   if (a === "fork-menu") return openForkMenu(el);
   if (a === "fam-close") {

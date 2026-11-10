@@ -91,9 +91,9 @@
 ./argus rename <세션 ID> '<제목>'   이름 바꾸기(터미널 /rename 도)
 ./argus stop <세션 ID>              작업 중인 Claude 멈추기(Esc)
 ./argus model <세션 ID> [sonnet|opus|haiku|fable] [--effort low|medium|high|xhigh|max]   모델·effort(이 세션만)
-./argus perm <세션 ID> <auto|default|acceptEdits|plan>   권한 모드
+./argus perm <세션 ID> <auto|default|acceptEdits|plan>   권한 모드 (Codex: auto=Approve for me · default · readonly · bypassPermissions=Full Access — /permissions 창에서 고른다)
 ./argus rewind <세션 ID> <#tN> [conversation|both|code|summarize_from|summarize_upto]   그 요청 앞으로 되돌리기(턴 번호는 session·search 결과의 #tN)
-./argus ask <세션 ID> · answer <세션 ID> <질문마다 번호|1,3|기타:글>   묻고 있는 질문·권한 확인 창(Bash 실행 허용 등) 보기 · 고르기(창은 번호 하나)
+./argus ask <세션 ID> · answer <세션 ID> <질문마다 번호|1,3|기타:글>   묻고 있는 질문·권한 확인 창(Bash 실행 허용 등 — Codex 승인 창도) 보기 · 고르기(창은 번호 하나)
 ./argus answer <세션 ID> chat     질문에 답하지 않고 대화로 넘기기(Chat about this — 「질문 말고 얘기하자」에)
 ./argus focus <세션 ID>             그 세션 터미널 탭을 앞으로
 ./argus switch|attach|close-branch <세션 ID>   갈래 전환 · 백그라운드 세션을 탭으로 열기 · 갈래 닫기

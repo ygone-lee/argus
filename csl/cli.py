@@ -41,7 +41,7 @@
     ./argus rename <세션> '<제목>'   이름 바꾸기(터미널의 /rename 도)
     ./argus stop <세션>              작업 중인 Claude 멈추기(Esc)
     ./argus model <세션> [sonnet|opus|haiku|fable] [--effort …]   모델·effort 바꾸기(이 세션만)
-    ./argus perm <세션> <auto|default|acceptEdits|plan>   권한 모드
+    ./argus perm <세션> <auto|default|acceptEdits|plan>   권한 모드 (Codex: auto|default|readonly|bypassPermissions)
     ./argus rewind <세션> <#tN> [conversation|both|code|summarize_from|summarize_upto]   그 요청 앞으로 되돌리기(/rewind)
     ./argus ask <세션> · answer <세션> <질문마다 번호|1,3|기타:글>   묻고 있는 질문·권한 확인 창 보기·답하기(창은 번호 하나)
     ./argus answer <세션> chat       질문에 답하지 않고 대화로 넘기기(터미널의 Chat about this)
@@ -207,8 +207,8 @@ def facts(s):
     out = [AGENT.get(s.get("agent"), s.get("agent") or "?")]
     if model_name(s):
         out.append(model_name(s) + (" (" + s["effort"] + ")" if s.get("effort") else ""))
-    if s.get("permission_mode"):
-        out.append("권한 " + s["permission_mode"])
+    if s.get("cx_perm") or s.get("permission_mode"):
+        out.append("권한 " + (s.get("cx_perm") or s["permission_mode"]))
     if s.get("turn_count"):
         out.append("턴 %d" % s["turn_count"])
     ctx = s.get("ctx") or {}
@@ -848,7 +848,7 @@ def cmd_model(args):
 
 
 def cmd_perm(args):
-    _need(args, 2, "perm <세션> <auto|default|acceptEdits|plan>   (권한 모드)")
+    _need(args, 2, "perm <세션> <auto|default|acceptEdits|plan>   (권한 모드 · Codex: auto|default|readonly|bypassPermissions)")
     s = target(args[0])
     d = _post(s, "permission", {"mode": args[1]})
     _say(s, "권한 모드: %s" % d.get("mode"))

@@ -1573,6 +1573,7 @@ def list_state(conn, days, show_archived):
         s.pop("terminal", None)
         if cx:
             s["ctx"] = codex.context_info(s.get("transcript_path"))
+            s["cx_perm"] = codex.perm_mode(s.get("transcript_path"), s.get("cwd"), s["session_id"])   # 권한 상태(자동 검토·Full Access …) — 칸 머리 칩
             s["goal"], s["bg_tasks"] = None, []
         else:
             s["ctx"] = store.context_info(s["session_id"], s.get("transcript_path"))
@@ -2756,6 +2757,23 @@ class Handler(BaseHTTPRequestHandler):
             sess = session_row(conn, m.group(1))
             if sess is None:
                 return self._send(404, {"error": "no session"})
+            if sess.get("agent") == "codex":
+                # Codex 승인 창(명령 실행·파일 고치기 …) — 같은 🔐 카드로 보이고 고른다
+                tg = codex_tab(conn, sess)
+                if not tg:
+                    return self._send(409 if method == "POST" else 200,
+                                      {"error": "Codex 탭을 찾지 못했습니다"} if method == "POST" else {"prompt": None})
+                if method == "GET":
+                    return self._send(200, {"prompt": codex.approval_view(tg)})
+                ok, msg = codex.answer_approval(tg, int(body.get("n") or 0), body.get("label") or "")
+                if ok:
+                    # 거절하면 Codex 는 그 턴을 끊고 훅을 보내지 않는다 — 입력창이 돌아왔고 일하지 않으면 「확인 필요」를 걷는다
+                    time.sleep(1.2)
+                    st = "working" if codex.busy(tg) else "done" if codex.ready(tg) and not codex.approval_view(tg) else None
+                    if st:
+                        conn.execute("UPDATE sessions SET state=?, state_detail=NULL, state_at=? WHERE session_id=? AND state='waiting'",
+                                     (st, store.now(), sess["session_id"]))
+                return self._send(200 if ok else 409, {"ok": True, "message": msg} if ok else {"error": msg})
             handle, err = terminal_target(conn, sess)
             if not handle:
                 return self._send(409 if method == "POST" else 200, {"error": err} if method == "POST" else {"prompt": None})
@@ -3130,6 +3148,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, {"ok": True})
             if body.get("pick") is not None:
                 res = codex.choose(tg, int(body["pick"]), str(body.get("key") or "enter"))
+                codex.note_perm_change(sess["session_id"], res.get("output"))   # /permissions → 칸 머리 칩을 바로
                 return self._send(502 if res.get("error") else 200, res)
             text = CONTROL_CHARS.sub("", body.get("text") or "").strip()
             if not text.startswith("/"):
@@ -3201,6 +3220,13 @@ class Handler(BaseHTTPRequestHandler):
                 # 권한 모드는 Shift+Tab 으로 돌아가며 바꾸므로 중간 모드(자동·편집 허용)를 잠깐 지난다 — 그사이 도구 호출이 승인되지 않게
                 return self._send(409, {"error": "작업 중에는 %s — 끝난 뒤(또는 중단한 뒤)에" %
                                         ("되돌릴 수 없습니다" if m.group(2) == "rewind" else "권한 모드를 바꾸지 않습니다")})
+            if sess.get("agent") == "codex" and m.group(2) == "permission":
+                # Codex: /permissions 창에서 고른다(auto=Approve for me · default · bypassPermissions=Full Access · readonly)
+                ctg = codex_tab(conn, sess)
+                if not ctg:
+                    return self._send(409, {"error": "Codex 탭을 찾지 못했습니다"})
+                ok, msg = codex.set_perm(ctg, body.get("mode"), sess["session_id"])
+                return self._send(200 if ok else 409, {"ok": True, "mode": body.get("mode"), "label": msg} if ok else {"error": msg})
             tg, err = terminal_target(conn, sess)
             if not tg:
                 return self._send(409, {"error": err})
