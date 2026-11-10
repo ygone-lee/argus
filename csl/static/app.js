@@ -3364,7 +3364,7 @@ function inboxCardHtml(x) {
       <span class="muted">${esc(x.author || "")} · ${x.slack_at ? rel(x.slack_at) : ""}</span>
       ${x.sensitive ? '<span class="ib-sens" title="민감정보가 있을 수 있어 요약을 줄였습니다 — 원문은 슬랙에서">민감</span>' : ""}
       ${x.status !== "new" ? `<span class="ib-state">${{ sent: "넘김", doing: "진행 중", reply: "답장만 남음", done: "확인함", ignored: "확인함" }[x.status] || x.status}</span>` : ""}
-      <span class="spacer"></span>${x.permalink && /^https:\/\/[\w.-]+\.(slack|google)\.com\//.test(x.permalink) ? `<a href="${esc(x.permalink)}" target="_blank" rel="noopener noreferrer">원문 ↗</a>` : ""}</div>
+      <span class="spacer"></span>${x.permalink && /^https:\/\/[\w.-]+\.(slack|google)\.com\//.test(x.permalink) ? sourceLink(x.permalink) : ""}</div>
     ${stageHtml(x)}
     ${x.todo ? `<div class="ib-todo">${esc(x.todo)}</div>` : ""}
     <div class="ib-summary">${esc(x.summary)}</div>
@@ -3528,6 +3528,25 @@ function cardLogHtml(id) {
     <span class="ibl-icon">${LOG_ICON[l.kind] || (STAGE[l.kind.split(":")[1]] || ["•"])[0]}</span>
     <span class="ibl-text">${esc(l.text || l.kind)}</span></div>`).join("") || '<div class="muted">기록이 없습니다</div>';
 }
+// 카드의 「원문 ↗」: 설정에 슬랙 워크스페이스 ID 가 있으면 slack:// 링크로 슬랙 앱을 바로 연다 — 웹 주소로 열면 앱으로
+// 넘겨 주는 빈 탭이 계속 남았다. ⌥ 누르고 누르면 브라우저로(그 ID 가 없거나 슬랙 메시지 주소가 아니면 늘 브라우저로)
+function slackAppUrl(url) {
+  const team = S.settings && S.settings.slack_team;
+  const m = /^https:\/\/[\w.-]+\.slack\.com\/archives\/([CDG][A-Z0-9]+)\/p(\d{10})(\d{6})(?:\?(?:.*&)?thread_ts=(\d+\.\d+))?/.exec(url);
+  if (!team || !/^[TE][A-Z0-9]{6,15}$/.test(team) || !m) return null;
+  return `slack://channel?team=${team}&id=${m[1]}&message=${m[2]}.${m[3]}` + (m[4] ? `&thread_ts=${m[4]}` : "");
+}
+function sourceLink(url) {
+  const app = slackAppUrl(url);
+  return app ? `<a href="${esc(app)}" data-web="${esc(url)}" title="슬랙 앱에서 열기 · ⌥ 누르고 누르면 브라우저로">원문 ↗</a>`
+    : `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">원문 ↗</a>`;
+}
+document.addEventListener("click", e => {
+  const a = e.altKey && e.target.closest && e.target.closest("a[data-web]");
+  if (!a) return;
+  e.preventDefault();
+  window.open(a.dataset.web, "_blank", "noopener");
+}, true);
 // 카드 원문(과 스레드)의 첨부 파일 — 서버가 슬랙 커넥터로 그때 읽는다. 누르면 슬랙의 파일 페이지(로그인한 브라우저)
 S.filesOpen = new Set();
 S.cardFiles = {};

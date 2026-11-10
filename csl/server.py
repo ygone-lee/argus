@@ -1678,7 +1678,7 @@ def list_state(conn, days, show_archived):
         (store.now() - 86400,),
     ).fetchall()]
     settings = {k: config.get(conn, k) for k in ("auto_remote", "auto_daily", "brain_slack_every", "board_cols", "cardchat_model", "cardchat_effort", "done_cards_days",
-                                                   "new_default_model", "new_default_effort", "brain_model", "brain_permission_mode")}
+                                                   "new_default_model", "new_default_effort", "brain_model", "brain_permission_mode", "slack_team")}
     # 할 일 카드가 생긴 시각들 — 보드가 「마지막으로 인박스를 본 뒤 새로 온 카드」를 센다(본 시각은 브라우저에 기억)
     inbox_new_at = [r[0] for r in conn.execute("SELECT created_at FROM inbox WHERE status='new'")]
     auto_refresh_usage()

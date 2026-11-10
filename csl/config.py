@@ -4,6 +4,7 @@
 설정 창은 이 목록을 그대로 그린다(group 순서·label·help).
 """
 import os
+import re
 
 from csl import store
 
@@ -50,6 +51,10 @@ SCHEMA = [
     ("brain_weekdays_only", "브레인", "평일에만 자동 정리", "bool", True, None, ""),
     ("done_cards_days", "브레인", "완료한 인박스 카드 보관 기간(일)", "int", 1, (1, 30),
      "인박스 칸반의 「완료」 열에 남겨 두는 기간. 지나면 목록에서 사라집니다(카드는 「끝난 인박스 카드 보관 기간」이 지나면 지워짐)."),
+    ("slack_team", "브레인", "슬랙 워크스페이스 ID", "text", "", None,
+     "넣어 두면 인박스 카드의 「원문 ↗」을 브라우저 탭 없이 슬랙 앱에서 바로 엽니다(⌥ 누르고 누르면 브라우저로). "
+     "슬랙을 브라우저로 열었을 때 주소 app.slack.com/client/<ID>/… 의 그 값 — Enterprise Grid 면 조직 ID(E…) 하나로 모든 워크스페이스가 열립니다. "
+     "비우면 지금처럼 브라우저 탭으로 엽니다."),
     ("cardchat_model", "브레인", "카드 대화 모델", "choice", "Sonnet 5.5", list(CARDCHAT_MODELS),
      "인박스 카드의 「💬 대화」에 쓰는 모델(정확한 버전). 카드마다 따로 대화하므로 브레인 대화 맥락을 쓰지 않습니다."),
     ("cardchat_effort", "브레인", "카드 대화 effort", "choice", "", [""] + EFFORTS,
@@ -109,7 +114,10 @@ def validate(key, value):
                 return c, None
         return None, "「%s」에 고를 수 없는 값입니다" % row[2]
     if kind == "text":
-        return str(value or "").strip()[:2000], None
+        v = str(value or "").strip()[:2000]
+        if key == "slack_team" and v and not re.fullmatch(r"[TE][A-Z0-9]{6,15}", v):
+            return None, "「%s」는 T 나 E 로 시작하는 ID 여야 합니다(예: E03ABCDEF)" % row[2]
+        return v, None
     if kind == "path":
         p = os.path.realpath(os.path.expanduser(str(value or "").strip()))
         if not os.path.isdir(p):
