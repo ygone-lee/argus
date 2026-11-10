@@ -27,6 +27,8 @@
     ./argus send <세션> --file inbox/<파일>   여러 줄 메시지는 파일로(보낸 뒤 지운다)
     ./argus remote <세션>            그 세션의 리모트 컨트롤(/remote-control) 켜기
     ./argus quit <세션> [--force]    세션 종료 — Claude Code 를 /exit 로 닫고 터미널 탭도 닫는다(작업 중이면 --force 로 멈추고 종료)
+    ./argus restart <세션>           세션 다시 시작 — 끄고 보드 터미널에서 같은 대화로 다시 연다(업데이트 반영 · 새 모델이 /model 에 보이게)
+    ./argus import <세션>            보드 터미널로 가져오기 — 다른 터미널(Orca·tmux)에서 도는 세션을 옮기거나 꺼진 세션을 이어 열기
     ./argus archive <세션>           보드에서 숨기기(세션은 그대로) · ./argus unarchive <세션> 다시 보이기
     ./argus new <폴더> [--model opus|sonnet|haiku|fable] [--effort low|medium|high|xhigh|max] [--no-worktree] [첫 메시지…]
                                     새 세션(기본: 새 워크트리·모델·effort 는 설정의 새 세션 기본값). 첫 메시지를 주면 세션이 뜬 뒤 보낸다
@@ -713,6 +715,20 @@ def cmd_quit(args):
     print("%s (%s) — %s" % (s.get("title") or "(제목 없음)", s["session_id"][:8], d.get("message") or "종료했습니다"))
 
 
+def cmd_restart(args, restart=True):
+    """보드 칸 ⋮ 「세션 다시 시작」(restart) · 「보드 터미널로 가져오기」(import) — 같은 서버 기능."""
+    name = "restart" if restart else "import"
+    _need(args, 1, name + " <세션>")
+    s = target(args[0])
+    if restart and s.get("state") in ("working", "waiting"):
+        sys.exit("작업 중이거나 확인을 기다리는 세션입니다 — 끝난 뒤 다시 시작해 주세요")
+    d = _post(s, "import", {"restart": True} if restart else {}, timeout=120)
+    msg = d.get("message") or ("다시 시작했습니다" if restart else "보드 터미널로 가져왔습니다")
+    if restart:
+        msg = re.sub(r"보드 터미널로 가져왔습니다|보드 터미널에서 이어 열었습니다", "세션을 다시 시작했습니다", msg)
+    _say(s, msg)
+
+
 def cmd_archive(args, archived=True):
     if not args:
         sys.exit("사용법: ./argus %s <ID앞자리|제목 일부>" % ("archive" if archived else "unarchive"))
@@ -1085,7 +1101,7 @@ def main():
     args = sys.argv[1:]
     cmds = {"sessions": cmd_sessions, "usage": cmd_usage, "session": cmd_session, "search": cmd_search, "timeline": cmd_timeline, "turn": cmd_turn, "inbox": cmd_inbox, "calendar": cmd_calendar,
             "send": cmd_send, "remote": cmd_remote, "notes": cmd_notes, "events": cmd_events, "git": cmd_git,
-            "quit": cmd_quit, "archive": cmd_archive, "unarchive": lambda a: cmd_archive(a, False), "new": cmd_new, "note": cmd_note,
+            "quit": cmd_quit, "restart": cmd_restart, "import": lambda a: cmd_restart(a, False), "archive": cmd_archive, "unarchive": lambda a: cmd_archive(a, False), "new": cmd_new, "note": cmd_note,
             "pin": cmd_pin, "unpin": lambda a: cmd_pin(a, False), "rename": cmd_rename, "stop": cmd_stop, "model": cmd_model,
             "perm": cmd_perm, "rewind": cmd_rewind, "ask": cmd_ask, "answer": cmd_answer, "focus": cmd_focus,
             "switch": lambda a: cmd_branch(a, "switch"), "attach": lambda a: cmd_branch(a, "attach"),

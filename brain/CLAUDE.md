@@ -78,6 +78,8 @@
 ./argus send <세션 ID> --file inbox/<파일>   여러 줄 메시지(보낸 뒤 파일은 지워진다)
 ./argus remote <세션 ID>            그 세션의 리모트 컨트롤 켜기
 ./argus quit <세션 ID> [--force]    세션 종료 — Claude Code 를 /exit 로 닫고 터미널 탭도 닫기(작업 중이면 --force 로 멈추고)
+./argus restart <세션 ID>           세션 다시 시작 — 끄고 보드 터미널에서 같은 대화로 다시 연다. Claude Code·Codex 업데이트를 반영하거나 새 모델(/model 에 없을 때)을 쓰려면. 칸·할 일은 그대로, 그 세션의 백그라운드 작업은 끊긴다. 작업 중이면 안 됨
+./argus import <세션 ID>            보드 터미널로 가져오기 — Orca·tmux 에서 도는 세션을 옮기거나, 꺼진 세션을 보드 터미널에서 이어 연다
 ./argus archive <세션 ID> · unarchive <세션 ID>   보드에서 숨기기·다시 보이기(세션은 그대로)
 ./argus new <폴더> [--model sonnet] [--effort high] [--no-worktree] '<첫 메시지>'   새 세션(기본 새 워크트리) — 첫 메시지는 뜬 뒤 보낸다
 ./argus note add <세션 ID> '<할 일>'   넥스트 액션 추가(번호는 ./argus notes 의 #N)
