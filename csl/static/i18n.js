@@ -49,7 +49,8 @@ const I18N_ROWS = [
   ["보드에서 대화를 보낸 세션은 리모트 컨트롤(claude.ai/code·모바일 앱)이 꺼져 있으면 자동으로 켭니다", "ボードから会話を送ったセッションはリモートコントロール(claude.ai/code・モバイルアプリ)がオフなら自動でオンにします", "Turn on Remote Control (claude.ai/code, mobile app) for sessions you message from the board"],
   ["🌐 언어", "🌐 言語", "🌐 Language"],
   // ---- 시간
-  ["방금", "たった今", "just now"], ["중단했습니다 — 보낸 요청을 입력창에 되돌려 놓았습니다", "中断しました — 送った依頼を入力欄に戻しました", "Stopped — your prompt is back in the input box"],
+  ["방금", "たった今", "just now"], ["모델별 사용량을 새로 받는 중…", "モデル別の使用量を取得中…", "Fetching per-model usage…"],
+  ["새로 받았습니다", "取得しました", "Updated"], ["중단했습니다 — 보낸 요청을 입력창에 되돌려 놓았습니다", "中断しました — 送った依頼を入力欄に戻しました", "Stopped — your prompt is back in the input box"],
   ["터미널 입력칸에 글이 남아 있어 보내지 않았습니다(그 뒤에 이어 붙지 않게) — 칸의 「⌨ 터미널」에서 입력칸을 비운 뒤 다시 해 주세요", "ターミナルの入力欄に文字が残っているため送信しませんでした(後ろに続けて入らないように) — 列の「⌨ ターミナル」で入力欄を空にしてからもう一度", "Not sent: the terminal input box still has text (it would have been appended) — clear it via the column's ⌨ Terminal, then try again"], ["{}분 전 기준", "{}分前の値", "as of {}m ago"], ["{}시간 전 기준", "{}時間前の値", "as of {}h ago"], ["{}일 전 기준", "{}日前の値", "as of {}d ago"], ["{}분 전", "{}分前", "{}m ago"], ["{}시간 전", "{}時間前", "{}h ago"], ["어제", "昨日", "yesterday"], ["오늘", "今日", "today"],
   ["{}초", "{}秒", "{}s"], ["{}분", "{}分", "{}m"], ["{}분 {}초", "{}分{}秒", "{}m {}s"], ["{}시간 {}분", "{}時間{}分", "{}h {}m"],
   ["{} 걸림", "{}かかった", "took {}"], ["· {} 걸림", "· {}かかった", "· took {}"],

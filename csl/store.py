@@ -1318,6 +1318,9 @@ CLAUDE_JSON = os.path.expanduser("~/.claude.json")
 _SCOPED_CACHE = {}
 
 
+SCOPED_FETCHED = {"at": 0, "items": []}   # claude -p "/usage" 로 직접 받은 값(server.fetch_scoped_usage) — 캐시보다 새로우면 이것
+
+
 def scoped_limits():
     """모델별 주간 한도(Fable 등) — [{label, pct, resets_at, at}]. 상태줄 입력에는 없고, Claude Code 가 사용량 서버에서 받아
     ~/.claude.json 의 cachedUsageUtilization 에 남긴 것만 있다. /usage 를 열 때 등에만 새로 받으므로 at(받은 시각)을 같이 준다.
@@ -1325,10 +1328,10 @@ def scoped_limits():
     try:
         mt = os.path.getmtime(CLAUDE_JSON)
     except OSError:
-        return []
+        return _newer_scoped([])
     hit = _SCOPED_CACHE.get("v")
     if hit and hit[0] == mt:
-        return hit[1]
+        return _newer_scoped(hit[1])
     out = []
     try:
         with open(CLAUDE_JSON, encoding="utf-8") as f:
@@ -1344,7 +1347,14 @@ def scoped_limits():
     except (OSError, ValueError, AttributeError):
         out = []
     _SCOPED_CACHE["v"] = (mt, out)
-    return out
+    return _newer_scoped(out)
+
+
+def _newer_scoped(cached):
+    got = SCOPED_FETCHED
+    if got["items"] and got["at"] > max([x.get("at") or 0 for x in cached] or [0]):
+        return got["items"]
+    return cached
 
 
 def read_usage():

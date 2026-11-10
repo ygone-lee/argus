@@ -3,6 +3,7 @@
     ./argus sessions [--codex|--claude] [--brief] [--all]   지금 세션 목록(보드 순서) — 에이전트(Claude Code·Codex)·모델·
                                     권한·컨텍스트·터미널·변경 파일까지. 세션은 ID 앞자리(8자)로 가리킨다(--brief 는 두 줄씩)
     ./argus usage                  사용량 한도(Claude Code 5시간·주간, Codex 주간 등 — 권장 속도·초기화까지). sessions 맨 위에도 나온다
+    ./argus usage refresh          Fable 등 모델별 주간 한도를 지금 새로 받고 보기(평소엔 30분마다 저절로)
     ./argus session <ID앞자리|제목 일부> [턴수]   한 세션의 최근 대화·넥스트 액션
     ./argus search <단어…> [--project 이름|--all] [--me|--claude] [--recent] [--limit N]
                                     모든 세션의 요청·응답 전문 검색(관련도 순). 결과마다 턴 번호 #tN
@@ -198,6 +199,9 @@ def usage_lines(state):
 
 
 def cmd_usage(args):
+    if args and args[0] in ("refresh", "새로"):   # Fable 등 모델별 주간 한도를 지금 새로 받기(claude -p "/usage" — 토큰 안 씀)
+        api("POST", "/api/usage/refresh", {"from": ME()}, timeout=90)
+        print("새로 받았습니다")
     lines = usage_lines(api("GET", "/api/state"))
     print("\n".join(lines) if lines else "사용량 정보가 아직 없습니다")
 

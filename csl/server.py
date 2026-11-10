@@ -4,6 +4,7 @@
 """
 import base64
 import binascii
+import datetime
 import errno
 import json
 import os
@@ -1022,6 +1023,78 @@ def claude_cmd(conn, sess, body):
     return 200, _claude_after(tg, text, before, _cl_transcript(conn, sess), _CL_AT[tg.handle])
 
 
+_USAGE_LINE = re.compile(r"^Current week \((.+?)\):\s*([\d.]+)% used(?:\s*·\s*resets\s+(.+?))?(?:\s*\([^)]*\))?\s*$")
+_USAGE_RESET = re.compile(r"^(?:([A-Z][a-z]{2})\s+(\d{1,2}))?(?:\s*at)?\s*(?:(\d{1,2})(?::(\d{2}))?\s*(am|pm))?$", re.I)
+_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+USAGE_DIR = os.path.join(store.DATA_DIR, "usage-check")   # claude -p 를 돌리는 곳(프로젝트 폴더가 아니게 — 늘 같은 곳)
+USAGE_EVERY = 30 * 60
+_usage_lock = threading.Lock()
+_usage_tried = [0.0]
+
+
+def _usage_reset(text):
+    """「Nov 16 at 5:59am」·「3:59pm」 → epoch 초(그 Mac 의 시간대로 찍힌다). 못 읽으면 None."""
+    m = _USAGE_RESET.match((text or "").strip())
+    if not m or not (m.group(1) or m.group(3)):
+        return None
+    now = datetime.datetime.now()
+    month = _MONTHS.index(m.group(1).lower()) + 1 if m.group(1) and m.group(1).lower() in _MONTHS else now.month
+    day = int(m.group(2)) if m.group(2) else now.day
+    hour = int(m.group(3) or 0) % 12 + (12 if (m.group(5) or "").lower() == "pm" else 0)
+    try:
+        dt = datetime.datetime(now.year, month, day, hour, int(m.group(4) or 0))
+    except ValueError:
+        return None
+    if dt < now - datetime.timedelta(days=2):   # 해가 바뀌는 때(12월 → 1월)
+        dt = dt.replace(year=now.year + 1)
+    return dt.timestamp()
+
+
+def fetch_scoped_usage():
+    """모델별 주간 한도(Fable 등)를 새로 받는다 — `claude -p "/usage"`. 모델을 부르지 않는 로컬 명령이라 토큰을 쓰지 않고(2~3초),
+    세션 기록도 남기지 않는다(--no-session-persistence). 보드 훅·MCP·사용자 설정(다른 훅)은 끈다. (성공, 오류 문구)"""
+    if not _usage_lock.acquire(blocking=False):
+        return False, "이미 받는 중입니다"
+    try:
+        _usage_tried[0] = time.time()
+        os.makedirs(USAGE_DIR, exist_ok=True)
+        try:
+            r = subprocess.run([daily._claude_bin(), "-p", "/usage", "--no-session-persistence", "--strict-mcp-config",
+                                "--setting-sources", "local", "--output-format", "json"],
+                               capture_output=True, text=True, timeout=60, cwd=USAGE_DIR, env=daily._clean_env())
+            d = json.loads(r.stdout or "{}")
+        except (OSError, subprocess.TimeoutExpired, ValueError) as e:
+            return False, "claude -p 를 실행하지 못했습니다: %s" % e
+        if d.get("is_error") or not d.get("result"):
+            return False, "사용량을 받지 못했습니다: %s" % str(d.get("result") or r.stderr or "")[:200]
+        items, at = [], time.time()
+        for ln in d["result"].splitlines():
+            m = _USAGE_LINE.match(ln.strip())
+            if m and m.group(1).lower() != "all models":
+                items.append({"label": m.group(1), "pct": float(m.group(2)), "resets_at": _usage_reset(m.group(3)), "at": at})
+        store.SCOPED_FETCHED.update(at=at, items=items)
+        return True, ""
+    finally:
+        _usage_lock.release()
+
+
+def auto_refresh_usage():
+    """보드가 상태를 물을 때 — 모델별 주간 한도가 30분 넘게 묵었으면 뒤에서 새로 받는다(30분에 한 번만 시도)."""
+    if time.time() - _usage_tried[0] < USAGE_EVERY:
+        return
+    scoped = store.scoped_limits()
+    if scoped and all(time.time() - (x.get("at") or 0) < USAGE_EVERY for x in scoped):
+        return
+    _usage_tried[0] = time.time()
+    threading.Thread(target=fetch_scoped_usage, daemon=True).start()
+
+
+def refresh_usage(conn):
+    """(HTTP 코드, 본문) — 상태 막대의 Fable 을 눌렀을 때·./argus usage refresh."""
+    ok, err = fetch_scoped_usage()
+    return (200, {"ok": True, "usage": store.read_usage()}) if ok else (502, {"error": err})
+
+
 def codex_tab(conn, sess):
     """그 Codex 세션의 codex 가 돌고 있는 터미널 Target 또는 None. 찾으면 이 요청이 끝날 때까지 잡아 둔다."""
     conn.commit()
@@ -1602,6 +1675,7 @@ def list_state(conn, days, show_archived):
                                                    "new_default_model", "new_default_effort", "brain_model", "brain_permission_mode")}
     # 할 일 카드가 생긴 시각들 — 보드가 「마지막으로 인박스를 본 뒤 새로 온 카드」를 센다(본 시각은 브라우저에 기억)
     inbox_new_at = [r[0] for r in conn.execute("SELECT created_at FROM inbox WHERE status='new'")]
+    auto_refresh_usage()
     return {"sessions": sessions, "notes": notes, "settings": settings, "usage": store.read_usage(), "now": store.now(),
             "codex_usage": codex.rate_limits() if codex.available() else None,
             "codex": codex_info(conn) if codex.available() else None,
@@ -2839,6 +2913,8 @@ class Handler(BaseHTTPRequestHandler):
                 if re.fullmatch(r"[\w\-]+", sid):
                     want[sid] = max(1, min(int(n or 300), 1000))
             return self._send(200, {"details": sessions_detail(conn, want)})
+        if path == "/api/usage/refresh" and method == "POST":
+            return self._send(*refresh_usage(conn))
         if path == "/api/activity" and method == "GET":
             # 작업 중인 여러 세션의 진행 과정을 한 번에: items=<세션>:<시작 시각>,…
             want = {}

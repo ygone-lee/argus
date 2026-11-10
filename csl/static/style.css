@@ -668,6 +668,9 @@ kbd {
 .u-rec { color: var(--text-3); }
 .u-age { color: var(--text-3); font-style: italic; }   /* 오래전에 받아 둔 값(Fable 주간 — /usage 를 열 때만 새로 받는다) */
 .u-item.u-stale b { color: var(--text-3); font-weight: 500; }
+.u-item.u-click { cursor: pointer; border-radius: 4px; }
+.u-item.u-click:hover { background: var(--surface-2); }
+.u-item.u-click.busy { opacity: .55; cursor: progress; }
 .u-item.ahead .u-rec { color: var(--waiting); }
 .u-bar { position: relative; width: 48px; height: 6px; border-radius: 3px; background: var(--surface-hover); overflow: hidden; }
 .u-bar i { position: relative; display: block; height: 100%; background: var(--working); border-radius: 4px; }

@@ -4319,9 +4319,10 @@ function renderUsage(u, cx) {
   // 그사이 초기화 시각이 지났으면 값 대신 「—」(지금 얼마나 썼는지 모른다)
   const scopedPart = x => {
     const old = x.at && Date.now() / 1000 - x.at > 3600, gone = x.resets_at && x.resets_at < Date.now() / 1000;
-    const how = "\nClaude Code 의 /usage 를 열 때 새로 받습니다" + (x.at ? ` · 마지막으로 받은 때 ${rel(x.at)}` : "");
-    if (gone) return `<span class="u-item u-stale" title="${esc(`${x.label} 주간 한도 — 받아 둔 값이 초기화 시각(${resetAt(x.resets_at)})을 지나 지금 사용량을 모릅니다` + how)}"><span class="u-label">${esc(x.label)}</span><b>—</b></span>`;
-    return part(x.label, x.pct, x.resets_at, USAGE_WINDOW.week, how, old ? rel(x.at) + " 기준" : "");
+    const how = "\n30분마다 저절로 새로 받습니다" + (x.at ? ` · 마지막으로 받은 때 ${rel(x.at)}` : "");
+    if (gone) return `<span data-action="usage-refresh" class="u-click u-item u-stale" title="${esc(`${x.label} 주간 한도 — 받아 둔 값이 초기화 시각(${resetAt(x.resets_at)})을 지나 지금 사용량을 모릅니다` + how + "\n눌러서 지금 새로 받기")}"><span class="u-label">${esc(x.label)}</span><b>—</b></span>`;
+    return part(x.label, x.pct, x.resets_at, USAGE_WINDOW.week, how + "\n눌러서 지금 새로 받기", old ? rel(x.at) + " 기준" : "")
+      .replace('<span class="u-item', '<span data-action="usage-refresh" class="u-click u-item');
   };
   // Codex 한도(가장 최근 Codex 기록의 값) — Claude 뒤에 「Codex 주간」처럼
   const html = [part("5시간", u.five_hour, u.five_hour_reset, USAGE_WINDOW.five),
@@ -4331,6 +4332,19 @@ function renderUsage(u, cx) {
     .filter(Boolean).join('<span class="u-sep"></span>');
   el.hidden = false;
   if (el._html !== html) { el._html = html; el.innerHTML = html; }
+}
+
+// Fable 등 모델별 주간 한도 새로 받기 — 서버가 `claude -p "/usage"`(토큰 안 씀·기록 안 남김)로 받는다. 30분마다 저절로도
+async function refreshScopedUsage(el) {
+  if (el.classList.contains("busy")) return;
+  el.classList.add("busy");
+  toast("모델별 사용량을 새로 받는 중…");
+  try {
+    const r = await api("POST", "/api/usage/refresh", {});
+    toast("새로 받았습니다");
+    await poll();
+  } catch (err) { toast(err.message); }
+  el.classList.remove("busy");
 }
 
 // ------------------------------------------------------------------ 세션 모델·effort
@@ -5108,7 +5122,7 @@ async function updateSlash(ta) {
 const CX_BOARD = new Set(["model", "fork", "rename", "copy", "diff", "recap", "clear", "new"]);   // Codex: 보드 창·메뉴로 여는 명령
 // Claude Code: 보드 메뉴로 여는 명령 · 터미널에서만(세션 목록·전체 화면·설치·로그인처럼 터미널 밖으로 나가는 것)
 const CL_BOARD = new Set(["model", "effort", "fork", "branch", "subtask", "goal", "rename", "copy", "diff", "recap"]);
-const CL_TERMINAL = new Set(["resume", "config", "plugin", "permissions", "theme", "scroll-speed", "autocompact", "usage", "artifacts",
+const CL_TERMINAL = new Set(["resume", "config", "plugin", "permissions", "theme", "scroll-speed", "autocompact", "artifacts",
   "powerup", "agents", "tui", "teleport", "login", "logout", "upgrade", "install", "install-github-app", "terminal-setup",
   "setup-bedrock", "setup-vertex", "web-setup", "design-login", "remote-env", "cloud-plugins", "ide", "desktop", "background",
   "daemon", "btw", "skills", "loops", "workflows", "ultraplan", "ultrareview"]);
@@ -5549,6 +5563,7 @@ document.addEventListener("click", async e => {
   }
   if (a === "perm-menu") return openPermMenu(el);
   if (a === "cx-perm") return runCodexCmd(el.dataset.sid, el, "/permissions");
+  if (a === "usage-refresh") return refreshScopedUsage(el);
   if (a === "goal-menu") return openGoalMenu(el.dataset.sid, el);
   if (a === "fork-menu") return openForkMenu(el);
   if (a === "fam-close") {
