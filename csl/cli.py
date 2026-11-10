@@ -176,6 +176,13 @@ def usage_lines(state):
     u = state.get("usage") or {}
     claude = [x for x in (usage_part("5시간", u.get("five_hour"), u.get("five_hour_reset"), 5 * 3600),
                           usage_part("주간", u.get("seven_day"), u.get("seven_day_reset"), 7 * 86400)) if x]
+    for x in u.get("scoped") or []:   # 모델별 주간(Fable) — Claude Code 가 /usage 때 받아 둔 값
+        if x.get("resets_at") and x["resets_at"] < time.time():
+            claude.append("%s 주간 모름(받아 둔 값이 초기화 시각을 지남 — /usage 를 열면 새로 받음)" % x["label"])
+        else:
+            p = usage_part(x["label"] + " 주간", x.get("pct"), x.get("resets_at"), 7 * 86400)
+            if p:
+                claude.append(p + (" — %s 받은 값" % ago(x["at"]) if x.get("at") and time.time() - x["at"] > 3600 else ""))
     if claude:
         out.append("Claude Code 한도: " + " · ".join(claude))
     cx = state.get("codex_usage") or {}

@@ -4297,9 +4297,10 @@ function pacePct(reset, windowSec) {
 function renderUsage(u, cx) {
   const el = $("#usage");
   const cxLimits = (cx && cx.limits) || [];
-  if ((!u || (u.five_hour == null && u.seven_day == null)) && !cxLimits.length) { el.hidden = true; return; }
+  const scoped = (u && u.scoped) || [];
+  if ((!u || (u.five_hour == null && u.seven_day == null)) && !cxLimits.length && !scoped.length) { el.hidden = true; return; }
   u = u || {};
-  const part = (label, pct, reset, windowSec) => {
+  const part = (label, pct, reset, windowSec, note = "", age = "") => {
     if (pct == null) return "";
     const pace = pacePct(reset, windowSec);
     const ahead = pace != null && pct > pace + 5;
@@ -4308,15 +4309,24 @@ function renderUsage(u, cx) {
     const perDay = windowSec > 86400 ? " · 하루 평균 " + (100 / 7).toFixed(1) + "%" : " · 1시간 평균 20%";
     const tip = `${label} 사용량 ${Math.round(pct)}%` + (reset ? ` · ${untilText(reset)} 초기화` : "") +
       (pace == null ? "" : `\n권장 ${pace}% — 지금까지 지난 시간만큼 고르게 썼을 때의 양${perDay}` +
-        (ahead ? `\n권장보다 ${Math.round(pct - pace)}%p 빠릅니다` : pct < pace ? `\n권장보다 ${Math.round(pace - pct)}%p 여유` : ""));
+        (ahead ? `\n권장보다 ${Math.round(pct - pace)}%p 빠릅니다` : pct < pace ? `\n권장보다 ${Math.round(pace - pct)}%p 여유` : "")) + note;
     // 아래 상태줄에 한 줄로: 이름 · 막대(권장 구간) · % · 권장 · 초기화 시각(좁은 화면에선 뒤에서부터 숨김)
     return `<span class="u-item ${lv} ${ahead ? "ahead" : ""}" title="${esc(tip)}"><span class="u-label">${label}</span>
       <span class="u-bar">${pace != null ? `<span class="u-pace" style="width:${pace}%"></span>` : ""}<i style="width:${Math.min(100, pct)}%"></i>${pace != null && pct > pace ? `<span class="u-notch" style="left:${pace}%"></span>` : ""}</span>
-      <b>${Math.round(pct)}%</b>${pace != null ? `<span class="u-rec">권장 ${pace}%</span>` : ""}${reset ? `<span class="u-at">↻ ${resetAt(reset)}</span>` : ""}</span>`;
+      <b>${Math.round(pct)}%</b>${pace != null ? `<span class="u-rec">권장 ${pace}%</span>` : ""}${reset ? `<span class="u-at">↻ ${resetAt(reset)}</span>` : ""}${age ? `<span class="u-age">${age}</span>` : ""}</span>`;
+  };
+  // 모델별 주간 한도(Fable) — Claude Code 가 /usage 를 열 때 받아 둔 값이라 오래됐을 수 있다. 1시간이 넘으면 받은 때를 붙이고,
+  // 그사이 초기화 시각이 지났으면 값 대신 「—」(지금 얼마나 썼는지 모른다)
+  const scopedPart = x => {
+    const old = x.at && Date.now() / 1000 - x.at > 3600, gone = x.resets_at && x.resets_at < Date.now() / 1000;
+    const how = "\nClaude Code 의 /usage 를 열 때 새로 받습니다" + (x.at ? ` · 마지막으로 받은 때 ${rel(x.at)}` : "");
+    if (gone) return `<span class="u-item u-stale" title="${esc(`${x.label} 주간 한도 — 받아 둔 값이 초기화 시각(${resetAt(x.resets_at)})을 지나 지금 사용량을 모릅니다` + how)}"><span class="u-label">${esc(x.label)}</span><b>—</b></span>`;
+    return part(x.label, x.pct, x.resets_at, USAGE_WINDOW.week, how, old ? rel(x.at) + " 기준" : "");
   };
   // Codex 한도(가장 최근 Codex 기록의 값) — Claude 뒤에 「Codex 주간」처럼
   const html = [part("5시간", u.five_hour, u.five_hour_reset, USAGE_WINDOW.five),
     part("주간", u.seven_day, u.seven_day_reset, USAGE_WINDOW.week),
+    ...scoped.map(scopedPart),
     ...cxLimits.map(x => part("Codex " + x.label, x.pct, x.resets_at, (x.window_minutes || 0) * 60 || null))]
     .filter(Boolean).join('<span class="u-sep"></span>');
   el.hidden = false;

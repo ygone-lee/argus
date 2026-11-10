@@ -666,6 +666,8 @@ kbd {
 .u-item { display: inline-flex; align-items: center; gap: 5px; font-size: calc(11.5px * var(--fs, 1)); color: var(--text-2); white-space: nowrap; cursor: default; }
 .u-label { color: var(--text-3); font-weight: 600; }
 .u-rec { color: var(--text-3); }
+.u-age { color: var(--text-3); font-style: italic; }   /* 오래전에 받아 둔 값(Fable 주간 — /usage 를 열 때만 새로 받는다) */
+.u-item.u-stale b { color: var(--text-3); font-weight: 500; }
 .u-item.ahead .u-rec { color: var(--waiting); }
 .u-bar { position: relative; width: 48px; height: 6px; border-radius: 3px; background: var(--surface-hover); overflow: hidden; }
 .u-bar i { position: relative; display: block; height: 100%; background: var(--working); border-radius: 4px; }
@@ -1148,7 +1150,7 @@ body.bp-resizing, body.bp-resizing *, body.tp-resizing, body.tp-resizing * { cur
 .search-wrap .search { width: 100%; }
 /* 좁은 화면: 권장 → 초기화 시각 → 막대 순으로 줄인다 */
 @media (max-width: 1250px) { .u-rec { display: none; } }
-@media (max-width: 980px) { .u-at { display: none; } }
+@media (max-width: 980px) { .u-at, .u-age { display: none; } }
 @media (max-width: 640px) { .u-bar { display: none; } .statusbar { gap: 8px; padding: 0 10px; } }
 .tm-lang select { font: inherit; font-size: calc(12.5px * var(--fs, 1)); padding: 3px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
 

@@ -1314,10 +1314,47 @@ def _status_rate_limits():
             "updated_at": mtime}
 
 
+CLAUDE_JSON = os.path.expanduser("~/.claude.json")
+_SCOPED_CACHE = {}
+
+
+def scoped_limits():
+    """모델별 주간 한도(Fable 등) — [{label, pct, resets_at, at}]. 상태줄 입력에는 없고, Claude Code 가 사용량 서버에서 받아
+    ~/.claude.json 의 cachedUsageUtilization 에 남긴 것만 있다. /usage 를 열 때 등에만 새로 받으므로 at(받은 시각)을 같이 준다.
+    지금 로그인한 계정의 값이 아니면 쓰지 않는다. 다른 값(계정 정보 등)은 읽기만 하고 넘기지 않는다."""
+    try:
+        mt = os.path.getmtime(CLAUDE_JSON)
+    except OSError:
+        return []
+    hit = _SCOPED_CACHE.get("v")
+    if hit and hit[0] == mt:
+        return hit[1]
+    out = []
+    try:
+        with open(CLAUDE_JSON, encoding="utf-8") as f:
+            d = json.load(f)
+        c = d.get("cachedUsageUtilization") or {}
+        acct = (d.get("oauthAccount") or {}).get("accountUuid")
+        if c and (not acct or not c.get("accountUuid") or c.get("accountUuid") == acct):
+            at = (c.get("fetchedAtMs") or 0) / 1000 or None
+            for x in ((c.get("utilization") or {}).get("limits") or []):
+                model = ((x.get("scope") or {}).get("model") or {}).get("display_name")
+                if x.get("kind") == "weekly_scoped" and model and x.get("percent") is not None:
+                    out.append({"label": model, "pct": x["percent"], "resets_at": parse_ts(x.get("resets_at")), "at": at})
+    except (OSError, ValueError, AttributeError):
+        out = []
+    _SCOPED_CACHE["v"] = (mt, out)
+    return out
+
+
 def read_usage():
-    """계정 사용량(5시간·주간). Claude Code 가 상태줄에 넘기는 rate_limits 를 상태줄 탭이 남긴 것. 없으면 None."""
+    """계정 사용량(5시간·주간 + 모델별 주간). 5시간·주간은 Claude Code 가 상태줄에 넘기는 rate_limits 를 상태줄 탭이 남긴 것,
+    모델별(Fable)은 scoped_limits. 아무것도 없으면 None."""
     tap = _status_rate_limits()
-    return dict(tap, source="statusline") if tap else None
+    scoped = scoped_limits()
+    if not tap and not scoped:
+        return None
+    return dict(tap or {}, source="statusline", scoped=scoped)
 
 
 # ---------------------------------------------------------------- 에이전트 팀
