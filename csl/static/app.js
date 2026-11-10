@@ -2723,8 +2723,8 @@ $("#colMenu").addEventListener("click", async e => {
     // (다른 세션의 변수를 물려받은 것 등)을 깨끗하게. 칸·넥스트 액션은 같은 세션 ID 로 이어진다
     const busy = ["working", "waiting"].includes(displayState(s));
     const how = isCodex(s)
-      ? "Codex 를 끝내고(/quit) 보드 터미널에서 같은 대화로 새로 엽니다(codex resume). 새로 깐 Codex 버전으로 뜹니다"
-      : "Claude Code 를 끝내고(워크트리는 남김) 보드 터미널에서 같은 대화로 새로 엽니다. 새로 깐 Claude Code 버전으로 뜨고, 모델·effort·권한 모드는 그대로 넘깁니다(권한 확인 건너뛰기 모드는 빼고). 그 세션에서 돌던 백그라운드 작업은 끊깁니다";
+      ? "Codex 를 끄고 같은 대화로 다시 엽니다(새 버전으로)."
+      : "Claude Code 를 끄고 같은 대화로 다시 엽니다(새 버전으로). 모델·effort·권한 모드는 그대로, 백그라운드 작업은 끊깁니다.";
     item.outerHTML = `<div class="cm-confirm">
       <div>${busy ? "<b>작업 중이거나 확인을 기다리는 중입니다.</b> 끝난 뒤 다시 시작해 주세요." : "이 세션을 다시 시작할까요?"}<br><span class="muted">${how}</span></div>
       <div class="cm-confirm-btns"><button class="btn" data-cm="cancel">취소</button>${busy ? "" : `<button class="btn primary" data-cm="restart-yes">다시 시작</button>`}</div>

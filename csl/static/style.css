@@ -777,7 +777,7 @@ body.col-zoom .board > .col.active .col-resize { display: none; }
 .fpath-reveal:hover { opacity: 1; }
 
 /* ⋮ 메뉴 안 보관 확인 */
-.cm-confirm { padding: 8px 10px 6px; font-size: calc(13px * var(--fs, 1)); line-height: 1.45; }
+.cm-confirm { max-width: 320px; white-space: normal; word-break: keep-all; overflow-wrap: anywhere; padding: 8px 10px 6px; font-size: calc(13px * var(--fs, 1)); line-height: 1.45; }
 .cm-confirm .muted { font-size: calc(11.5px * var(--fs, 1)); }
 .cm-confirm-btns { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
 .cm-wt { margin-top: 8px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-hover); }
