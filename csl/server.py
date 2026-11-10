@@ -20,7 +20,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from csl import agentsetup, boards, brain, cardchat, codex, commands, config, connectors, daily, delegate, focus, gitreport, hook, inboxrun, locate, notesreport, sendqueue, skills, store, terminals, update, webterm  # noqa: E402
+from csl import agentsetup, boards, brain, cardchat, codex, commands, config, connectors, daily, delegate, devlog, focus, gitreport, hook, inboxrun, locate, notesreport, sendqueue, skills, store, terminals, update, webterm  # noqa: E402
 from csl.terminals import tmux as tmux_term  # noqa: E402
 from csl.terminals import web as web_term  # noqa: E402
 
@@ -1603,7 +1603,7 @@ def list_state(conn, days, show_archived):
             "codex_usage": codex.rate_limits() if codex.available() else None,
             "codex": codex_info(conn) if codex.available() else None,
             "inbox_new": len(inbox_new_at), "inbox_new_at": inbox_new_at, "boards": boards.listing(conn, show_archived),
-            "update": update.summary(conn), "setup": setup_issues(conn)}
+            "update": update.summary(conn), "setup": setup_issues(conn), "dev": devlog.enabled()}
 
 
 def setup_issues(conn):
@@ -1742,6 +1742,12 @@ class Handler(BaseHTTPRequestHandler):
         return host in ALLOWED_HOSTS
 
     def _send(self, code, body, ctype="application/json; charset=utf-8", cache="no-store"):
+        dev = getattr(self, "_dev", None)
+        if dev and code >= 400 and isinstance(body, dict):   # 개발용: 보내기 실패를 .dev/ 에 남긴다(devlog — .dev/ 가 있을 때만)
+            self._dev = None
+            name = devlog.record("send", dev["sess"], error=body.get("error"), text=dev["text"], status=code)
+            if name:
+                body = dict(body, devlog=name)
         if not isinstance(body, bytes):
             body = json.dumps(body, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
@@ -1785,6 +1791,7 @@ class Handler(BaseHTTPRequestHandler):
             if body is None:
                 return self._send(415, {"error": "JSON 객체 본문(application/json)이 필요합니다"})
         conn = store.connect()
+        self._dev = None
         try:
             with conn:
                 return self._api(conn, method, path, parse_qs(url.query), body)
@@ -2826,6 +2833,17 @@ class Handler(BaseHTTPRequestHandler):
             detail = session_detail(conn, m.group(1), limit)
             return self._send(200, detail) if detail else self._send(404, {"error": "no session"})
 
+        m = re.fullmatch(r"/api/sessions/([\w\-]+)/dev-snapshot", path)
+        if m and method == "POST" and devlog.enabled():
+            # 개발용: 칸 ⋮ → 🐞 지금 상태 저장 — 오류 없이 이상할 때 화면·세션·보드 쪽 상태를 남긴다
+            sess = session_row(conn, m.group(1))
+            if sess is None:
+                return self._send(404, {"error": "no session"})
+            devlog.start()
+            client = (body or {}).get("client")
+            name = devlog.record("manual", sess, error=(body or {}).get("note") or None,
+                                 text=(client or {}).get("draft") if isinstance(client, dict) else None, client=client)
+            return self._send(200 if name else 500, {"ok": bool(name), "path": name} if name else {"error": "저장하지 못했습니다"})
         m = re.fullmatch(r"/api/sessions/([\w\-]+)/send", path)
         if m and method == "POST":
             sess = session_row(conn, m.group(1))
@@ -2834,6 +2852,9 @@ class Handler(BaseHTTPRequestHandler):
             why = brain_guard(conn, body, sess["session_id"])
             if why:
                 return self._send(403, {"error": why})
+            if devlog.enabled():
+                devlog.start()
+                self._dev = {"sess": sess, "text": (body or {}).get("text") or ""}
             if sess.get("agent") == "codex":
                 return self._send(*codex_send(conn, sess, body))
             # 어느 터미널에서도 돌고 있지 않으면(종료·탭을 닫음) 보드가 「새 탭에서 이어 열기」를 물어본다(resume)

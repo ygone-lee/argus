@@ -95,7 +95,7 @@ async function api(method, path, body, headers) {
   if (!res.ok) {
     let msg = method + " " + path + " → " + res.status, data = {};
     try { data = await res.json() || {}; msg = data.error || msg; } catch (e) { /* 본문 없음 */ }
-    const err = new Error(msg);
+    const err = new Error(msg + (data.devlog ? " · 🐞 " + data.devlog : ""));   // 개발용 실패 기록(.dev/ 가 있을 때만)
     err.data = data;   // 서버가 덧붙인 것(예: resume — 새 탭에서 이어 열기를 물어볼 세션)
     throw err;
   }
@@ -500,6 +500,7 @@ async function poll() {
   S.sessions = data.sessions;
   S.boards = data.boards || [];   // 세션이 아닌 보드 칸(터미널·마크다운) — 칸 순서에는 세션과 섞인다
   S.settings = data.settings || {};
+  S.dev = !!data.dev;   // 개발용 기록이 켜져 있음(저장소에 .dev/ 가 있음) — ⋮ 「🐞 지금 상태 저장」
   if (!S.colsInit && S.settings.board_cols) { S.boardLimit = S.settings.board_cols; S.colsInit = true; }
   S.inboxNew = data.inbox_new || 0;
   S.inboxNewAt = data.inbox_new_at || [];
@@ -2671,6 +2672,7 @@ function openColMenu(btn) {
       ${s.state !== "ended" && !s.desktop ? `<button class="cm-item danger" data-cm="quit">⏻ 세션 종료 <span class="muted">Codex 를 닫고(/quit) 터미널 탭도 닫기</span></button>` : ""}
       <button class="cm-item" data-cm="pin">📌 ${pinOf(s) ? "고정 풀기" : "맨 앞에 고정"} <span class="muted">P</span></button>
       <button class="cm-item" data-cm="diff">🧾 변경 보기 <span class="muted">커밋 안 한 변경</span></button>
+      ${S.dev ? `<button class="cm-item" data-cm="dev-snap">🐞 지금 상태 저장 <span class="muted">개발용 · .dev/</span></button>` : ""}
       ${colWidthOf(sid) ? `<button class="cm-item" data-cm="width-reset">↔ 기본 너비로 <span class="muted">${colWidthOf(sid)}px</span></button>` : ""}
       ${s.state === "ended" ? `<button class="cm-item danger" data-cm="delete">🗑 보드에서 지우기 <span class="muted">칸·대화 기록</span></button>` : ""}`;
     menu.hidden = false;
@@ -2686,6 +2688,7 @@ function openColMenu(btn) {
     ${s.brain ? "" /* 브레인은 패널에 따로 떠서 고정·목표·변경·너비가 의미 없다 — 다시 열기·종료·원격만 */ : `<button class="cm-item" data-cm="pin">📌 ${pinOf(s) ? "고정 풀기" : "맨 앞에 고정"} <span class="muted">P</span></button>
     ${d !== "ended" ? `<button class="cm-item" data-cm="goal">🎯 ${s.goal && !s.goal.met ? "목표 바꾸기·풀기" : "목표 걸기"} <span class="muted">/goal</span></button>` : ""}
     <button class="cm-item" data-cm="diff">🧾 변경 보기 <span class="muted">커밋 안 한 변경</span></button>
+    ${S.dev ? `<button class="cm-item" data-cm="dev-snap">🐞 지금 상태 저장 <span class="muted">개발용 · .dev/</span></button>` : ""}
     ${colWidthOf(sid) ? `<button class="cm-item" data-cm="width-reset">↔ 기본 너비로 <span class="muted">${colWidthOf(sid)}px</span></button>` : ""}
     ${s.state === "ended" ? `<button class="cm-item danger" data-cm="delete">🗑 보드에서 지우기 <span class="muted">칸·대화 기록</span></button>` : ""}`}`;
   menu.hidden = false;
@@ -2823,6 +2826,15 @@ $("#colMenu").addEventListener("click", async e => {
   if (item.dataset.cm === "pin") return togglePin(sid);
   if (item.dataset.cm === "goal") return openGoalMenu(sid, btnOfCol(sid, ".col-menu-btn"));
   if (item.dataset.cm === "diff") return openDiff(sid);
+  if (item.dataset.cm === "dev-snap") {   // 개발용: 오류 없이 이상할 때 그 순간을 .dev/send-failures/ 에 남긴다
+    const col = colEl(sid), ta = col && col.querySelector(".cmp-text"), s2 = sessionById(sid);
+    const client = { draft: ta ? ta.value : null, display_state: s2 ? displayState(s2) : null, view: S.view, board_mode: S.boardMode,
+      live_items: (S.live.get(sid) || {}).items ? S.live.get(sid).items.length : 0, term_open: TERM.open.has(sid),
+      toasts: S.devToasts || [], url: location.href, ua: navigator.userAgent };
+    try { const r = await api("POST", `/api/sessions/${sid}/dev-snapshot`, { client }); toast("🐞 저장했습니다 · " + r.path); }
+    catch (err) { toast(err.message); }
+    return;
+  }
   if (item.dataset.cm === "width-reset") return setColWidth(sid, null);
   if (item.dataset.cm === "archive" || item.dataset.cm === "archive-yes") {
     // 칸 = 원본과 갈래 묶음. 보관하면 칸째 숨긴다(고른 탭 하나만 숨기면 다른 갈래가 남아 칸이 그대로 보였다)
@@ -5374,6 +5386,7 @@ async function copyCode(btn) {
   setTimeout(() => { btn.textContent = "복사"; btn.classList.remove("done"); }, 1400);
 }
 function toast(msg) {
+  if (S.dev) (S.devToasts = S.devToasts || []).push({ at: new Date().toLocaleTimeString(), msg: String(msg) }), S.devToasts.splice(0, Math.max(0, S.devToasts.length - 20));
   const t = $("#toast");
   t.textContent = msg;
   t.classList.add("show");

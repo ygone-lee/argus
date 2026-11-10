@@ -19,7 +19,7 @@ import shlex
 import threading
 import time
 
-from csl import config, terminals
+from csl import config, devlog, terminals
 from csl.terminals import Target
 from csl.terminals.orca import _run, norm_title as _norm_title   # 같은 하위 프로세스 실행·탭 제목 정규화
 
@@ -356,6 +356,8 @@ def send_prompt(t, text, allow_bang=False):
         return False, [], "터미널에 선택 창이 떠 있습니다: " + box
     if t.terminal.checks_submit:
         return t.terminal.submit(t.handle, text)
+    if devlog.enabled():
+        devlog.step("before_write", how="paste", screen=_screen(t))
     # 글을 넣고, 입력칸에 실제로 들어간 것을 본 뒤에만 Enter — 확인한 직후 선택 창(Claude Code 가 스스로 띄우는 설정 창 등)이
     # 뜨면 글이 그 창으로 들어가고 Enter 가 엉뚱한 선택이 된다
     t0 = time.time()
@@ -394,6 +396,8 @@ def _landed(t, text, wait=2.0):
             if tail is not None and want_end in re.sub(r"\s+", "", tail):
                 return True
         if time.time() >= end:
+            if devlog.enabled():   # Enter 를 누르지 않은 이유 — 마지막으로 본 화면과 찾던 글
+                devlog.step("not_landed", want=want, want_end=want_end, input_line=got, screen=screen)
             return False
         time.sleep(0.25)
 
@@ -435,6 +439,8 @@ def type_text(t, text, image_paths, allow_bang=False):
     for i, p in enumerate(image_paths):
         if i not in used:
             typed += (" " if typed else "") + "\x1b[200~" + p + "\x1b[201~"
+    if devlog.enabled():
+        devlog.step("before_write", how="type", screen=_screen(t))
     t0 = time.time()
     if not _raw(t, typed):
         return False, "입력 전송 실패"
