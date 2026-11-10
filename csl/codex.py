@@ -334,14 +334,48 @@ def thread_turns(th):
         hit = _TURN_CACHE.get(path)
         if key and hit and hit[0] == key:
             return hit[1]
-        turns = _turns_from_rollout(path)
+        turns = _split_steers(_turns_from_rollout(path))
         if key and turns:
             if len(_TURN_CACHE) > 40:
                 _TURN_CACHE.clear()
             _TURN_CACHE[path] = (key, turns)
         if turns:
             return turns
-    return _turns_from_db(th["id"])
+    return _split_steers(_turns_from_db(th["id"]))
+
+
+STEER_NOTE = "(작업 중에 다음 요청을 받아 이어서 진행)"
+
+
+def _split_steers(turns):
+    """Codex 는 작업 중에 보낸 글을 새 턴이 아니라 지금 턴에 끼워 넣는다(같은 turn_id 안의 두 번째 사용자 메시지).
+    보드에서는 터미널처럼 그 자리에서 턴을 나눠 보여 준다 — 원래 turn_id 는 첫 요청 쪽(훅이 그 id 로 턴을 만든다),
+    도중 요청부터는 「<turn_id>~2」…. 앞 조각은 끝난 것으로, 응답은 그때까지의 마지막 중간 메시지(없으면 안내 문구).
+    steered=True 인 앞 조각은 새 응답 알림을 만들지 않는다."""
+    out = []
+    for t in turns:
+        users = [i for i in t["items"] if _norm(i.get("type")) == "usermessage" and _item_text(i).strip()]
+        if len(users) < 2:
+            out.append(t)
+            continue
+        cuts = [u.get("_at") for u in users[1:]]
+        if any(c is None for c in cuts):
+            out.append(t)
+            continue
+        bounds = [None] + cuts + [None]
+        for k in range(len(users)):
+            lo, hi = bounds[k], bounds[k + 1]
+            its = [i for i in t["items"] if (lo is None or (i.get("_at") or 0) >= lo) and (hi is None or (i.get("_at") or 0) < hi)]
+            last = k == len(users) - 1
+            seg = dict(t, items=its, prompt=_item_text(users[k]), turn_id=t["turn_id"] if k == 0 else "%s~%d" % (t["turn_id"], k + 1))
+            if k:
+                seg["prompt_at"] = lo
+            if not last:
+                agent = [_item_text(i) for i in its if _norm(i.get("type")) == "agentmessage" and _item_text(i).strip()]
+                seg.update(status="done", response=agent[-1] if agent else STEER_NOTE, response_at=hi, steered=True)
+                seg.pop("error", None)
+            out.append(seg)
+    return out
 
 
 # ------------------------------------------------------------------ 작업 과정(칸의 진행 단계·「작업 과정 보기」)
@@ -1489,8 +1523,14 @@ def _upsert_turns(conn, sid, turns):
                 "INSERT INTO turns (session_id, prompt_id, prompt, prompt_at, response, response_at, status) VALUES (?,?,?,?,?,?,?)",
                 (sid, t["turn_id"], prompt, t["prompt_at"], resp if t["status"] != "running" else None,
                  t["response_at"] if t["status"] != "running" else None, t["status"])).lastrowid
-            if t["status"] != "running" and resp:
+            if t["status"] != "running" and resp and not t.get("steered"):
                 responded.append(tid)
+        elif t.get("steered"):
+            # 도중 요청으로 나눈 앞 조각 — 훅(Stop)이 원래 turn_id 의 행에 마지막 답을 넣었어도 그때까지의 중간 메시지로 맞춘다.
+            # 새 응답 알림은 만들지 않는다(마지막 답은 뒤 조각이 알린다)
+            if row["status"] == "running" or row["response"] != resp:
+                conn.execute("UPDATE turns SET response=?, response_at=?, status='done' WHERE id=?",
+                             (resp, t["response_at"] or store.now(), row["id"]))
         elif row["status"] == "running" and t["status"] != "running":
             conn.execute("UPDATE turns SET response=?, response_at=?, status=? WHERE id=?",
                          (resp, t["response_at"] or store.now(), t["status"], row["id"]))
