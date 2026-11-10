@@ -3244,7 +3244,7 @@ S.chat = {};              // id → 서버가 준 {messages, running, partial, t
 S.chatDraft = {};         // id → 쓰다 만 질문(카드 목록을 다시 그려도 남게)
 S.chatModel = {};         // id → 고른 모델(화면 이름 — 서버가 정확한 ID 로 바꿔 실행)
 S.chatEffort = {};        // id → 고른 effort("" 이면 모델 기본값)
-const CHAT_MODELS = ["Sonnet 5.5", "Opus 5.5", "Fable 5.1", "Haiku 5.5"];
+const CHAT_MODELS = ["Sonnet 5.5", "Opus 5.5", "Fable 5.2", "Fable 5.1", "Haiku 5.5"];
 const CHAT_EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
 function chatReplyBlock(text) {
   // 답장 초안으로 쓸 글: ``` 블록이 있으면 그 안, 없으면 전체
@@ -4258,7 +4258,7 @@ function renderUsage(u, cx) {
 }
 
 // ------------------------------------------------------------------ 세션 모델·effort
-const MODEL_CHOICES = ["Opus 5.5", "Fable 5.1", "Sonnet 5.5", "Haiku 5.5"];
+const MODEL_CHOICES = ["Opus 5.5", "Fable 5.2", "Sonnet 5.5", "Haiku 5.5"];
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 // claude-sonnet-5-5[1m] → Sonnet 5.5 (보드에서 바꾼 직후엔 이미 「Sonnet 5.5」 형태)
 function modelName(m) {
@@ -7920,7 +7920,7 @@ const BD = { docs: new Map() };   // 칸 id → { text, mtime, msgs, msgSig, loa
 const BOARD_KIND = { md: ["📝", "문서"], term: ["⌨", "터미널"] };
 // AI 대화창의 모델·effort: 칸 머리의 칩에서 고르고(칸마다 브라우저에 기억) 보낼 때마다 claude -p --model --effort 로.
 // 고른 적 없으면 모델은 설정 board_ai_model, effort 는 모델 기본값
-const MD_ALIAS = { sonnet: "Sonnet 5.5", opus: "Opus 5.5", haiku: "Haiku 5.5", fable: "Fable 5.1" };
+const MD_ALIAS = { sonnet: "Sonnet 5.5", opus: "Opus 5.5", haiku: "Haiku 5.5", fable: "Fable 5.2" };
 function mdAi(s) {
   const v = load("csl.mdAi." + s.board_id, null) || {};
   const def = MD_ALIAS[(S.settings || {}).board_ai_model] || "Sonnet 5.5";

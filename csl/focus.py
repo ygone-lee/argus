@@ -679,7 +679,8 @@ def set_model_effort(t, model_label=None, effort=None):
         target = next((i for i, (lab, _) in enumerate(rows) if _norm_model(lab) == want), None)
         cursor = next((i for i, (_, c) in enumerate(rows) if c), None)
         if target is None:
-            return abort("선택 창에 '%s' 가 없습니다" % model_label)
+            # 새 모델은 그 모델을 아는 Claude Code 버전으로 뜬 세션의 선택 창에만 나온다 — 업데이트 전에 뜬 세션이면 다시 시작
+            return abort("이 세션의 /model 선택 창에 '%s' 가 없습니다 — 업데이트 전에 뜬 세션이면 ⋮ → ↻ 세션 다시 시작 뒤 다시 골라 주세요" % model_label)
         if cursor is None:
             return abort("선택 창의 커서 위치를 읽지 못했습니다")
         if target != cursor:

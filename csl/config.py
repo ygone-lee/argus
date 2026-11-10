@@ -10,7 +10,7 @@ from csl import store
 _REPO = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 MODELS = ["sonnet", "opus", "haiku", "fable"]
 # 카드 대화에서 고르는 모델(화면 이름 → Claude Code --model 에 넘기는 정확한 ID)
-CARDCHAT_MODELS = {"Sonnet 5.5": "claude-sonnet-5-5", "Opus 5.5": "claude-opus-5-5", "Fable 5.1": "claude-fable-5-1",
+CARDCHAT_MODELS = {"Sonnet 5.5": "claude-sonnet-5-5", "Opus 5.5": "claude-opus-5-5", "Fable 5.2": "claude-fable-5-2", "Fable 5.1": "claude-fable-5-1",
                    "Haiku 5.5": "claude-haiku-5-5"}
 EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 BRAIN_PERMS = ["auto", "manual", "acceptEdits", "plan"]   # claude --permission-mode 값(manual = 명령마다 묻기)

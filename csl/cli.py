@@ -782,7 +782,7 @@ def cmd_note(args):
 
 
 # ---------------------------------------------------------------- 보드에서 하는 일을 대화로(사용자가 시켰을 때만)
-SHORT_MODELS = {"sonnet": "Sonnet 5.5", "opus": "Opus 5.5", "haiku": "Haiku 5.5", "fable": "Fable 5.1"}
+SHORT_MODELS = {"sonnet": "Sonnet 5.5", "opus": "Opus 5.5", "haiku": "Haiku 5.5", "fable": "Fable 5.2"}
 
 
 def _say(s, msg):
