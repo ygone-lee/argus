@@ -354,6 +354,7 @@ def _cmd_text(it):
 
 
 _EXEC_CMD = re.compile(r"""\bcmd\s*:\s*(["'`])((?:\\.|(?!\1).)*)\1""", re.S)
+_WRITE_STDIN = re.compile(r'tools\.write_stdin\(\{\s*"?session_id"?\s*:\s*(\d+)\s*,\s*"?chars"?\s*:\s*"((?:[^"\\]|\\.)*)"')
 _PATCH_FILE = re.compile(r"^\*\*\* (?:Update|Add|Delete) File: (.+)$", re.M)
 _PATCH_OP = re.compile(r"^\*\*\* (Update|Add|Delete) File:", re.M)
 
@@ -391,6 +392,12 @@ def _call_step(it):
         files = _PATCH_FILE.findall(raw)
         return {"kind": "tool", "at": at, "name": "Edit", "brief": ", ".join("/".join(f.strip().split("/")[-2:]) for f in files[:4]),
                 "detail": store.mask(raw[:4000]), "op": _file_op(_PATCH_OP.findall(raw))}
+    w = _WRITE_STDIN.search(raw)
+    if w and not _EXEC_CMD.search(raw):   # 코드 모드의 tools.write_stdin — 실행 중인 명령의 출력을 기다리거나 입력을 넣는다
+        chars = _unescape(w.group(2) or "")
+        brief = ("실행 중인 명령에 입력: " + " ".join(chars.split())[:120]) if chars.strip() else "실행 중인 명령의 출력을 기다리는 중"
+        return {"kind": "tool", "at": at, "name": "Bash", "brief": store.mask(brief + " (프로세스 %s)" % w.group(1)),
+                "detail": store.mask(raw[:2000])}
     cmds = [_unescape(m.group(2)) for m in _EXEC_CMD.finditer(raw)]
     if cmds:   # 코드 모드(exec)의 tools.exec_command({cmd: …}) — 셸 명령
         return {"kind": "tool", "at": at, "name": "Bash", "brief": store.mask(" ".join(cmds[0].split())[:160]),
@@ -1333,7 +1340,8 @@ def approval_view(tg):
     return {"head": head, "options": options, "code": code}
 
 
-def _norm(s):
+def _norm_label(s):
+    """선택지 글 비교용(빈칸 하나로·소문자). 항목 종류 이름을 맞추는 _norm 과 다르다 — 같은 이름으로 두면 그것을 덮어쓴다."""
     return re.sub(r"\s+", " ", s or "").strip().lower()
 
 
@@ -1343,7 +1351,7 @@ def answer_approval(tg, n, label):
     if not v:
         return False, "승인 창이 없습니다(이미 골랐거나 닫힘)"
     opt = next((o for o in v["options"] if o["n"] == n), None)
-    if not opt or _norm(opt["label"]) != _norm(label):
+    if not opt or _norm_label(opt["label"]) != _norm_label(label):
         return False, "승인 창이 바뀌었습니다 — 다시 확인해 주세요"
     for _ in range(len(v["options"]) + 2):
         cur = next((o for o in v["options"] if o["on"]), None)
@@ -1358,7 +1366,7 @@ def answer_approval(tg, n, label):
             return False, "승인 창이 닫혔습니다"
     else:
         return False, "그 줄로 가지 못했습니다 — 터미널에서 골라 주세요"
-    if _norm(next((o["label"] for o in v["options"] if o["on"]), "")) != _norm(label):
+    if _norm_label(next((o["label"] for o in v["options"] if o["on"]), "")) != _norm_label(label):
         return False, "선택지를 맞추지 못했습니다 — 터미널에서 골라 주세요"
     tg.terminal.write(tg.handle, "\r")
     for _ in range(10):
