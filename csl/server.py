@@ -512,7 +512,8 @@ def remove_claude_worktree(path):
 
 def resume_flags(conn, sid):
     """이어 열 때(--resume) 그 세션이 쓰던 모델·effort·권한 모드를 넘기는 claude 인자(끝에 빈칸). 모르는 값은 뺀다.
-    권한 확인을 건너뛰는 모드(bypassPermissions)는 보드가 대신 켜지 않는다 — 이어 연 뒤 필요하면 사용자가 바꾼다."""
+    권한 확인 없이(bypassPermissions)였으면 그대로 — 그 모드는 켤 때 허락 옵션이 있어야 해서 함께 붙인다(--allow-…: 나중에
+    Shift+Tab·보드 메뉴로 다른 모드로 돌아갈 수도 있게)."""
     r = conn.execute("SELECT model, effort, permission_mode FROM sessions WHERE session_id=?", (sid,)).fetchone()
     if not r:
         return ""
@@ -523,7 +524,12 @@ def resume_flags(conn, sid):
         out.append("--effort " + r["effort"])
     if (r["permission_mode"] or "") in RESUME_PERMS:
         out.append("--permission-mode " + r["permission_mode"])
+    elif r["permission_mode"] == "bypassPermissions":
+        out.append(BYPASS_FLAGS)
     return "".join(x + " " for x in out)
+
+
+BYPASS_FLAGS = "--allow-dangerously-skip-permissions --permission-mode bypassPermissions"
 
 
 STALE_ASK = "터미널에 질문 창이 없어 보드에 남아 있던 질문을 지웠습니다 — 입력창을 쓸 수 있습니다"
@@ -1825,6 +1831,7 @@ class Handler(BaseHTTPRequestHandler):
             name = devlog.record("send", dev["sess"], error=body.get("error"), text=dev["text"], status=code)
             if name:
                 body = dict(body, devlog=name)
+        self._sent_code = code   # 다른 경로를 불러 응답을 대신 보낸 뒤(예: 권한 → 다시 시작) 성공했는지 보려고
         if not isinstance(body, bytes):
             body = json.dumps(body, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
@@ -2007,6 +2014,42 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True, "shell": name}) if name else self._send(502, {"error": "터미널을 열지 못했습니다"})
         return self._send(404, {"error": "not found"})
 
+    def _import_route(self, conn, sess, body):
+        """보드 터미널로 가져오기·세션 다시 시작(restart)의 앞부분 — 확인을 마치고 _import 로."""
+        sid = sess["session_id"]
+        # restart: 이미 보드 터미널에 있는 세션도 같은 방법(끝내고 같은 대화로 이어 열기)으로 다시 연다 — 환경이 꼬인 세션을
+        # 깨끗한 환경에서 다시 띄울 때(실행 중인 프로세스의 환경 변수는 바꿀 수 없다)
+        restart = bool(body.get("restart"))
+        if sess.get("agent") == "codex":
+            return self._send(*codex_import(conn, sess, body))
+        if brain.is_brain(sess["cwd"]) and not restart:
+            return self._send(409, {"error": "브레인은 늘 보드 터미널에서 돕니다 — 브레인 패널에서 다시 시작해 주세요"})
+        tg = focus.target_of(sess)
+        if tg and tg.terminal.name == "web" and sess["state"] != "ended" and not not_running(conn, sid) and not restart:
+            return self._send(409, {"error": "이미 보드 터미널에서 돌고 있습니다"})
+        full = conn.execute("SELECT bg, cwd, worktree FROM sessions WHERE session_id=?", (sid,)).fetchone()
+        x = live_agent(sid) if full["bg"] else None
+        if x:
+            tg2, err = focus.new_claude_terminal(x.get("cwd") or full["cwd"], extra="attach " + shlex.quote(x["id"]), terminal="web")
+            if not tg2:
+                return self._send(502, {"error": err})
+            LAUNCHED[tg2.handle] = store.now()
+            conn.execute("UPDATE sessions SET terminal=? WHERE session_id=?", (json.dumps(tg2.terminal.remember({}, tg2.handle)), sid))
+            return self._send(200, {"ok": True, "message": "백그라운드 세션을 보드 터미널에 붙였습니다"})
+        # 이어 열 폴더 — 지워진 워크트리면 저장소 루트에서(Claude Code 가 워크트리 묶음을 풀고 그 폴더에서 이어 연다)
+        cwd = full["cwd"] or ""
+        if not os.path.isdir(cwd):
+            root = conn.execute("SELECT project_root FROM sessions WHERE session_id=?", (sid,)).fetchone()[0] or ""
+            if "/.claude/worktrees/" in cwd and os.path.isdir(root):
+                cwd = root
+            else:
+                return self._send(409, {"error": "세션 폴더가 없습니다: " + cwd})
+        IMPORTING[sid] = store.now()
+        try:
+            return self._import(conn, sid, sess, tg, cwd, body)
+        finally:
+            IMPORTING.pop(sid, None)
+
     def _import(self, conn, sid, sess, tg, cwd, body):
         """보드 터미널로 가져오기의 본체 — 지금 터미널에서 끝내고(Orca·tmux) 보드 터미널에서 같은 세션으로 이어 연다."""
         running = sid in (focus.running_sessions() or {})
@@ -2039,7 +2082,8 @@ class Handler(BaseHTTPRequestHandler):
                 ready = True
                 break
             time.sleep(0.5)
-        return self._send(200, {"ok": True, "ready": ready, "message": "보드 터미널로 가져왔습니다" if ready else
+        return self._send(200, {"ok": True, "ready": ready, "mode": body.get("mode"),
+                                "message": (body.get("done_msg") or "보드 터미널로 가져왔습니다") if ready else
                                 "보드 터미널에서 여는 중입니다 — 선택 창이 떠 있으면 칸의 「⌨ 터미널」에서 골라 주세요"})
 
     def _quit(self, conn, sid, body):
@@ -3320,9 +3364,25 @@ class Handler(BaseHTTPRequestHandler):
             if focus.dialog_text(tg):
                 return self._send(409, {"error": "터미널에 선택 창이 떠 있습니다 — 먼저 닫아 주세요"})
             if m.group(2) == "permission":
-                ok, now = focus.set_permission_mode(tg, body.get("mode"))
+                want = body.get("mode")
+                ok, now = focus.set_permission_mode(tg, want)
                 if now:
                     conn.execute("UPDATE sessions SET permission_mode=? WHERE session_id=?", (now, sess["session_id"]))
+                if not ok and want == "bypassPermissions" and now is not None:
+                    # 권한 확인 없이(bypassPermissions)는 켤 때 허락 옵션(--allow-dangerously-skip-permissions)을 붙인 세션의
+                    # Shift+Tab 순환에만 있다 — 없으면 세션을 다시 시작해서(같은 대화로) 그 옵션과 함께 연다. restart 로 확인받은 뒤에만
+                    if not body.get("restart"):
+                        return self._send(409, {"error": "이 세션은 다시 시작해야 권한 확인 없이 모드를 켤 수 있습니다", "need_restart": True})
+                    if sess["state"] in ("working", "waiting"):
+                        return self._send(409, {"error": "작업 중에는 다시 시작하지 않습니다 — 끝난 뒤에"})
+                    conn.execute("UPDATE sessions SET permission_mode='bypassPermissions' WHERE session_id=?", (sess["session_id"],))
+                    conn.commit()
+                    self._sent_code = None
+                    self._import_route(conn, sess, {"restart": True, "from": body.get("from"), "mode": "bypassPermissions",
+                                                    "done_msg": "다시 시작했습니다 · 권한 확인 없이(⚠ 전부 허용) 모드로 열었습니다"})
+                    if self._sent_code and self._sent_code >= 400:   # 다시 시작하지 못했다 — 모드를 되돌려 둔다
+                        conn.execute("UPDATE sessions SET permission_mode=? WHERE session_id=?", (now, sess["session_id"]))
+                    return None
                 return self._send(200 if ok else 409, {"ok": ok, "mode": now} if ok else
                                   {"error": "권한 모드를 맞추지 못했습니다(지금: %s)" % (now or "알 수 없음")})
             turn = conn.execute("SELECT id, prompt FROM turns WHERE id=? AND session_id=?",
@@ -3413,42 +3473,10 @@ class Handler(BaseHTTPRequestHandler):
             sess = session_row(conn, m.group(1))
             if sess is None:
                 return self._send(404, {"error": "no session"})
-            sid = sess["session_id"]
-            why = brain_guard(conn, body, sid)
+            why = brain_guard(conn, body, sess["session_id"])
             if why:
                 return self._send(403, {"error": why})
-            # restart: 이미 보드 터미널에 있는 세션도 같은 방법(끝내고 같은 대화로 이어 열기)으로 다시 연다 — 환경이 꼬인 세션을
-            # 깨끗한 환경에서 다시 띄울 때(실행 중인 프로세스의 환경 변수는 바꿀 수 없다)
-            restart = bool(body.get("restart"))
-            if sess.get("agent") == "codex":
-                return self._send(*codex_import(conn, sess, body))
-            if brain.is_brain(sess["cwd"]) and not restart:
-                return self._send(409, {"error": "브레인은 늘 보드 터미널에서 돕니다 — 브레인 패널에서 다시 시작해 주세요"})
-            tg = focus.target_of(sess)
-            if tg and tg.terminal.name == "web" and sess["state"] != "ended" and not not_running(conn, sid) and not restart:
-                return self._send(409, {"error": "이미 보드 터미널에서 돌고 있습니다"})
-            full = conn.execute("SELECT bg, cwd, worktree FROM sessions WHERE session_id=?", (sid,)).fetchone()
-            x = live_agent(sid) if full["bg"] else None
-            if x:
-                tg2, err = focus.new_claude_terminal(x.get("cwd") or full["cwd"], extra="attach " + shlex.quote(x["id"]), terminal="web")
-                if not tg2:
-                    return self._send(502, {"error": err})
-                LAUNCHED[tg2.handle] = store.now()
-                conn.execute("UPDATE sessions SET terminal=? WHERE session_id=?", (json.dumps(tg2.terminal.remember({}, tg2.handle)), sid))
-                return self._send(200, {"ok": True, "message": "백그라운드 세션을 보드 터미널에 붙였습니다"})
-            # 이어 열 폴더 — 지워진 워크트리면 저장소 루트에서(Claude Code 가 워크트리 묶음을 풀고 그 폴더에서 이어 연다)
-            cwd = full["cwd"] or ""
-            if not os.path.isdir(cwd):
-                root = conn.execute("SELECT project_root FROM sessions WHERE session_id=?", (sid,)).fetchone()[0] or ""
-                if "/.claude/worktrees/" in cwd and os.path.isdir(root):
-                    cwd = root
-                else:
-                    return self._send(409, {"error": "세션 폴더가 없습니다: " + cwd})
-            IMPORTING[sid] = store.now()
-            try:
-                return self._import(conn, sid, sess, tg, cwd, body)
-            finally:
-                IMPORTING.pop(sid, None)
+            return self._import_route(conn, sess, body)
         m = re.fullmatch(r"/api/sessions/([\w\-]+)/resume", path)
         if m and method == "POST":
             # 어느 터미널에서도 돌고 있지 않은 세션(종료·탭을 닫음)을 새 터미널 탭에서 `claude --resume` 으로 이어 연다.

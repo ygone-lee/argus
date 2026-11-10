@@ -50,6 +50,13 @@ const I18N_ROWS = [
   ["🌐 언어", "🌐 言語", "🌐 Language"],
   // ---- 시간
   ["방금", "たった今", "just now"], ["모델별 사용량을 새로 받는 중…", "モデル別の使用量を取得中…", "Fetching per-model usage…"],
+  ["권한 확인 없이 모두 실행(위험) — 이 세션에 없으면 다시 시작해서 켭니다", "権限確認なしですべて実行(危険) — このセッションになければ再起動してオンにします", "Run everything without permission checks (risky) — restarts the session if needed"],
+  ["⚠ 전부 허용 — 권한 확인 없이", "⚠ すべて許可 — 権限確認なし", "⚠ Bypass — no permission checks"],
+  ["이 세션의 Claude 가 파일 삭제·셸 명령·외부 접속까지 묻지 않고 실행합니다.", "このセッションの Claude がファイル削除・シェルコマンド・外部アクセスまで確認せずに実行します。", "Claude in this session will delete files, run shell commands and reach the network without asking."],
+  ["이 모드로 켜지 않은 세션이면 같은 대화로 다시 시작해서 켭니다(백그라운드 작업은 끊깁니다). 다음 다시 시작 때도 유지됩니다.", "このモードで起動していないセッションなら同じ会話で再起動してオンにします(バックグラウンド作業は止まります)。次の再起動でも維持されます。", "If the session wasn't started with this mode, it restarts into the same conversation (background tasks stop). It stays on across later restarts."],
+  ["작업 중에는 바꿀 수 없습니다 — 끝난 뒤에", "作業中は変更できません — 終わってから", "Can't change while working — try after it finishes"], ["켜기", "オンにする", "Turn on"],
+  ["다시 시작했습니다 · 권한 확인 없이(⚠ 전부 허용) 모드로 열었습니다", "再起動しました · 権限確認なし(⚠ すべて許可)モードで開きました", "Restarted · opened in bypass-permissions (⚠) mode"],
+  ["이 세션은 다시 시작해야 권한 확인 없이 모드를 켤 수 있습니다", "このセッションは再起動しないと権限確認なしモードをオンにできません", "This session must restart to turn on bypass-permissions mode"],
   ["새로 받았습니다", "取得しました", "Updated"], ["중단했습니다 — 보낸 요청을 입력창에 되돌려 놓았습니다", "中断しました — 送った依頼を入力欄に戻しました", "Stopped — your prompt is back in the input box"],
   ["터미널 입력칸에 글이 남아 있어 보내지 않았습니다(그 뒤에 이어 붙지 않게) — 칸의 「⌨ 터미널」에서 입력칸을 비운 뒤 다시 해 주세요", "ターミナルの入力欄に文字が残っているため送信しませんでした(後ろに続けて入らないように) — 列の「⌨ ターミナル」で入力欄を空にしてからもう一度", "Not sent: the terminal input box still has text (it would have been appended) — clear it via the column's ⌨ Terminal, then try again"], ["{}분 전 기준", "{}分前の値", "as of {}m ago"], ["{}시간 전 기준", "{}時間前の値", "as of {}h ago"], ["{}일 전 기준", "{}日前の値", "as of {}d ago"], ["{}분 전", "{}分前", "{}m ago"], ["{}시간 전", "{}時間前", "{}h ago"], ["어제", "昨日", "yesterday"], ["오늘", "今日", "today"],
   ["{}초", "{}秒", "{}s"], ["{}분", "{}分", "{}m"], ["{}분 {}초", "{}分{}秒", "{}m {}s"], ["{}시간 {}분", "{}時間{}分", "{}h {}m"],

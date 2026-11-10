@@ -1996,7 +1996,8 @@ function openPermMenu(btn, keyboard) {
   const s = sessionById(btn.dataset.sid);
   if (!s) return;
   S.permReturn = keyboard ? document.activeElement : null;
-  const opts = [["auto", "Claude 가 판단해 진행(위험한 것만 묻기)"], ["default", "도구를 쓸 때마다 묻기"], ["acceptEdits", "파일 고치기는 묻지 않기"], ["plan", "계획만 세우고 고치지 않기"]];
+  const opts = [["auto", "Claude 가 판단해 진행(위험한 것만 묻기)"], ["default", "도구를 쓸 때마다 묻기"], ["acceptEdits", "파일 고치기는 묻지 않기"], ["plan", "계획만 세우고 고치지 않기"],
+    ["bypassPermissions", "권한 확인 없이 모두 실행(위험) — 이 세션에 없으면 다시 시작해서 켭니다"]];
   const m = openXMenu(btn, `<div class="xm-head">권한 모드 <span class="muted">⇧Tab·↑↓ 고르기 · Enter 바꾸기 · Esc 닫기</span></div>` + opts.map(([k, hint]) =>
     `<button class="cm-item xm-opt ${s.permission_mode === k ? "on" : ""}" data-perm="${k}" data-sid="${esc(s.session_id)}">${PERM[k][0]} ${PERM[k][1]}<span class="muted">${hint}</span></button>`).join(""));
   m.dataset.kind = "perm";
@@ -2015,10 +2016,29 @@ function closePermMenu() {
   if (back && back.isConnected) back.focus();
 }
 async function doPerm(b) {
+  const sid = b.dataset.sid, mode = b.dataset.perm;
+  if (mode === "bypassPermissions" && !b.dataset.confirmed) return confirmBypass(b);
   closePermMenu();
-  try { await api("POST", `/api/sessions/${b.dataset.sid}/permission`, { mode: b.dataset.perm }); toast(`권한 모드: ${PERM[b.dataset.perm][1]}`); }
-  catch (err) { toast(err.message); }
-  return refresh(b.dataset.sid);
+  try {
+    const r = await api("POST", `/api/sessions/${sid}/permission`, { mode, restart: !!b.dataset.confirmed });
+    toast(r.message || `권한 모드: ${PERM[mode][1]}`);
+  } catch (err) { toast(err.message); }
+  if (b.dataset.confirmed) await poll();
+  return refresh(sid);
+}
+// 권한 확인 없이(bypassPermissions) — 위험해서 한 번 더 묻는다. 그 세션의 Shift+Tab 순환에 없으면 서버가 다시 시작해서(같은 대화로) 켠다
+function confirmBypass(b) {
+  const m = $("#xMenu"), sid = b.dataset.sid, s = sessionById(sid);
+  const busy = s && ["working", "waiting"].includes(s.state);
+  m.innerHTML = `<div class="xm-head">⚠ 전부 허용 — 권한 확인 없이</div>
+    <div class="xm-note warn">이 세션의 Claude 가 파일 삭제·셸 명령·외부 접속까지 묻지 않고 실행합니다.</div>
+    <div class="xm-note">이 모드로 켜지 않은 세션이면 같은 대화로 다시 시작해서 켭니다(백그라운드 작업은 끊깁니다). 다음 다시 시작 때도 유지됩니다.</div>
+    ${busy ? '<div class="xm-note warn">작업 중에는 바꿀 수 없습니다 — 끝난 뒤에</div>' : ""}
+    <div class="xm-btns"><span class="spacer"></span><button class="btn" data-bypass-cancel>취소</button>
+      <button class="btn danger" data-perm="bypassPermissions" data-sid="${esc(sid)}" data-confirmed="1" ${busy ? "disabled" : ""}>켜기</button></div>`;
+  m.dataset.kind = "perm-confirm";
+  m.querySelector("[data-bypass-cancel]").addEventListener("click", closePermMenu);
+  m.querySelector("[data-bypass-cancel]").focus();
 }
 // ⇧Tab: 그 칸의 권한 모드 메뉴(터미널의 Shift+Tab 처럼 바로 돌리지 않고 골라서 Enter). 입력칸에서, 또는 칸만 골라 둔 상태에서.
 // 서식 입력칸의 목록 안에서는 내어쓰기로 쓰이므로 두고, 권한 모드를 모르는(칩이 없는) 세션도 브라우저 기본대로

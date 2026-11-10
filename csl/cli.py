@@ -42,7 +42,7 @@
     ./argus rename <세션> '<제목>'   이름 바꾸기(터미널의 /rename 도)
     ./argus stop <세션>              작업 중인 Claude 멈추기(Esc)
     ./argus model <세션> [sonnet|opus|haiku|fable] [--effort …]   모델·effort 바꾸기(이 세션만)
-    ./argus perm <세션> <auto|default|acceptEdits|plan>   권한 모드 (Codex: auto|default|readonly|bypassPermissions)
+    ./argus perm <세션> <auto|default|acceptEdits|plan|bypassPermissions>   권한 모드 (bypassPermissions = 권한 확인 없이, 필요하면 다시 시작 · Codex: auto|default|readonly|bypassPermissions)
     ./argus rewind <세션> <#tN> [conversation|both|code|summarize_from|summarize_upto]   그 요청 앞으로 되돌리기(/rewind)
     ./argus ask <세션> · answer <세션> <질문마다 번호|1,3|기타:글>   묻고 있는 질문·권한 확인 창 보기·답하기(창은 번호 하나)
     ./argus answer <세션> chat       질문에 답하지 않고 대화로 넘기기(터미널의 Chat about this)
@@ -859,10 +859,12 @@ def cmd_model(args):
 
 
 def cmd_perm(args):
-    _need(args, 2, "perm <세션> <auto|default|acceptEdits|plan>   (권한 모드 · Codex: auto|default|readonly|bypassPermissions)")
+    _need(args, 2, "perm <세션> <auto|default|acceptEdits|plan|bypassPermissions>   (권한 모드 · Codex: auto|default|readonly|bypassPermissions)")
     s = target(args[0])
-    d = _post(s, "permission", {"mode": args[1]})
-    _say(s, "권한 모드: %s" % d.get("mode"))
+    # bypassPermissions(권한 확인 없이): 그 세션의 Shift+Tab 순환에 없으면 같은 대화로 다시 시작해서 켠다(백그라운드 작업은 끊김)
+    bypass = args[1] == "bypassPermissions"
+    d = _post(s, "permission", {"mode": args[1], "restart": bypass}, timeout=150 if bypass else 60)
+    _say(s, d.get("message") or "권한 모드: %s" % d.get("mode"))
 
 
 def cmd_rewind(args):
