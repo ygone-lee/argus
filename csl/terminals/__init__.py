@@ -78,6 +78,10 @@ class Terminal:
         """지금 화면에 보이는 줄들(색 없는 글)."""
         return []
 
+    def screen_ansi(self, handle):
+        """색·글꼴 속성(SGR)을 담은 화면 줄들. 못 읽는 터미널이면 None."""
+        return None
+
     def write(self, handle, data):
         """PTY 에 그대로 쓰기(제어 문자·화살표 포함). 성공 여부."""
         return False

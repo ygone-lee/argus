@@ -7451,6 +7451,7 @@ async function stopSession(sid, btn) {
   try {
     const r = await api("POST", `/api/sessions/${sid}/interrupt`, {});
     toast(r.message || "중단했습니다");
+    if (r.prompt) await fillComposer(sid, r.prompt);   // 터미널 입력칸에 되돌아온 요청 — 보드 입력창으로
   } catch (e) { toast(e.message); }
   btn.disabled = false;
   await poll();

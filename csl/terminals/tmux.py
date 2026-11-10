@@ -213,6 +213,10 @@ class Tmux(Terminal):
         r = self.valid(handle) and self._t("capture-pane", "-p", "-t", _pane(handle), handle=handle)   # -e 없이: 색 없는 글, 보이는 영역만
         return r.stdout.rstrip("\n").split("\n") if r else []
 
+    def screen_ansi(self, handle):
+        r = self.valid(handle) and self._t("capture-pane", "-p", "-e", "-t", _pane(handle), handle=handle)
+        return r.stdout.rstrip("\n").split("\n") if r else None
+
     def write(self, handle, data):
         # 버퍼에 담아 창에 그대로 붓는다. send-keys 는 글자를 키로 바꿔 다시 인코딩한다 — Claude Code 가 확장 키 모드를 켜면
         # 줄바꿈(LF)이 Ctrl+J 키 코드로 바뀌어 사라졌다. paste-buffer -r: LF 를 CR 로 바꾸지 않음, -p 없이: 붙여넣기 괄호 없음

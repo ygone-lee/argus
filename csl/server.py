@@ -3005,15 +3005,23 @@ class Handler(BaseHTTPRequestHandler):
                     break
                 time.sleep(0.4)
                 stopped = not focus.is_busy(handle)
+            back = None
             if stopped:
+                # 중단하면 그 요청이 터미널 입력칸에 되돌아온다 — 비우고 보드 입력창으로(그대로 두면 다음에 보드가 보내는
+                # 글·/model 등이 그 뒤에 이어 붙어 보내졌다)
+                last = conn.execute("SELECT prompt FROM turns WHERE session_id=? AND status='running' AND response_at IS NULL"
+                                    " ORDER BY id DESC LIMIT 1", (sess["session_id"],)).fetchone()
+                if last and last["prompt"] and focus.take_back(handle, last["prompt"]):
+                    back = last["prompt"]
                 t = store.now()
                 conn.execute("UPDATE turns SET status='interrupted', response=COALESCE(response, '(중단됨)'), response_at=COALESCE(response_at, ?)"
                              " WHERE session_id=? AND response_at IS NULL AND status='running'", (t, sess["session_id"]))
                 conn.execute("UPDATE sessions SET state='done', state_detail='중단됨', state_at=?, compact_at=NULL WHERE session_id=?",
                              (t, sess["session_id"]))
                 store.add_event(conn, sess["session_id"], "error", "사용자가 중단함")
-            return self._send(200, {"ok": True, "stopped": stopped,
-                                    "message": "중단했습니다" if stopped else "중단 키를 보냈습니다 — 지금 단계가 정리되는 대로 멈춥니다"})
+            return self._send(200, {"ok": True, "stopped": stopped, "prompt": back,
+                                    "message": ("중단했습니다" + (" — 보낸 요청을 입력창에 되돌려 놓았습니다" if back else ""))
+                                    if stopped else "중단 키를 보냈습니다 — 지금 단계가 정리되는 대로 멈춥니다"})
 
         m = re.fullmatch(r"/api/sessions/([\w\-]+)/remote", path)
         if m and method == "POST":

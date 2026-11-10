@@ -356,6 +356,8 @@ def send_prompt(t, text, allow_bang=False):
         return False, [], "터미널에 선택 창이 떠 있습니다: " + box
     if t.terminal.checks_submit:
         return t.terminal.submit(t.handle, text)
+    if typed_input(t):
+        return False, [], LEFTOVER
     if devlog.enabled():
         devlog.step("before_write", how="paste", screen=_screen(t))
     # 글을 넣고, 입력칸에 실제로 들어간 것을 본 뒤에만 Enter — 확인한 직후 선택 창(Claude Code 가 스스로 띄우는 설정 창 등)이
@@ -371,6 +373,9 @@ def send_prompt(t, text, allow_bang=False):
     return True, [], ""
 
 
+# 입력칸에 글이 남아 있으면(터미널에서 치던 글, 중단해서 되돌아온 요청 …) 그 뒤에 이어 붙어 엉뚱한 글이 보내진다
+LEFTOVER = ("터미널 입력칸에 글이 남아 있어 보내지 않았습니다(그 뒤에 이어 붙지 않게) — 칸의 「⌨ 터미널」에서 입력칸을 비운 뒤 "
+            "다시 해 주세요")
 NOT_LANDED = "글이 입력칸에 들어가지 않아 Enter 는 누르지 않았습니다 — 터미널에 선택 창이 떴는지 확인해 주세요(칸의 「⌨ 터미널」)"
 
 
@@ -439,6 +444,8 @@ def type_text(t, text, image_paths, allow_bang=False):
     for i, p in enumerate(image_paths):
         if i not in used:
             typed += (" " if typed else "") + "\x1b[200~" + p + "\x1b[201~"
+    if typed_input(t):
+        return False, LEFTOVER
     if devlog.enabled():
         devlog.step("before_write", how="type", screen=_screen(t))
     t0 = time.time()
@@ -526,6 +533,65 @@ def _input_line_of(lines):
             rest = [ln.replace("\xa0", " ")[2:].rstrip() for ln in body[1:]]
             return "\n".join([first] + rest).strip()
     return None
+
+
+_SGR = re.compile(r"\x1b\[([0-9;:]*)m|\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07")
+
+
+def _undimmed(line):
+    """SGR 이 담긴 한 줄에서 흐리지 않은(dim 이 아닌) 글자만."""
+    out, dim, pos = [], False, 0
+    for m in _SGR.finditer(line):
+        if not dim:
+            out.append(line[pos:m.start()])
+        pos = m.end()
+        if m.group(1) is not None:
+            for code in (m.group(1) or "0").replace(":", ";").split(";"):
+                if code in ("", "0", "22"):
+                    dim = False
+                elif code == "2":
+                    dim = True
+    if not dim:
+        out.append(line[pos:])
+    return "".join(out)
+
+
+def typed_input(t):
+    """터미널 입력칸에 실제로 들어 있는 글(앞뒤 빈칸 뺌). 비어 있으면 "". 입력칸이 안 보이거나 속성을 못 읽으면 None.
+    Claude Code 는 빈 입력칸에 다음 요청 추천(제안 글)을 흐린 글씨로 보여 준다 — 화면 글만 보면 입력된 글과 같아 보여서
+    흐린 글씨(SGR 2)는 빼고 본다. 중단하면 보낸 요청이 입력칸에 되돌아오는데, 이것은 흐리지 않다."""
+    ansi = t.terminal.screen_ansi(t.handle) if t else None
+    if not ansi:
+        return None
+    plain = [_SGR.sub("", ln).replace("\xa0", " ").rstrip() for ln in ansi]
+    rules = [i for i, ln in enumerate(plain) if ln.lstrip().startswith("──")]
+    for a, b in zip(reversed(rules[:-1]), reversed(rules[1:])):
+        if b > a + 1 and plain[a + 1].startswith(("❯", "!")):
+            body = [_undimmed(ln).replace("\xa0", " ") for ln in ansi[a + 1:b]]
+            body[0] = body[0].lstrip()[1:] if body[0].lstrip()[:1] in ("❯", "!") else body[0]
+            return "\n".join(x.rstrip() for x in body).strip()
+    return None
+
+
+def take_back(t, prompt, wait=2.0):
+    """중단하면 Claude Code 가 보낸 요청을 입력칸에 되돌려 놓는다 — 그것이 방금 요청(prompt)이면 입력칸을 비우고 True.
+    (보드 입력창으로 옮겨 다음에 보드가 무엇을 보내도 그 뒤에 붙지 않게.) 다른 글(터미널에서 친 것)이면 건드리지 않는다."""
+    want = re.sub(r"\s+", "", IMAGE_TOKEN.sub("", prompt or ""))[:20]
+    if not want:
+        return False
+    end = time.time() + wait
+    while True:
+        cur = typed_input(t)
+        if cur:
+            g = re.sub(r"\s+", "", cur)
+            if not (g[:20] == want or (want.startswith(g[:20]) and len(g) >= 8)):
+                return False
+            _raw(t, "\x03")   # 입력칸 통째로 비우기(_clear_restored 참고 — 한 번만)
+            time.sleep(0.4)
+            return not typed_input(t)
+        if time.time() >= end:
+            return False
+        time.sleep(0.25)
 
 
 def _input_tail(lines):
