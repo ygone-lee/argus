@@ -1762,11 +1762,15 @@ function updateCol(col, s, rank, lastPin) {
   const thread = col.querySelector(".col-thread");
   const visible = S.visibleCols.has(sid);
   // 안 보이는 칸은 이미 그린 대화를 그대로 두고(다시 보일 때 갱신), 한 번도 안 그렸으면 자리만 표시
-  if (visible || !thread._html) {
+  const selHeld = !!thread._html && selectingIn(thread);
+  if (selHeld) col._key = "";   // 끄는 중이라 미룬 것은 놓을 때 다시 그리도록(같은 key 로 건너뛰지 않게)
+  if ((visible || !thread._html) && !selHeld) {
     const html = detail ? threadHtml(s, turns, hidden, detail.asides)
       : `<div class="col-lazy">${visible ? "불러오는 중…" : "스크롤해서 보이면 대화를 불러옵니다"}</div>`;
     const restoreInner = keepInnerScroll(thread);
+    const sel = thread._html !== html && saveSel(thread);
     if (setHtml(thread, html)) {
+      restoreSel(thread, sel);
       restoreInner();
       const a = S.anchor.get(sid);
       if (a && detail) {
@@ -2609,6 +2613,59 @@ function keepInnerScroll(root) {
     }
   };
 }
+// 대화 글 고르기를 다시 그리기에서 지킨다 — 응답이 올라올 때마다 대화를 통째로 갈아 끼워 고른 것이 풀렸다.
+// · 버튼을 누른 채 끄는 동안은 그 영역을 다시 그리지 않는다(끌던 자리가 사라지면 드래그가 엉킨다). 놓으면 밀린 것을 그린다
+// · 놓은 뒤 고른 글이 남아 있으면 다시 그리되, 고른 글과 그 앞 글자 수를 기억했다가 새 화면에서 같은 글을 다시 고른다
+const SEL = { down: null, held: false };
+function selectingIn(el) {
+  return !!(el && SEL.down && el.contains(SEL.down) && (SEL.held = true));
+}
+function saveSel(el) {
+  const sel = getSelection();
+  if (!el || !sel || sel.isCollapsed || !sel.rangeCount) return null;
+  const r = sel.getRangeAt(0);
+  if (!el.contains(r.commonAncestorContainer)) return null;
+  const pre = document.createRange();
+  pre.selectNodeContents(el);
+  pre.setEnd(r.startContainer, r.startOffset);
+  return { text: r.toString(), start: pre.toString().length };
+}
+function restoreSel(el, saved) {
+  if (!saved || !saved.text) return;
+  const full = el.textContent;
+  let best = -1;   // 같은 글이 여럿이면 원래 자리에 가장 가까운 것(위쪽 글이 조금 바뀌어도 따라간다)
+  for (let i = full.indexOf(saved.text); i >= 0; i = full.indexOf(saved.text, i + 1)) {
+    if (best < 0 || Math.abs(i - saved.start) < Math.abs(best - saved.start)) best = i;
+    if (i > saved.start) break;
+  }
+  if (best < 0) return;
+  const at = (off, end) => {
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = w.nextNode(); n; n = w.nextNode()) {
+      const len = n.nodeValue.length;
+      if (off < len || (end && off === len)) return [n, off];
+      off -= len;
+    }
+    return null;
+  };
+  const p = at(best, false), q = at(best + saved.text.length, true);
+  if (!p || !q) return;
+  const r = document.createRange();
+  r.setStart(p[0], p[1]);
+  r.setEnd(q[0], q[1]);
+  const sel = getSelection();
+  sel.removeAllRanges();
+  sel.addRange(r);
+}
+document.addEventListener("pointerdown", e => {
+  if (e.button !== 0 || e.target.closest("button, a, input, textarea, select, [contenteditable=true]")) return;
+  SEL.down = e.target.closest(".col-thread, #cards") ? e.target : null;
+}, true);
+addEventListener("pointerup", () => {
+  if (!SEL.down) return;
+  SEL.down = null;
+  if (SEL.held) { SEL.held = false; setTimeout(() => { renderBoard(); renderCards(); }, 0); }
+}, true);
 function setHtml(el, html) {
   if (el._html === html) return false;
   el._html = html;
@@ -7836,8 +7893,9 @@ function renderCards(force) {
     s.last_response && s.last_response.len])) + S.cardLimit + all.length + (S.expandedCard || "");
   if (!force && sig === S.cardSig) return;
   // 펼친 카드에서 쓰는 중(입력창·이름 바꾸기)이면 미룬다 — 펼친 칸을 떼었다 붙이면 포커스·IME 조합이 날아간다
-  if (!force && (typingIn(box) || S.renaming)) return;
+  if (!force && (typingIn(box) || S.renaming || selectingIn(box))) return;   // 대화 글을 끌어 고르는 중이어도 미룬다
   S.cardSig = sig;
+  const selKeep = saveSel(box);   // 고른 글은 다시 그린 뒤 되살린다
   const more = all.length - list.length;
   if (S.expandedCard && !all.some(s => s.session_id === S.expandedCard)) S.expandedCard = null;
   const keep = S.expandedCard && box.querySelector(".sc-colwrap > .col");   // 펼친 칸은 다시 만들지 않고 옮겨 붙인다(쓰던 글·스크롤 유지)
@@ -7846,6 +7904,7 @@ function renderCards(force) {
     (more > 0 ? `<div class="sc-more"><button class="btn" data-cards-more>세션 더 보기 (+${Math.min(more, 24)} / 남은 ${more}개)</button></div>` : "") +
     (!all.length ? '<div class="bp-empty"><p>보여 줄 세션이 없습니다.</p></div>' : "");
   if (S.expandedCard) mountExpanded(keep);
+  restoreSel(box, selKeep);
   if (S.cardSel) {
     const el = $(`#cards [data-scard="${CSS.escape(S.cardSel)}"], #cards [data-scard-open="${CSS.escape(S.cardSel)}"]`);
     if (el) el.classList.add("kb-sel");
