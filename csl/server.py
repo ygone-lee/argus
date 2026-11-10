@@ -3673,7 +3673,10 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(400, {"error": focus.BANG_ERROR})
                 conn.execute("UPDATE notes SET queued_at=?, updated_at=? WHERE id=? AND done=0 AND session_id IS NOT NULL",
                              (t if body["queued"] else None, t, nid))
-            return self._send(200, {"ok": True})
+            if "editing" in body:   # 보드에서 고치는 중: 예약 보내기가 고치기 전 글을 가져가지 않게 잡아 둔다(글 저장 뒤에 푼다)
+                sendqueue.hold(nid, bool(body["editing"]))
+            row = conn.execute("SELECT done FROM notes WHERE id=?", (nid,)).fetchone()
+            return self._send(200, {"ok": True, "done": bool(row and row["done"])})
         if m and method == "DELETE":
             conn.execute("DELETE FROM notes WHERE id=?", (int(m.group(1)),))
             return self._send(200, {"ok": True})

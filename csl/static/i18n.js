@@ -575,6 +575,8 @@ const I18N_ROWS = [
   ["⏭ 예약 {}", "⏭ 予約 {}", "⏭ Queued {}"], ["응답이 끝나면 차례로 보낼 할 일", "応答が終わったら順に送るタスク", "To-dos sent one by one when a reply finishes"],
   ["⏭ 응답 끝나면 {}번째로 보냄", "⏭ 応答後 {}番目に送信", "⏭ Sent #{} after the reply"], ["예약 풀기", "予約を解除", "Unqueue"],
   ["응답이 끝나면 이 할 일을 바로 보내도록 예약", "応答が終わったらこのタスクをすぐ送るよう予約", "Send this to-do as soon as the reply finishes"],
+  ["이 할 일은 방금 보냈습니다 — 고쳐도 다시 보내지 않습니다", "このToDoは今送信しました — 修正しても再送しません", "This item was just sent — edits won't be sent again"],
+  ["고치기 전에 이미 보냈습니다 — 고친 글은 넥스트 액션에만 남았습니다", "修正前に送信済みです — 修正した文はネクストアクションにだけ残ります", "Already sent before your edit — the edited text stays only in next actions"],
   ["예약을 풀었습니다", "予約を解除しました", "Unqueued"], ["지금 쉬고 있어 곧 보냅니다", "今は待機中なのですぐ送ります", "Idle now — sending shortly"],
   ["응답이 끝나면 보냅니다", "応答が終わったら送ります", "Will send when the reply finishes"],
   // Claude Code 명령: 되돌리기·권한·목표·갈래·백그라운드·변경

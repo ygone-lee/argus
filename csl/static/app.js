@@ -5538,17 +5538,35 @@ function startEdit(el) {
   el.contentEditable = "true";
   el.focus();
   document.getSelection().selectAllChildren(el);
+  // 「끝나면 보내기」 예약한 할 일이면 고치는 동안 보내지 않게 잡아 둔다 — 그사이 응답이 끝나도 고치기 전 글이 나가지 않고,
+  // 다 고치면(Enter) 고친 글로, 그만두면(Esc) 원래 글로 보낸다. 잡아 두기는 서버에서 90초면 풀리므로 30초마다 다시 알린다
+  const n0 = findNote(el.dataset.nid), nid = el.dataset.nid;
+  const queued = !!(n0 && n0.queued_at && !n0.done);
+  let renew = 0;
+  if (queued) {
+    const ping = () => api("PATCH", "/api/notes/" + nid, { editing: true }).catch(() => ({}));
+    ping().then(r => { if (r.done) toast("이 할 일은 방금 보냈습니다 — 고쳐도 다시 보내지 않습니다"); });
+    renew = setInterval(ping, 30000);
+  }
   const finish = async (commit) => {
     el.removeEventListener("blur", onBlur);
     el.removeEventListener("keydown", onKey);
     el.contentEditable = "false";
     S.editingNote = false;
+    clearInterval(renew);
     const text = el.innerText.trim();
     const restore = () => { el.innerHTML = shown; el.classList.add("md"); };
+    const release = queued ? { editing: false } : {};   // 글을 저장한 다음에 푼다(같은 요청 안에서 순서대로)
     if (commit && text && text !== before) {
-      try { await api("PATCH", "/api/notes/" + el.dataset.nid, { text }); el.innerHTML = mdCached(text); el.classList.add("md"); }
-      catch (err) { restore(); toast(err.message); }
-    } else restore();
+      try {
+        const r = await api("PATCH", "/api/notes/" + nid, { text, ...release });
+        el.innerHTML = mdCached(text); el.classList.add("md");
+        if (queued && r.done) toast("고치기 전에 이미 보냈습니다 — 고친 글은 넥스트 액션에만 남았습니다");
+      } catch (err) { restore(); toast(err.message); if (queued) api("PATCH", "/api/notes/" + nid, release).catch(() => {}); }
+    } else {
+      restore();
+      if (queued) api("PATCH", "/api/notes/" + nid, release).catch(() => {});
+    }
     await refresh(el.closest(".col") && el.closest(".col").dataset.col);
   };
   const onBlur = () => finish(true);
