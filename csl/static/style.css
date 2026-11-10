@@ -1916,6 +1916,11 @@ select {
 .notif-menu[hidden] { display: none; }
 .nt-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--border); font-size: calc(13px * var(--fs, 1)); }
 .nt-head .btn { height: 26px; padding: 0 9px; font-size: calc(12px * var(--fs, 1)); }
+/* 전체 · 안 본 것만 */
+.nt-filter { display: inline-flex; padding: 2px; border-radius: 7px; background: var(--surface-2); gap: 2px; }
+.nt-filter button { border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: calc(12px * var(--fs, 1)); padding: 3px 9px; border-radius: 5px; cursor: pointer; }
+.nt-filter button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgb(0 0 0 / .08); font-weight: 600; }
+.nt-filter .nt-n { display: inline-block; min-width: 16px; padding: 0 4px; border-radius: 8px; background: var(--alert); color: #fff; font-size: calc(10.5px * var(--fs, 1)); line-height: 15px; text-align: center; font-weight: 600; }
 .nt-list { overflow-y: auto; min-height: 0; flex: 1; }
 .nt-row { display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 9px 12px; border: 0; border-bottom: 1px solid var(--border);
   background: transparent; color: var(--text-2); font: inherit; text-align: left; cursor: pointer; }

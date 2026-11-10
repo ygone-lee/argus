@@ -33,6 +33,7 @@ const S = {
   showEnded: load("csl.showEnded", false),
   notify: load("csl.notify", true),
   sound: load("csl.sound", true),
+  notifUnseen: load("csl.notifUnseen", false),   // 🔔 알림 목록에서 안 본 것만 보기
   teamNotify: load("csl.teamNotify", false),   // 에이전트 팀 팀원의 새 응답도 알릴지(팀장이 결과를 다시 알려 주므로 기본은 끔)
   boardCache: new Map(),   // session_id → { sig, detail }
   boardOrder: "",
@@ -7127,7 +7128,9 @@ async function loadNotif() {
       .then(rs => rs.map(r => r.items.filter(notifWanted)));
   } catch (e) { /* 다음에 */ }
   const ids = new Set(unseen.map(x => x.id));
-  NOTIF.items = unseen.concat(recent.filter(x => !ids.has(x.id)).slice(0, Math.max(0, 30 - unseen.length)));
+  NOTIF.unseenN = unseen.length;
+  // 「안 본 것만」: 이미 본 최근 활동으로 채우지 않는다(많아지면 안 본 것을 찾기 어려워서)
+  NOTIF.items = S.notifUnseen ? unseen.slice() : unseen.concat(recent.filter(x => !ids.has(x.id)).slice(0, Math.max(0, 30 - unseen.length)));
   NOTIF.items.sort((a, b) => b.at - a.at || b.id - a.id);
 }
 function drawNotif() {
@@ -7141,9 +7144,13 @@ function drawNotif() {
         <span class="nt-text">${esc(clamp(plainLine(x.text || label), 120))}</span></span>
       ${x.unseen ? '<span class="nt-dot" aria-label="안 봄"></span>' : ""}</button>`;
   }).join("");
-  setHtml(m, `<div class="nt-head"><b>알림</b><span class="spacer"></span>
+  const n = NOTIF.unseenN || 0;
+  setHtml(m, `<div class="nt-head"><b>알림</b>
+      <span class="nt-filter" role="group" aria-label="보기">
+        <button class="${S.notifUnseen ? "" : "on"}" data-nt-filter="all">전체</button><button class="${S.notifUnseen ? "on" : ""}" data-nt-filter="unseen">안 본 것${n ? ` <span class="nt-n">${n >= 99 ? "99+" : n}</span>` : ""}</button>
+      </span><span class="spacer"></span>
       ${any ? `<button class="btn ghost" data-nt-seen-all title="안 본 활동의 세션을 모두 본 것으로(보드의 「새 응답」도 풀림)">✓ 모두 읽음</button>` : ""}</div>
-    <div class="nt-list">${rows || '<div class="nt-empty">알림이 없습니다</div>'}</div>
+    <div class="nt-list">${rows || `<div class="nt-empty">${S.notifUnseen ? "안 본 알림이 없습니다" : "알림이 없습니다"}</div>`}</div>
     <button class="nt-foot" data-nt-all>전체 활동 보기 →</button>`);
   const sel = m.querySelector(".nt-row.sel");
   if (sel) sel.scrollIntoView({ block: "nearest" });
@@ -7179,6 +7186,14 @@ async function gotoNotif(x) {
 $("#notifBtn").addEventListener("click", () => toggleNotif());
 $("#notifMenu").addEventListener("click", async e => {
   if (e.target.closest("[data-nt-all]")) { toggleNotif(false); return setView("activity"); }
+  const f = e.target.closest("[data-nt-filter]");
+  if (f) {   // 전체 · 안 본 것만 — 고른 것은 기억한다
+    S.notifUnseen = f.dataset.ntFilter === "unseen";
+    save("csl.notifUnseen", S.notifUnseen);
+    NOTIF.sel = 0;
+    await loadNotif();
+    return drawNotif();
+  }
   if (e.target.closest("[data-nt-seen-all]")) {
     try {
       const r = await api("POST", "/api/events/seen-all", S.projFilter ? { project: S.projFilter } : {});

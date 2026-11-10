@@ -50,6 +50,7 @@ const I18N_ROWS = [
   ["🌐 언어", "🌐 言語", "🌐 Language"],
   // ---- 시간
   ["방금", "たった今", "just now"], ["모델별 사용량을 새로 받는 중…", "モデル別の使用量を取得中…", "Fetching per-model usage…"],
+  ["안 본 것", "未読", "Unread"], ["안 본 알림이 없습니다", "未読の通知はありません", "No unread notifications"],
   ["권한 확인 없이 모두 실행(위험) — 이 세션에 없으면 다시 시작해서 켭니다", "権限確認なしですべて実行(危険) — このセッションになければ再起動してオンにします", "Run everything without permission checks (risky) — restarts the session if needed"],
   ["⚠ 전부 허용 — 권한 확인 없이", "⚠ すべて許可 — 権限確認なし", "⚠ Bypass — no permission checks"],
   ["이 세션의 Claude 가 파일 삭제·셸 명령·외부 접속까지 묻지 않고 실행합니다.", "このセッションの Claude がファイル削除・シェルコマンド・外部アクセスまで確認せずに実行します。", "Claude in this session will delete files, run shell commands and reach the network without asking."],
