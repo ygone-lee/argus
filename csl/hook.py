@@ -467,6 +467,16 @@ def handle(data):
                 if cwd and cwd == os.path.realpath(config.get(conn, "brain_dir")):
                     conn.execute("UPDATE notes SET session_id=? WHERE done=0 AND session_id IN"
                                  " (SELECT session_id FROM sessions WHERE cwd=? AND session_id != ?)", (sid, data.get("cwd"), sid))
+                if data.get("source") == "clear":
+                    # /clear 로 생긴 새 세션: Claude Code 가 이때는 모델을 알려 주지 않는다(첫 응답 전까지 모름 → 칸에 모델 칩이
+                    # 없었다). 같은 터미널에서 방금 비운 세션과 같은 프로세스라 모델·effort·권한 모드도 같다 — 그대로 이어 적는다
+                    prev = conn.execute(
+                        "SELECT p.model, p.effort, p.permission_mode FROM sessions p JOIN sessions me ON me.session_id=? AND p.terminal=me.terminal"
+                        " WHERE p.session_id != me.session_id AND p.cwd=me.cwd AND (p.model IS NOT NULL OR p.permission_mode IS NOT NULL)"
+                        " ORDER BY p.last_activity DESC LIMIT 1", (sid,)).fetchone()
+                    if prev:   # 권한 모드도 같은 프로세스 그대로(Shift+Tab 으로 바꾼 것까지)
+                        conn.execute("UPDATE sessions SET model=COALESCE(model, ?), effort=COALESCE(effort, ?),"
+                                     " permission_mode=COALESCE(permission_mode, ?) WHERE session_id=?", (prev[0], prev[1], prev[2], sid))
                 if data.get("source") != "compact":   # 컴팩트 뒤 다시 시작 — 상태는 PreCompact/PostCompact 가 맡는다
                     set_state(conn, sid, "idle", data.get("source"))
                     store.add_event(conn, sid, "start", data.get("source"), dedupe=5)

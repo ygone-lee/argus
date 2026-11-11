@@ -549,6 +549,8 @@ const I18N_ROWS = [
   ["맡길 세션 고르기 — 보드에 열린 세션 중에서", "任せるセッションを選ぶ — ボードで開いているセッションから", "Choose a session to hand this to — from the sessions open on the board"],
   ["세션 고르기", "セッションを選ぶ", "Choose session"], ["지금", "現在", "Current"],
   ["다른 세션에", "他のセッションへ", "To another session"],
+  ["모델 ▾", "モデル ▾", "Model ▾"],
+  ["모델·effort 고르기 — 첫 요청 전에도 바꿀 수 있습니다(이 세션만)", "モデル・effort を選ぶ — 最初のリクエスト前でも変えられます(このセッションのみ)", "Pick model and effort — works before the first request too (this session only)"],
   ["「{*}」 세션으로 바꿨습니다", "「{*}」セッションに変更しました", "Switched to \"{*}\""],
   ["보드에 열린 세션이 없습니다", "ボードに開いているセッションがありません", "No open sessions on the board"],
   ["그 세션이 없거나 종료됐습니다", "そのセッションがないか終了しています", "That session doesn't exist or has ended"],

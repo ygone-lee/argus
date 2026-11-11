@@ -513,6 +513,24 @@ def remove_claude_worktree(path):
     return True
 
 
+_PERM_PEEK = {}   # session_id → 마지막으로 화면에서 권한 모드를 읽어 본 시각
+
+
+def peek_perm_mode(conn, sid, tg):
+    """훅이 권한 모드를 아직 안 알려 준 세션(첫 요청 전 — SessionStart 에는 없다)의 모드를 터미널 맨 아래 줄에서 읽어 적는다.
+    모를 때만, 세션마다 5초에 한 번. 모르면 None."""
+    if store.now() - _PERM_PEEK.get(sid, 0) < 5:
+        return None
+    _PERM_PEEK[sid] = store.now()
+    try:
+        pm = focus.permission_mode(tg)
+    except Exception:  # noqa: BLE001 - 화면을 못 읽어도 상태 응답은 나가야 한다
+        return None
+    if pm:
+        conn.execute("UPDATE sessions SET permission_mode=? WHERE session_id=? AND permission_mode IS NULL", (pm, sid))
+    return pm
+
+
 def card_prompt(card):
     """프롬프트가 없는 인박스 카드(내가 할 일 등)를 세션에 보낼 때 쓸 글: 할 일·요약·원문 주소."""
     lines = ["슬랙·메일에서 온 일입니다. 내용을 보고 처리해 주세요."]
@@ -1672,6 +1690,8 @@ def list_state(conn, days, show_archived):
             s["cx_perm"] = codex.perm_mode(s.get("transcript_path"), s.get("cwd"), s["session_id"])   # 권한 상태(자동 검토·Full Access …) — 칸 머리 칩
             s["goal"], s["bg_tasks"] = None, []
         else:
+            if not s.get("permission_mode") and handle and s["running"] and s["state"] in ("idle", "done"):
+                s["permission_mode"] = peek_perm_mode(conn, s["session_id"], tg)
             s["ctx"] = store.context_info(s["session_id"], s.get("transcript_path"))
             s["goal"] = store.goal_info(s.get("transcript_path"))   # /goal (기록 파일이 그대로면 기억한 값)
             # 그 세션이 띄운 백그라운드 작업(서브에이전트·백그라운드 명령) — 진행 중·끝난 지 30분 안 된 것. 늘어난 만큼만 읽는다

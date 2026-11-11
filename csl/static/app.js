@@ -4484,7 +4484,12 @@ function cxModelName(id) {
   return m ? m.name : (id || "");
 }
 function modelChip(s, d) {
-  if (!s.model && !s.effort) return "";
+  if (!s.model && !s.effort) {
+    // 아직 모델을 모른다(/clear 직후·첫 요청 전 — 모델은 응답 기록에서 알게 된다): 그래도 첫 대화 전에 고를 수 있게 「모델 ▾」
+    const can = d !== "ended" && !s.desktop && s.running !== false && !(s.bg && !s.term_handle);
+    return can ? `<button class="model-chip unknown" data-action="model-menu" data-sid="${esc(s.session_id)}"
+      title="모델·effort 고르기 — 첫 요청 전에도 바꿀 수 있습니다(이 세션만)">모델 ▾</button>` : "";
+  }
   if (isCodex(s)) {   // Codex: 보드 터미널 등 조작할 수 있는 탭이면 바꾸기(/model 창 — 이 세션만), 앱의 대화는 보기만
     const label = [cxModelName(s.model), s.effort].filter(Boolean).join(" · ");
     const can = d !== "ended" && !s.desktop && s.running !== false;
