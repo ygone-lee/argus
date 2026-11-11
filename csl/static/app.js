@@ -3344,15 +3344,15 @@ function inboxCardHtml(x) {
     : target ? `세션에 맡길 부분 → <b>${esc(sessionTitle(target))}</b>` : x.prompt ? "세션에 맡길 부분 → 새 세션" : "";
   const urg = { high: "🔴 급함", normal: "", low: "낮음" }[x.urgency] || "";
   const done = x.status === "done" || x.status === "ignored";
-  const canFill = target && x.prompt;
+  const canFill = target && (x.prompt || kind === "me");   // 내가 할 일 카드는 프롬프트가 없으면 카드 내용(cardPrompt)으로
   const canNew = x.prompt && (x.rec_type === "new" || (x.rec_type === "session" && !target) || (kind === "me" && !target));
   const active = ["sent", "working", "waiting", "summarizing", "needs"].includes(x.stage);
-  const canDelegate = target && x.prompt && !active && (x.status === "new" || x.status === "doing");
+  const canDelegate = canFill && !active && (x.status === "new" || x.status === "doing");
   // ▾ 다른 세션 고르기: 브레인이 고른 세션이 아닐 때 맡기기·입력창에·넥스트 액션에 보낼 세션을 바꾼다
-  const canPick = !done && !active && (x.prompt || kind === "work");
-  const pick = canPick ? `<button class="btn ${canDelegate || (kind === "work" && canFill) ? "primary" : ""} ib-pick" data-action="ib-pick" data-id="${x.id}" aria-haspopup="true"
+  const canPick = !done && !active;   // 내가 할 일 카드도 다른 세션에 보낼 수 있게
+  const pick = canPick ? `<button class="btn ${kind === "work" && (canDelegate || canFill) ? "primary" : ""} ib-pick" data-action="ib-pick" data-id="${x.id}" aria-haspopup="true"
     title="다른 세션 고르기 — 맡기기·입력창에·넥스트 액션에 보낼 세션을 바꿉니다">${CHEVRON}</button>` : "";
-  const delegateBtn = canDelegate ? `<button class="btn primary ib-fill" data-action="ib-delegate" data-id="${x.id}"
+  const delegateBtn = canDelegate ? `<button class="btn ${kind === "work" ? "primary" : ""} ib-fill" data-action="ib-delegate" data-id="${x.id}"
         title="${esc(sessionTitle(target))} 세션에 프롬프트를 보내고, 끝나면 결과 요약과 답장 초안을 이 카드에 넣습니다">▶ <span class="ib-target">${esc(clamp(sessionTitle(target), 18))}</span> <span>에 맡기기</span></button>` : "";
   const fillBtn = canFill ? `<button class="btn ${kind === "work" && !canDelegate ? "primary" : ""} ib-fill" data-action="ib-fill" data-id="${x.id}"
         title="${esc(sessionTitle(target))} — 그 칸의 입력창에 넣기(전송은 직접)">→ <span class="ib-target">${esc(clamp(sessionTitle(target), 22))}</span> <span>입력창에</span></button>` : "";
@@ -3360,7 +3360,7 @@ function inboxCardHtml(x) {
   const split = (b) => pick ? `<span class="ib-split">${b}${pick}</span>` : b;
   const sessionBtns = delegateBtn ? split(delegateBtn) + fillBtn
     : fillBtn ? split(fillBtn)
-    : canPick ? `<button class="btn ib-pick-solo" data-action="ib-pick" data-id="${x.id}" aria-haspopup="true" title="맡길 세션 고르기 — 보드에 열린 세션 중에서">세션 고르기 ${CHEVRON}</button>` : "";
+    : canPick ? `<button class="btn ib-pick-solo" data-action="ib-pick" data-id="${x.id}" aria-haspopup="true" title="맡길 세션 고르기 — 보드에 열린 세션 중에서">${kind === "me" ? "다른 세션에" : "세션 고르기"} ${CHEVRON}</button>` : "";
   return `<article class="ib-card ${done ? "done" : ""} kind-${kind}" data-id="${x.id}">
     <div class="ib-meta">${x.status === "new" && x.created_at > S.inboxNewSince ? '<span class="ib-new" title="지난번 인박스를 본 뒤 새로 온 카드">NEW</span>' : ""}<span class="ib-kind ${kind}">${kind === "me" ? "🧑 내가 할 일" : "🤖 세션 작업"}</span>${urg ? `<span class="ib-urg ${x.urgency}">${urg}</span>` : ""}<span class="ib-src" title="${esc(((S.connTypes || {})[x.source || "slack"] || {}).name || x.source || "")}">${((S.connTypes || {})[x.source || "slack"] || {}).icon || "💬"}</span><b>${esc(x.channel || "")}</b>
       <span class="muted">${esc(x.author || "")} · ${x.slack_at ? rel(x.slack_at) : ""}</span>
@@ -3378,7 +3378,7 @@ function inboxCardHtml(x) {
       ${kind === "me" && brainSession() ? `<button class="btn primary ib-fill" data-action="ib-note" data-id="${x.id}" title="브레인 칸의 넥스트 액션에 내 할 일로 넣기">→ <span>내 할 일에</span></button>` : ""}
       ${sessionBtns}
       ${canNew ? `<button class="btn ${kind === "work" ? "primary" : ""}" data-action="ib-new" data-id="${x.id}">새 세션으로</button>` : ""}
-      ${kind === "work" && target ? `<button class="btn ib-fill" data-action="ib-note" data-id="${x.id}" title="${esc(sessionTitle(target))} 칸의 넥스트 액션에 할 일로 넣기">
+      ${target && (kind === "work" || canFill) ? `<button class="btn ib-fill" data-action="ib-note" data-to="session" data-id="${x.id}" title="${esc(sessionTitle(target))} 칸의 넥스트 액션에 할 일로 넣기">
         → <span class="ib-target">${esc(clamp(sessionTitle(target), 18))}</span> <span>넥스트 액션에</span></button>` : ""}
       ${x.log_count ? `<button class="btn ghost ib-log-btn ${S.logOpen.has(String(x.id)) ? "on" : ""}" data-action="ib-log" data-id="${x.id}" title="이 카드가 어떻게 바뀌어 왔는지">🕘 기록 ${x.log_count}</button>` : ""}
       ${(x.source || "slack") === "slack" && /^[CDG][A-Z0-9]+:\d+\.\d+$/.test(x.key || "") ? `<button class="btn ghost ib-files-btn ${S.filesOpen.has(String(x.id)) ? "on" : ""}"
@@ -3593,7 +3593,13 @@ async function toggleCardLog(id, el) {
 function inboxItem(id) { return S.inbox.items.find(x => String(x.id) === String(id)); }
 function inboxPrompt(id, el) {
   const t = ((el && el.closest(".ib-card")) || document).querySelector(`.ib-work[data-id="${id}"]`);
-  return t ? t.value : (inboxItem(id) || {}).prompt || "";
+  const x = inboxItem(id) || {};
+  return t ? t.value : x.prompt || cardPrompt(x);
+}
+// 프롬프트가 없는 카드(내가 할 일)를 세션에 보낼 때의 글 — 서버의 card_prompt 와 같게
+function cardPrompt(x) {
+  const lines = [x.todo && "할 일: " + x.todo, x.summary && "내용: " + x.summary, x.permalink && "원문: " + x.permalink].filter(Boolean);
+  return lines.length ? ["슬랙·메일에서 온 일입니다. 내용을 보고 처리해 주세요.", ...lines].join("\n") : "";
 }
 async function setInboxStatus(id, status) {
   try { await api("PATCH", "/api/inbox/" + id, { status }); } catch (e) { toast(e.message); }
@@ -3663,7 +3669,7 @@ async function inboxAction(a, el) {
     return;
   }
   if (a === "ib-note") {
-    const target = noteTarget(x);
+    const target = el.dataset.to === "session" ? sessionById(x.rec_session) : noteTarget(x);
     if (!target) return toast("넣을 세션이 없습니다 — 브레인을 시작하거나 세션을 연 뒤에 해 주세요");
     const text = (x.todo || x.summary) + (x.permalink ? "\n" + x.permalink : "");
     await api("POST", "/api/notes", { session_id: target.session_id, text });

@@ -18,7 +18,7 @@
     ./argus inbox raw-done <키…|--all>  그 메시지들을 처리했다고 표시(원문은 지워진다)
     ./argus inbox thread <카드 key|수집 key|슬랙 링크>  그 슬랙 메시지 뒤에 이어진 대화(내 답장 포함)
     ./argus inbox close <카드 key…>   카드를 처리한 것으로(이미 답했거나 공이 상대에게 넘어감)
-    ./argus inbox delegate <카드 key> [세션]   카드를 세션에 맡김(기본: 카드의 추천 세션) — 끝나면 결과·답장 초안이 카드에
+    ./argus inbox delegate <카드 key> [세션]   카드를 세션에 맡김(기본: 카드의 추천 세션 · 내가 할 일 카드도 — 프롬프트가 없으면 카드 내용으로) — 끝나면 결과·답장 초안이 카드에
     ./argus inbox log <카드 key>     카드 기록(만들어짐·고쳐짐·맡김·세션 진행·요약)
     ./argus calendar [오늘|내일|이번주|다음주|N]   캘린더 일정(정보 전용 커넥터). N 은 오늘부터 N일
     ./argus notes                   세션마다 남은(완료 안 된) 넥스트 액션 — 끝난·보관된 세션 것도, 오래된 것 ⚠
@@ -537,12 +537,10 @@ def cmd_inbox(args):
             for ln in api("GET", "/api/inbox/%d/log" % card["id"])["items"]:
                 print("%s %s %s" % (time.strftime("%m/%d %H:%M", time.localtime(ln["at"])), ln["kind"], clip(ln.get("text") or "", 300)))
             return
-        if not card.get("prompt"):
-            sys.exit("카드에 보낼 프롬프트가 없습니다")
         sid = target(args[2])["session_id"] if len(args) > 2 else card.get("rec_session")
         if not sid:
             sys.exit("맡길 세션을 적어 주세요: ./argus inbox delegate <카드 key> <세션>")
-        d = api("POST", "/api/inbox/%d/delegate" % card["id"], {"session_id": sid, "prompt": card["prompt"],
+        d = api("POST", "/api/inbox/%d/delegate" % card["id"], {"session_id": sid, "prompt": card.get("prompt") or "",   # 없으면 서버가 카드 내용(할 일·요약·원문)으로
                                                                 "from": my_sid()})
         print(d.get("message"))
     elif sub == "close":

@@ -548,6 +548,7 @@ const I18N_ROWS = [
   ["다른 세션 고르기 — 맡기기·입력창에·넥스트 액션에 보낼 세션을 바꿉니다", "別のセッションを選ぶ — 任せる・入力欄へ・ネクストアクションへ の送り先を変えます", "Choose another session — changes where delegate, fill input and next action go"],
   ["맡길 세션 고르기 — 보드에 열린 세션 중에서", "任せるセッションを選ぶ — ボードで開いているセッションから", "Choose a session to hand this to — from the sessions open on the board"],
   ["세션 고르기", "セッションを選ぶ", "Choose session"], ["지금", "現在", "Current"],
+  ["다른 세션에", "他のセッションへ", "To another session"],
   ["「{*}」 세션으로 바꿨습니다", "「{*}」セッションに変更しました", "Switched to \"{*}\""],
   ["보드에 열린 세션이 없습니다", "ボードに開いているセッションがありません", "No open sessions on the board"],
   ["그 세션이 없거나 종료됐습니다", "そのセッションがないか終了しています", "That session doesn't exist or has ended"],

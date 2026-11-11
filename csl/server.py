@@ -513,6 +513,18 @@ def remove_claude_worktree(path):
     return True
 
 
+def card_prompt(card):
+    """프롬프트가 없는 인박스 카드(내가 할 일 등)를 세션에 보낼 때 쓸 글: 할 일·요약·원문 주소."""
+    lines = ["슬랙·메일에서 온 일입니다. 내용을 보고 처리해 주세요."]
+    if card.get("todo"):
+        lines.append("할 일: " + card["todo"])
+    if card.get("summary"):
+        lines.append("내용: " + card["summary"])
+    if card.get("permalink"):
+        lines.append("원문: " + card["permalink"])
+    return "\n".join(lines) if len(lines) > 1 else ""
+
+
 def resume_flags(conn, sid):
     """이어 열 때(--resume) 그 세션이 쓰던 모델·effort·권한 모드를 넘기는 claude 인자(끝에 빈칸). 모르는 값은 뺀다.
     권한 확인 없이(bypassPermissions)였으면 그대로 — 그 모드는 켤 때 허락 옵션이 있어야 해서 함께 붙인다(--allow-…: 나중에
@@ -2455,6 +2467,8 @@ class Handler(BaseHTTPRequestHandler):
             prompt = CONTROL_CHARS.sub("", (body.get("prompt") or "").replace("\r\n", "\n")).strip()
             if not card or not sess:
                 return self._send(404, {"error": "카드나 세션이 없습니다"})
+            if not prompt:   # 프롬프트가 없는 카드(내가 할 일 등)는 카드 내용으로 — 할 일·요약·원문 주소
+                prompt = card_prompt(dict(card))
             if not prompt:
                 return self._send(400, {"error": "보낼 프롬프트가 없습니다"})
             if focus.bang(prompt):
