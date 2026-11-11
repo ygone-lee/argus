@@ -333,8 +333,11 @@ def git_diff(d, mode="work"):
 
 
 def live_agent(sid):
-    """그 세션의 돌고 있는 백그라운드 프로세스(claude agents 항목) 또는 None."""
-    return next((a for a in agents_list(fresh=True) if a.get("sessionId") == sid and a.get("pid")), None)
+    """그 세션의 돌고 있는 백그라운드 프로세스(claude agents 항목) 또는 None.
+    백그라운드 항목만 — 대화형(터미널에서 도는) 항목도 pid 가 있지만 attach 에 쓸 id 가 없다(예전 /fork 세션을 터미널에서
+    이어 열면 bg 표시가 남은 채 대화형으로 잡혀, 다시 시작이 KeyError 'id' 로 실패했다). 멈춘 백그라운드는 pid 가 없다."""
+    return next((a for a in agents_list(fresh=True) if a.get("sessionId") == sid and a.get("kind") == "background"
+                 and a.get("pid") and a.get("id")), None)
 
 
 def attach_background(conn, sess, wait=25):
