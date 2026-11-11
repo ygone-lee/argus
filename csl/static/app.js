@@ -1697,7 +1697,7 @@ function updateCol(col, s, rank, lastPin) {
     col.append(imp);
   } else if (!isImporting(s) && imp) imp.remove();
   col.style.order = rank;
-  col.style.setProperty("--proj", projColor(s.project_root || s.cwd));
+  col.style.setProperty("--proj", s.brain ? "var(--brain)" : projColor(s.project_root || s.cwd));   // 브레인은 프로젝트 색(Argus 와 같아졌다) 대신 브레인 색
   applyColWidth(col, sid);
   const cached = S.boardCache.get(sid);
   const detail = cached && cached.detail;

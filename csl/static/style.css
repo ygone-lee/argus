@@ -14,6 +14,7 @@
   --accent: #c96442;
   --accent-soft: #f7e7df;
   --accent-fill: var(--accent);   /* 흰 글자를 올리는 채운 버튼·배지 — 다크에선 더 진하게 */
+  --brain: #6d4fd8;   /* 브레인 칸 머리 — 프로젝트 색(브레인은 Argus 저장소 안이라 Argus 칸과 같아졌다)과 다르게 */
   --working: #2f9e66;
   --working-soft: #e2f4ea;
   --waiting: #d98a10;
@@ -45,6 +46,7 @@
   --accent: #e08263;
   --accent-soft: #3a2a23;
   --accent-fill: #b85a39;   /* 흰 글자 대비 4.6(밝은 --accent 위 흰 글자는 2.8) */
+  --brain: #9a85ff;
   --working: #4cc489;
   --working-soft: #1d3328;
   --waiting: #f0a63a;
