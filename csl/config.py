@@ -27,6 +27,9 @@ SCHEMA = [
      "「＋ 새 세션」 창에서 처음 골라져 있는 모델. 비우면 Claude Code 설정대로."),
     ("new_default_effort", "보드", "새 세션 기본 effort", "choice", "high", EFFORTS,
      "「＋ 새 세션」 창에서 처음 골라져 있는 effort(claude --effort). 브레인이 effort 없이 새 세션을 열 때도 이 값."),
+    ("clear_resets_model", "보드", "/clear 하면 기본 모델로", "bool", True, None,
+     "Claude 세션에서 /clear 로 대화를 비우면 「새 세션 기본 모델·effort」로 바꿔 둡니다(브레인은 브레인 모델). "
+     "끄면 비우기 전 모델을 그대로 씁니다. 그 터미널에 쳐 둔 글이 있으면 건드리지 않습니다."),
     ("board_ai_model", "보드", "마크다운 보드 AI 모델", "choice", "sonnet", MODELS,
      "마크다운 칸의 AI 대화창에서 문서를 고칠 때 쓰는 모델. 보낼 때마다 claude -p 를 한 번 돌리고, 그때마다 사용량이 듭니다."),
     ("auto_remote", "보드", "보낸 세션에 리모트 컨트롤 자동으로 켜기", "bool", False, None,

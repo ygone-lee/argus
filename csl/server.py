@@ -1566,6 +1566,73 @@ def _recap_loop():
             time.sleep(30)
 
 
+_CLEAR_DONE = set()   # 기본 모델로 바꿔 둔(또는 건너뛴) /clear 세션
+
+
+def model_label(alias):
+    """설정의 모델 별칭(opus·sonnet·haiku·fable) → /model 선택 창의 이름(그 계열의 가장 새 것). 없으면 None."""
+    return next((lab for lab in MODEL_CHOICES if alias and lab.lower().startswith(alias.lower())), None)
+
+
+def apply_clear_defaults():
+    """/clear 로 막 생긴 Claude 세션(1분 안 · 아직 요청 없음)을 기본 모델·effort 로 — 비우기 전 모델이 그대로 남았다.
+    브레인은 브레인 모델. 바쁘거나 선택 창·쳐 둔 글이 있으면 건드리지 않는다(쳐 둔 글은 send_prompt 가 거절)."""
+    conn = store.connect()
+    try:
+        if not config.get(conn, "clear_resets_model"):
+            return
+        rows = conn.execute(
+            "SELECT * FROM sessions s WHERE state='idle' AND state_detail='clear' AND state_at > ? AND COALESCE(agent, 'claude') != 'codex'"
+            " AND NOT EXISTS (SELECT 1 FROM turns t WHERE t.session_id=s.session_id)", (store.now() - 60,)).fetchall()
+        for r in rows:
+            sid = r["session_id"]
+            if sid in _CLEAR_DONE:
+                continue
+            _CLEAR_DONE.add(sid)
+            sess = dict(r)
+            if brain.is_brain(sess.get("cwd")):
+                label, effort = model_label(config.get(conn, "brain_model")), None
+            else:
+                label, effort = model_label(config.get(conn, "new_default_model")), config.get(conn, "new_default_effort") or None
+            cur = (sess.get("model") or "").lower()
+            if label and (label.lower() == cur or label.split()[0].lower() in cur and label.split()[-1].replace(".", "-") in cur):
+                label = None   # 이미 그 모델
+            if effort and effort == sess.get("effort"):
+                effort = None
+            if not label and not effort:
+                continue
+            tg = focus.target_of(sess)
+            if not tg:
+                continue
+            with focus.hold(tg):
+                if focus.is_busy(tg) or focus.dialog_text(tg):
+                    continue
+                if label:
+                    conn.execute("UPDATE sessions SET model_switch_at=? WHERE session_id=?", (store.now(), sid))
+                    conn.commit()
+                ok, msg = focus.set_model_effort(tg, label, effort)
+            with conn:
+                if not ok:
+                    conn.execute("UPDATE sessions SET model_switch_at=NULL WHERE session_id=?", (sid,))
+                    continue
+                if label:
+                    conn.execute("UPDATE sessions SET model=? WHERE session_id=?", (label, sid))
+                if effort and "effort 는 그대로" not in msg:
+                    conn.execute("UPDATE sessions SET effort=? WHERE session_id=?", (effort, sid))
+                store.add_event(conn, sid, "info", "/clear — 기본 모델로 바꿨습니다: %s" % " · ".join(x for x in (label, effort) if x))
+    finally:
+        conn.close()
+
+
+def _clear_loop():
+    while True:
+        try:
+            apply_clear_defaults()
+        except Exception:  # noqa: BLE001 - 기본 모델 맞추기가 서버를 죽이면 안 된다
+            pass
+        time.sleep(2)
+
+
 def _reap_loop():
     while True:
         try:
@@ -3762,6 +3829,7 @@ def main():
     sendqueue.start()          # 넥스트 액션 「끝나면 보내기」
     update.start_scheduler(restart_server)   # 몇 시간마다 새 버전 확인 · 자동이면 조용할 때 받기
     threading.Thread(target=_reap_loop, daemon=True).start()   # 정상 종료한 세션의 빈 탭 닫기
+    threading.Thread(target=_clear_loop, daemon=True).start()  # /clear 한 세션을 기본 모델로
     threading.Thread(target=_dirty_loop, daemon=True).start()  # 칸 머리 변경 보기 버튼용 커밋 안 한 변경 수
     threading.Thread(target=_recap_loop, daemon=True).start()  # 쉬는 세션에 Claude Code 가 쓴 recap 가져오기
     if codex.available():
