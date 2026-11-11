@@ -5603,7 +5603,8 @@ function toast(msg) {
   t.textContent = msg;
   t.classList.add("show");
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => t.classList.remove("show"), 1600);
+  // 읽을 시간: 짧은 글 3초, 길면 글자 수만큼 늘려 최대 8초(1.6초는 오류 문구를 다 읽기 전에 사라졌다)
+  toast.timer = setTimeout(() => t.classList.remove("show"), Math.min(8000, 3000 + String(msg).length * 40));
 }
 function startEdit(el) {
   if (el.isContentEditable) return;
