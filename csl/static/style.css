@@ -447,6 +447,12 @@ body.view-board .board::after { order: 999999; }
 .title-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .col-title-line { margin: 3px 0 4px; min-height: 24px; }   /* 이름 바꾸기 버튼(24px)이 없는 칸(끝난 팀원 탭 등)도 같은 높이 */
 .col-title-line .col-title { margin: 0; min-width: 0; }
+/* 칸 제목은 한 줄 — 오른쪽 끝에 모델·권한 칩을 붙이고, 길면 제목 끝을 … 로(전체 제목은 툴팁) */
+.col-title-line .col-title { display: block; flex: 0 1 auto; min-width: 3em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.col-title-line { overflow: hidden; }
+.col-title-line .ct-chips { display: flex; align-items: center; gap: 5px; margin-left: auto; flex: none; }   /* 칩은 줄이지 않고 제목이 먼저 줄어든다 */
+.col-title-line .ct-chips:empty { display: none; }
+.col-title-line .ct-chips > * { flex-shrink: 0; }
 .rename-btn {
   flex: none; width: 24px; height: 24px; border: 0; border-radius: 6px; background: transparent;
   color: var(--text-3); font-size: calc(14px * var(--fs, 1)); opacity: 0; transition: opacity .12s;

@@ -1727,10 +1727,11 @@ function updateCol(col, s, rank, lastPin) {
       <div class="title-line col-title-line">
         ${agentLogo(s)}<span class="col-title title-text" title="${esc(sessionTitle(s))}">${esc(sessionTitle(s))}</span>
         ${renameBtn(sid, d)}
+        ${s.brain ? "" : `<span class="ct-chips">${modelChip(s, d)}${permChip(s, d)}${isCodex(s) ? cxPermChip(s, d) : ""}</span>`}
       </div>
-      ${s.brain /* 브레인은 늘 같은 폴더라 프로젝트·브랜치 칩은 빼고 모델·권한만(패널이 좁아 윗줄에 두면 넘친다) */
+      ${s.brain /* 브레인은 패널에서 제목 줄을 숨기므로(패널 머리에 이름이 있다) 모델·권한은 아랫줄에 */
         ? `<div class="col-meta">${modelChip(s, d)}${permChip(s, d)}</div>`
-        : `<div class="col-meta">${agentChip(s)}<span class="chip proj" data-action="proj-color" data-root="${esc(s.project_root || s.cwd || "")}" title="${esc(s.project_root || "")} · 눌러서 색 바꾸기">${esc(s.project_name || base(s.project_root))}</span>${placeChips(s)}${diffChip(s)}${modelChip(s, d)}${permChip(s, d)}${isCodex(s) ? cxPermChip(s, d) : ""}</div>`}
+        : `<div class="col-meta">${agentChip(s)}<span class="chip proj" data-action="proj-color" data-root="${esc(s.project_root || s.cwd || "")}" title="${esc(s.project_root || "")} · 눌러서 색 바꾸기">${esc(s.project_name || base(s.project_root))}</span>${placeChips(s)}${diffChip(s)}</div>`}
       ${goalChip(s, d)}
       ${s.state_detail && (d === "waiting" || d === "error") ? `<div class="col-detail">${esc(s.state_detail)}</div>` : ""}`);
   }
