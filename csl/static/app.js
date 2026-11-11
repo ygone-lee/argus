@@ -1692,7 +1692,8 @@ function updateCol(col, s, rank, lastPin) {
   if (isImporting(s) && !imp) {
     imp = document.createElement("div");
     imp.className = "col-importing";
-    imp.innerHTML = `<span class="spin"></span> 보드 터미널로 가져오는 중… <span class="muted">지금 터미널에서 끝내고 같은 대화로 다시 엽니다</span>`;
+    const restart = s.restarting || (S.importing.get(s.session_id) || {}).restart;
+    imp.innerHTML = `<span class="spin"></span> ${restart ? "세션을 다시 시작하는 중…" : "보드 터미널로 가져오는 중…"} <span class="muted">지금 터미널에서 끝내고 같은 대화로 다시 엽니다</span>`;
     col.append(imp);
   } else if (!isImporting(s) && imp) imp.remove();
   col.style.order = rank;
@@ -2936,7 +2937,7 @@ $("#colMenu").addEventListener("click", async e => {
   menu.hidden = true;
   if (!s || item.dataset.cm === "cancel") return;
   if (item.dataset.cm === "restart-yes") {
-    const job = { at: Date.now(), done: false };
+    const job = { at: Date.now(), done: false, restart: true };
     S.importing.set(sid, job);
     S.uiVer++;
     renderBoard();
@@ -3114,7 +3115,8 @@ async function renderBrain() {
   if (document.activeElement !== auto) auto.value = String((S.settings || {}).brain_slack_every || 0);
   if (!S.brainOpen) return;
   const chat = $("#bpChat");
-  const b = brainSession();
+  // 다시 시작하는 동안(끝내고 같은 대화로 다시 열기 — 잠깐 종료로 보인다)에도 「꺼져 있습니다 · 시작」 대신 그 칸을 두고 가운데에 진행 중 표시
+  const b = brainSession() || S.sessions.find(s => s.brain && !s.archived && isImporting(s)) || null;
   if (!b) {
     if (S.brainLaunch) return pollBrainLaunch();   // 띄운 브레인이 아직 세션으로 잡히기 전 — 확인 창·뜨는 중
     pollBrainLaunch();   // 새로고침 뒤에도 뜨는 중이던 브레인을 이어 본다(2초에 한 번만 묻는다)

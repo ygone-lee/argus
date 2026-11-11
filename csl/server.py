@@ -700,6 +700,7 @@ def follow_rename(conn, s):
 
 LAUNCHED = {}   # 보드에서 띄운 Orca 터미널 핸들 → 시각(서버가 켜져 있는 동안)
 IMPORTING = {}  # 보드 터미널로 가져오는 중인 세션 → 시작 시각(종료 → 이어 열기 사이에도 칸을 보이게)
+RESTARTING = set()  # 그중 「세션 다시 시작」인 것 — 칸 가운데 안내 문구를 「다시 시작하는 중」으로
 # 보드가 띄운 브레인 탭 {"handle", "terminal", "at"} — 세션은 훅(SessionStart)으로 잡히는데, 처음 실행이면 그 전에
 # 폴더 신뢰·권한 모드 같은 확인 창이 터미널에 뜬다. 그동안 브레인 패널이 그 탭 화면을 읽어 보드에서 고르게 한다
 BRAIN_LAUNCH = {}
@@ -1638,6 +1639,7 @@ def list_state(conn, days, show_archived):
         s["term_attach"] = tg.terminal.name if tg and tg.terminal.name in ATTACHABLE else ""   # 칸 안에서 열 수 있는 터미널(tmux 도)
         s["term_name"] = tg.terminal.name if tg else ""   # 어느 터미널(orca·tmux·web …) — 보드 터미널로 가져오기 안내에
         s["importing"] = store.now() - IMPORTING.get(s["session_id"], 0) < 180   # 가져오는 중 — 잠깐 종료로 보여도 칸을 둔다
+        s["restarting"] = s["importing"] and s["session_id"] in RESTARTING
         s["brain"] = is_brain       # 브레인 세션은 칸 대신 브레인 패널에
         s["term_label"] = term_label(s.get("terminal"), tg)   # 어디서 도는지(보드 터미널이 아니면 칸에 띠로 보인다)
         # 프로세스가 살아 있는지(Claude Code 실행 목록) — 모르면 True. 꺼졌는데 「대기」로 남은 세션을 칸에 표시한다
@@ -2048,10 +2050,13 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 return self._send(409, {"error": "세션 폴더가 없습니다: " + cwd})
         IMPORTING[sid] = store.now()
+        if body.get("restart"):
+            RESTARTING.add(sid)
         try:
             return self._import(conn, sid, sess, tg, cwd, body)
         finally:
             IMPORTING.pop(sid, None)
+            RESTARTING.discard(sid)
 
     def _import(self, conn, sid, sess, tg, cwd, body):
         """보드 터미널로 가져오기의 본체 — 지금 터미널에서 끝내고(Orca·tmux) 보드 터미널에서 같은 세션으로 이어 연다."""
