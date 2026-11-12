@@ -852,6 +852,11 @@ body.col-zoom .board > .col.active .col-resize { display: none; }
 body.col-dragging, body.col-dragging * { cursor: grabbing !important; user-select: none; }
 /* 끄는 동안: 원래 자리는 숨기고, 놓일 자리에 칸반의 「놓을 곳」처럼 강조된 빈자리를, 포인터엔 반투명 사본을 */
 .col.dragging, .scard.dragging { display: none !important; }
+/* 보드에서 빠지는 칸: 폭이 줄며 흐려지고, 칸 사이 간격(12px)과 테두리도 함께 접혀 나머지 칸이 매끄럽게 붙는다 */
+.col.leaving {
+  min-width: 0; opacity: 0; margin-right: -14px; pointer-events: none;
+  transition: flex-basis .6s ease-in-out, margin-right .6s ease-in-out, opacity .45s ease;
+}
 .drag-slot {
   position: relative; border: 2px dashed var(--accent); border-radius: 12px; background: var(--accent-soft);
   display: flex; align-items: flex-start; justify-content: center; padding-top: 18px; transition: background .12s;

@@ -1584,13 +1584,22 @@ function renderBoard() {
   }
   if (empty) empty.remove();
   const want = new Set(cols.map(s => s.session_id));
-  board.querySelectorAll(".col").forEach(el => {
-    if (!want.has(el.dataset.col)) { colObserver().unobserve(el); S.visibleCols.delete(el.dataset.col); el.remove(); }
+  // 빠지는 칸은 바로 지우지 않고 폭을 줄이며 사라지게 한다 — 나머지 칸이 그 자리로 미끄러져 와 어디로 갔는지 따라갈 수 있게.
+  // 빠지는 칸 바로 뒤에 남는 칸을 기억해 두고, 순서를 다시 매긴 뒤에도 그 칸 바로 앞에서 줄어들게 한다
+  const before = boardCols();
+  const gone = [];
+  before.forEach((el, k) => {
+    if (want.has(el.dataset.col)) return;
+    const next = before.slice(k + 1).find(x => want.has(x.dataset.col));
+    gone.push([el, next ? next.dataset.col : null]);
   });
+  // 순서가 바뀌는 칸도 제자리에서 새 자리로 옮겨 가게(FLIP): 바꾸기 전 위치를 재 둔다
+  const was = new Map(before.filter(el => want.has(el.dataset.col)).map(el => [el, el.getBoundingClientRect().left]));
   const br = board.getBoundingClientRect();
   let needFetch = false;
   cols.forEach((s, i) => {
     let col = board.querySelector(`.col[data-col="${CSS.escape(s.session_id)}"]`);
+    if (col && col.classList.contains("leaving")) reviveCol(col);   // 사라지던 칸이 다시 보이게 됐다(보관 해제 …)
     if (!col) {
       board.insertAdjacentHTML("beforeend", s.board ? boardColSkeleton(s) : colSkeleton(s.session_id));
       col = board.lastElementChild;
@@ -1611,8 +1620,10 @@ function renderBoard() {
     const lastPin = !!pinOf(s) && !(cols[i + 1] && pinOf(cols[i + 1]));
     if (s.board) updateBoardCol(col, s, i + 1, lastPin); else updateCol(col, s, i + 1, lastPin);
   });
+  for (const [el, nextSid] of gone) leaveCol(el, nextSid && board.querySelector(`.col[data-col="${CSS.escape(nextSid)}"]:not(.leaving)`));
   if (needFetch) setTimeout(() => refreshBoard().then(renderBoard), 0);
   if (atStart && board.scrollLeft !== 0) board.scrollLeft = 0;
+  slideCols(was);   // 스크롤을 맞춘 뒤에 잰다
   let more = board.querySelector(".col-more");
   if (all.length > cols.length) {
     if (!more) {
@@ -1625,6 +1636,49 @@ function renderBoard() {
     more.remove();
   }
   if (S.expandedCard) updateExpandedCard();   // 카드 보기에서 펼친 카드의 칸도 같은 내용으로
+}
+const MOTION_OK = () => !matchMedia("(prefers-reduced-motion: reduce)").matches;
+// 보드에서 빠지는 칸: 폭을 0 으로 줄이며 흐려진 뒤 지운다. next(바로 뒤에 남는 칸) 바로 앞 자리에서 줄어든다
+function leaveCol(el, next) {
+  if (el.classList.contains("leaving")) return;
+  colObserver().unobserve(el);
+  S.visibleCols.delete(el.dataset.col);
+  if (!MOTION_OK() || !el.offsetParent) { el.remove(); return; }
+  if (next) { el.style.order = next.style.order; next.before(el); }   // 순서가 같으면 DOM 순서대로 — 다음 칸 바로 앞
+  else el.style.order = 99999;
+  el.style.flexBasis = el.offsetWidth + "px";
+  el.offsetWidth;   // 지금 폭에서 시작하도록 한 번 배치
+  el.classList.add("leaving");
+  el.style.flexBasis = "0px";
+  el._leaveT = setTimeout(() => el.remove(), 680);
+}
+function reviveCol(el) {
+  clearTimeout(el._leaveT);
+  el.classList.remove("leaving");
+  el.style.flexBasis = "";
+  colObserver().observe(el);
+}
+// 자리가 바뀐 칸을 옛 위치에서 새 위치로 옮겨 가게(FLIP). 빠지는 칸은 아직 폭이 그대로라 그 뒤 칸들은 여기서 움직이지 않고,
+// 빠지는 칸이 줄어드는 만큼 따라 미끄러진다
+function slideCols(was) {
+  if (!was.size || !MOTION_OK()) return;
+  const moved = [];
+  for (const [el, x0] of was) {
+    if (!el.isConnected || el.classList.contains("leaving")) continue;
+    const dx = x0 - el.getBoundingClientRect().left;
+    if (Math.abs(dx) < 2) continue;
+    el.style.transition = "none";
+    el.style.transform = `translateX(${dx}px)`;
+    moved.push(el);
+  }
+  if (!moved.length) return;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    for (const el of moved) {
+      el.style.transition = "transform .32s ease";
+      el.style.transform = "";
+      setTimeout(() => { if (!el.style.transform) el.style.transition = ""; }, 360);
+    }
+  }));
 }
 // 칸 머리 첫 줄이 칸보다 넓으면(칩이 많을 때) 글자를 줄인다: 먼저 원격·고정·터미널 버튼을 아이콘만(tight),
 // 그래도 넘치면 「몇 분 전」도 숨긴다(tighter). 메뉴(⋮)와 터미널 버튼은 늘 보인다. 칸 너비가 바뀌어도 다시 잰다
@@ -4008,7 +4062,7 @@ $("#ctxMenu").addEventListener("keydown", e => {
 // 모양은 인박스 칸반과 같게: 끄는 것의 반투명 사본이 포인터를 따라오고, 놓일 자리에 강조된 빈자리가 생겨 나머지가 비켜 선다
 const DRAG = { col: null, sid: null, x0: 0, y0: 0, on: false, x: 0, y: 0, target: null, raf: 0, cards: false, dx: 0, dy: 0 };
 function boardCols() {
-  return [...document.querySelectorAll("#board .col")].sort((a, b) => a.style.order - b.style.order);
+  return [...document.querySelectorAll("#board .col:not(.leaving)")].sort((a, b) => a.style.order - b.style.order);
 }
 function dragItems() {
   return DRAG.cards ? [...document.querySelectorAll("#cards .sc-grid > .scard")] : boardCols();
@@ -4266,7 +4320,7 @@ function visibleFirst(selector) {
   const all = [...document.querySelectorAll(selector)];
   return all.find(el => el.offsetParent !== null) || all[0] || null;
 }
-function colEl(sid) { return sid ? visibleFirst(`.col[data-col="${CSS.escape(sid)}"]`) : null; }
+function colEl(sid) { return sid ? visibleFirst(`.col[data-col="${CSS.escape(sid)}"]:not(.leaving)`) : null; }
 function noteItems(col) { return col ? [...col.querySelectorAll(".cf-notes li.note")] : []; }
 function focusNote(li) {
   S.noteFocus = li.dataset.nid;
