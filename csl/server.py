@@ -3143,6 +3143,16 @@ class Handler(BaseHTTPRequestHandler):
                 box = focus.dialog_text(handle, wait=0.4)
             if box:   # 훅 없이 뜨는 선택 창(/remote-control 등) — 글이 그 창의 선택으로 들어가지 않게
                 return self._send(409, {"error": "터미널에 선택 창이 떠 있어 보내지 않았습니다. 터미널에서 먼저 골라 주세요: " + box})
+            # 터미널 입력칸에 남은 글(터미널에서 치던 글·중단해서 되돌아온 요청)이 있으면 그 뒤에 이어 붙지 않게 멈추고,
+            # 그 글을 보여 줘 보드가 「지우고 보내기 · 가져오기 · 터미널에서」를 고르게 한다. clear_input 에 그 글을 실어 다시 보내면
+            # 입력칸이 아직 그 글 그대로일 때만 지우고 보낸다
+            leftover = focus.typed_input(handle)
+            if leftover and isinstance(body.get("clear_input"), str):
+                ok, why, leftover = focus.clear_input(handle, body["clear_input"])
+                if not ok:
+                    return self._send(409, {"error": why, "leftover": leftover or "", "busy": focus.is_busy(handle), "retry": True})
+            elif leftover:
+                return self._send(409, {"error": focus.LEFTOVER, "leftover": leftover, "busy": focus.is_busy(handle)})
             try:
                 paths = save_images(images)
             except ValueError as e:
@@ -3189,6 +3199,34 @@ class Handler(BaseHTTPRequestHandler):
             if rc_sent:
                 msg += " · 리모트 컨트롤을 켰습니다"
             return self._send(200, {"ok": True, "message": msg, "stages": stages, "images": len(paths)})
+
+        m = re.fullmatch(r"/api/sessions/([\w\-]+)/terminal-input", path)
+        if m and method == "GET":
+            # 지금 터미널 입력칸에 남은 글(브레인 CLI 의 send --clear-input 이 지울 글을 맞추려고 읽는다)
+            sess = session_row(conn, m.group(1))
+            if sess is None:
+                return self._send(404, {"error": "no session"})
+            handle, err = terminal_target(conn, sess)
+            if not handle:
+                return self._send(409, {"error": err})
+            return self._send(200, {"leftover": focus.typed_input(handle) or "", "busy": focus.is_busy(handle)})
+
+        m = re.fullmatch(r"/api/sessions/([\w\-]+)/clear-input", path)
+        if m and method == "POST":
+            # 터미널 입력칸에 남은 글을 지운다(보드가 보여 준 글과 같을 때만) — 보드의 「가져오기」(지우고 보드 입력창으로 옮김)
+            sess = session_row(conn, m.group(1))
+            if sess is None:
+                return self._send(404, {"error": "no session"})
+            why = brain_guard(conn, body, sess["session_id"])
+            if why:
+                return self._send(403, {"error": why})
+            handle, err = terminal_target(conn, sess)
+            if not handle:
+                return self._send(409, {"error": err})
+            ok, why, left = focus.clear_input(handle, body.get("expect") or "")
+            if not ok:
+                return self._send(409, {"error": why, "leftover": left or "", "busy": focus.is_busy(handle), "retry": True})
+            return self._send(200, {"ok": True, "message": "터미널 입력칸을 비웠습니다"})
 
         m = re.fullmatch(r"/api/asides/(\d+)/reread", path)
         if m and method == "POST":

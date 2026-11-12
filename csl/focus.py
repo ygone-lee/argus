@@ -573,6 +573,38 @@ def typed_input(t):
     return None
 
 
+def _same_input(a, b):
+    return re.sub(r"\s+", "", a or "") == re.sub(r"\s+", "", b or "")
+
+
+@_serial
+def clear_input(t, expect):
+    """터미널 입력칸에 남은 글을 지운다 — 보드가 보여 준 글(expect)과 지금 입력칸 글이 같을 때만(그사이 더 친 글은 지우지 않는다).
+    (지웠는가, 안 지운 이유, 지금 입력칸 글). Ctrl+C 한 번으로 통째로 비운다(_clear_restored 참고 — 확인하려고 다시 누르지 않는다).
+    작업 중에는 Ctrl+C 가 작업을 멈출 수 있어 지우지 않는다."""
+    if not t:
+        return False, "터미널을 찾지 못했습니다", None
+    cur = typed_input(t)
+    if cur is None:
+        return False, "터미널 입력칸이 보이지 않습니다(선택 창이 떴거나 화면을 못 읽음)", None
+    if not cur:
+        return True, "", ""
+    if not _same_input(cur, expect):
+        return False, "그사이 터미널 입력칸의 글이 바뀌었습니다 — 다시 확인해 주세요", cur
+    if is_busy(t):
+        return False, "작업 중이라 지우지 않았습니다(Ctrl+C 가 작업을 멈출 수 있음) — 터미널에서 직접 지워 주세요", cur
+    if dialog_text(t):
+        return False, "터미널에 선택 창이 떠 있어 지우지 않았습니다", cur
+    _raw(t, "\x03")
+    end = time.time() + 1.5
+    while time.time() < end:
+        time.sleep(0.25)
+        left = typed_input(t)
+        if left == "":
+            return True, "", ""
+    return False, "입력칸이 비워지지 않았습니다 — 터미널에서 확인해 주세요", typed_input(t)
+
+
 def take_back(t, prompt, wait=2.0):
     """중단하면 Claude Code 가 보낸 요청을 입력칸에 되돌려 놓는다 — 그것이 방금 요청(prompt)이면 입력칸을 비우고 True.
     (보드 입력창으로 옮겨 다음에 보드가 무엇을 보내도 그 뒤에 붙지 않게.) 다른 글(터미널에서 친 것)이면 건드리지 않는다."""

@@ -2196,6 +2196,8 @@ function openForkMenu(btn) {
       <div class="xm-row"><input name="v" placeholder="곁일" required><button class="btn" ${busy ? "disabled" : ""}>맡기기</button></div></form>`);
 }
 $("#xMenu").addEventListener("click", async e => {
+  const lop = e.target.closest("[data-lo]");
+  if (lop) return leftoverPick(lop.dataset.lo);
   const xp = e.target.closest("[data-cxpick]"), xt = e.target.closest("[data-cxterm]"), xc = e.target.closest("[data-cxclose]");
   if (xp || xt || xc) {
     const m = $("#xMenu"), sid = m._cxSid;
@@ -5188,7 +5190,9 @@ async function sendCompose(el) {
   try {
     // 「!」로 시작하면 Claude Code 가 셸 명령으로 바로 실행한다 — 직접 친 것임을 보드 화면의 토큰으로 알린다(브레인·예약은 막힘)
     const direct = /^\s*!/.test(text) ? { "X-Argus-Term": await termToken(true) } : undefined;
-    const r = await api("POST", `/api/sessions/${sid}/send`, { text, images }, direct);
+    const body = { text, images };
+    if (el._clearInput != null) { body.clear_input = el._clearInput; el._clearInput = null; }   // 「지우고 보내기」를 골랐다
+    const r = await api("POST", `/api/sessions/${sid}/send`, body, direct);
     sent = true;
     const g = S.sugg.get(sid);
     if (g) g.text = null;   // 보낸 뒤엔 그 제안은 지난 것
@@ -5206,7 +5210,9 @@ async function sendCompose(el) {
     if (/^\/clear$/.test(text) && cs && cs.term_handle) followClear(sid, cs.term_handle);
     setTimeout(refresh, 600);
   } catch (err) {
+    el._clearInput = null;
     if (err.data && err.data.resume) openResume(sid, el);
+    else if (err.data && err.data.leftover) setTimeout(() => openLeftover(el, err.data), 0);   // 입력창이 다시 풀린 뒤에 연다
     else toast(err.message);
   } finally {
     el.classList.remove("sending");
@@ -5216,6 +5222,45 @@ async function sendCompose(el) {
     setHint(el, el._hint || "");
     if (!sent && $("#resumeModal").hidden) (richOn(el) ? richOf(el) : ta).focus();   // 이어 열기 팝업이 떴으면 그 버튼에 둔다
   }
+}
+// 터미널 입력칸에 글이 남아 있어 보내지 못했을 때(터미널에서 치던 글·중단해서 되돌아온 요청): 그 글을 보여 주고 고르게 한다 —
+// 지우고 보내기 · 보드 입력창으로 가져오기(지우고 이 입력창 앞에 붙임) · 터미널에서 직접. 작업 중이면 지우기는 못 한다(Ctrl+C 가 작업을 멈출 수 있음)
+function openLeftover(el, data) {
+  const sid = el.dataset.sid, busy = !!data.busy, dis = busy ? " disabled" : "";
+  const m = openXMenu(el.querySelector(".cmp-send") || el, `
+    <div class="xm-head">터미널 입력칸에 써 둔 글이 있습니다<div class="muted lo-sub">보드 글을 그대로 보내면 그 뒤에 이어 붙어서 보내지 않았습니다</div></div>
+    <pre class="cx-out lo-text">${esc(data.leftover)}</pre>
+    ${data.retry ? `<div class="xm-note warn">${esc(data.error || "")}</div>` : ""}
+    ${busy ? `<div class="xm-note warn">작업 중이라 지금은 지울 수 없습니다(Ctrl+C 가 작업을 멈출 수 있음) — 끝난 뒤 다시 보내거나 터미널에서 직접 해 주세요</div>` : ""}
+    <button class="cm-item xm-opt" data-lo="send"${dis}>🗑 지우고 보내기 <span class="muted">터미널의 글은 지우고(클립보드에 복사해 둠) 보드에 쓴 글을 보냅니다</span></button>
+    <button class="cm-item xm-opt" data-lo="take"${dis}>⤓ 보드 입력창으로 가져오기 <span class="muted">터미널의 글을 지우고 이 입력창 앞에 붙입니다 — 다듬어서 보내세요</span></button>
+    <button class="cm-item xm-opt" data-lo="term">⌨ 터미널에서 직접 <span class="muted">터미널을 열어 그 글을 보내거나 지웁니다</span></button>`, "right");
+  m.classList.add("wide");
+  m.dataset.kind = "leftover";
+  m._lo = { el, sid, text: data.leftover };
+  const first = m.querySelector("[data-lo]:not([disabled])");
+  if (first) first.focus();
+}
+async function leftoverPick(act) {
+  const m = $("#xMenu"), lo = m._lo;
+  if (!lo) return;
+  const { el, sid, text } = lo;
+  closeXMenu();
+  if (act === "term") return focusTerminal(sid);
+  try { await navigator.clipboard.writeText(text); } catch (e) { /* 복사는 덤 — 못 해도 진행 */ }
+  if (act === "send") { el._clearInput = text; return sendCompose(el); }
+  // 가져오기: 터미널 입력칸을 비운 뒤 그 글을 보드 입력창 앞에 붙인다
+  try { await api("POST", `/api/sessions/${sid}/clear-input`, { expect: text }); }
+  catch (err) { return err.data && err.data.leftover ? openLeftover(el, err.data) : toast(err.message); }
+  const ta = el.querySelector(".cmp-text");
+  if (richOn(el)) exitRich(el, true);
+  const cur = ta.value.trim();
+  ta.value = cur ? text + "\n" + cur : text;
+  S.drafts.set(sid, ta.value);
+  autoGrow(ta);
+  ta.focus();
+  ta.setSelectionRange(text.length, text.length);
+  toast("터미널의 글을 입력창으로 가져왔습니다");
 }
 // 보내기 ▾ (슬랙의 보내기 옆 메뉴처럼): 지금 보내기 · 응답이 끝나면 보내기 · 넥스트 액션에만 넣기
 function openSendMenu(btn) {

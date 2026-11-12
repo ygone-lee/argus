@@ -680,8 +680,10 @@ def cmd_notes(args):
 
 
 def cmd_send(args):
+    clear = "--clear-input" in args   # 터미널 입력칸에 남은 글을 지우고 보낸다(사용자가 그러라고 했을 때만)
+    args = [a for a in args if a != "--clear-input"]
     if len(args) < 2:
-        sys.exit("사용법: ./argus send <ID앞자리|제목 일부> <메시지…>  또는  --file inbox/<파일>")
+        sys.exit("사용법: ./argus send <ID앞자리|제목 일부> [--clear-input] <메시지…>  또는  --file inbox/<파일>")
     s = target(args[0])
     path = None
     if args[1] == "--file":
@@ -694,12 +696,50 @@ def cmd_send(args):
         text = " ".join(args[1:]).strip()
     if not text:
         sys.exit("보낼 내용이 없습니다")
-    d = api("POST", "/api/sessions/%s/send" % s["session_id"],
-            {"text": text, "from": my_sid()})
+    body = {"text": text, "from": my_sid()}
+    if clear:
+        # 서버는 보여 준 글과 지금 입력칸 글이 같을 때만 지운다 — 지금 남은 글을 먼저 읽어 그대로 싣는다
+        left = api("GET", "/api/sessions/%s/terminal-input" % s["session_id"]).get("leftover")
+        if left:
+            body["clear_input"] = left
+    d = send_or_leftover(s, body)
     if path:
         os.remove(path)
     print("%s (ID %s) — %s · 답이 오면 [자동 알림]으로 알려 줍니다(그때 ./argus session %s)" % (
         s.get("title") or "(제목 없음)", s["session_id"][:8], d.get("message") or "보냈습니다", s["session_id"][:8]))
+
+
+def post_raw(path, body):
+    """(상태 코드, 응답) — 오류도 그대로 돌려준다."""
+    req = urllib.request.Request(BASE + path, data=json.dumps(body).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "Host": "127.0.0.1"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return r.status, json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read() or b"{}")
+        except ValueError:
+            return e.code, {"error": "응답을 읽지 못했습니다"}
+    except OSError as e:
+        sys.exit("보드 서버에 연결하지 못했습니다(%s). Argus 서버가 켜져 있는지 확인하세요." % e)
+
+
+def _leftover_exit(s, d):
+    sys.exit("보내지 않았습니다 — %s (ID %s) 의 터미널 입력칸에 써 둔 글이 있습니다(보내면 그 뒤에 이어 붙는다):\n%s\n%s\n%s" % (
+        s.get("title") or "(제목 없음)", s["session_id"][:8], "-" * 40, d["leftover"], "-" * 40)
+        + ("\n%s" % d["error"] if d.get("retry") else "")
+        + ("\n작업 중이라 지금은 지울 수 없습니다 — 끝난 뒤 다시" if d.get("busy") else
+           "\n사용자에게 보여 주고, 지워도 된다고 하면 ./argus send %s --clear-input … 로 다시 보내세요" % s["session_id"][:8]))
+
+
+def send_or_leftover(s, body):
+    code, d = post_raw("/api/sessions/%s/send" % s["session_id"], body)
+    if code == 200:
+        return d
+    if d.get("leftover"):
+        _leftover_exit(s, d)
+    sys.exit("오류 %d: %s" % (code, d.get("error") or d))
 
 
 def cmd_remote(args):
