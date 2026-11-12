@@ -1972,14 +1972,33 @@ function _drawCodexCmd(m, sid, r) {
     <div class="xm-row cx-foot"><span class="muted"></span>${termBtn}<button class="btn" data-cxclose>닫기</button></div>`;
   refresh(sid);
 }
-// /clear 로 같은 탭에 새 세션이 생기면 그 칸으로 간다(이전 세션은 종료돼 칸이 사라진다)
+// /clear 로 같은 탭에 새 세션이 생기면 그 칸으로 가서 입력창에 커서를 둔다(이전 세션은 종료돼 칸이 사라진다)
 async function followClear(sid, handle) {
   for (let i = 0; i < 12; i++) {
     await new Promise(r => setTimeout(r, 800));
     await poll();
     const n = S.sessions.find(x => x.term_handle === handle && x.session_id !== sid && x.state !== "ended");
-    if (n) { await focusCol(n.session_id); return toast("새 대화로 옮겼습니다"); }
+    if (n) {
+      const typing = focusElsewhere(sid);   // 기다리는 사이 다른 곳에 쓰기 시작했으면 커서를 빼앗지 않는다
+      const col = await focusCol(n.session_id);
+      if (!typing) focusComposerIn(col);
+      return toast("새 대화로 옮겼습니다");
+    }
   }
+}
+// 지금 커서가 이 세션 칸(또는 아무 데도 아닌 곳) 밖의 입력란에 있는가
+function focusElsewhere(sid) {
+  const a = document.activeElement;
+  if (!a || a === document.body || !a.matches("input, textarea, select, [contenteditable=true]")) return false;
+  const col = a.closest(".col");
+  return !(col && col.dataset.col === sid);
+}
+// 칸의 입력창에 커서를 둔다(서식 모드면 서식 입력란에). 칸이 막 생겨 아직 그려지는 중이면 잠깐 뒤에 한 번 더
+function focusComposerIn(col, retry = true) {
+  const el = col && col.querySelector(".composer");
+  const box = el && (richOn(el) ? richOf(el) : el.querySelector(".cmp-text"));
+  if (box && box.offsetParent) { box.focus({ preventScroll: true }); return; }
+  if (retry) setTimeout(() => focusComposerIn(col && col.isConnected ? col : null, false), 400);
 }
 async function copyLastResponse(sid) {
   const s = sessionById(sid), cached = S.boardCache.get(sid);
@@ -3846,6 +3865,7 @@ async function brainClear() {
     toast("브레인 대화를 비웠습니다 — 지침을 새로 읽습니다");
     setBrainOpen(true);
     showBrainTab("chat");
+    if (b.term_handle) followClear(b.session_id, b.term_handle);   // 새 브레인 대화가 생기면 그 입력창에 커서를
     setTimeout(() => { refreshBoard().then(renderBrain); }, 1500);
   } catch (e) { toast("비우지 못했습니다: " + e.message); }
 }
