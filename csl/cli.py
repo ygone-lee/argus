@@ -27,6 +27,7 @@
     ./argus send <ID앞자리|제목 일부> <메시지…>   그 세션 입력창에 보내고 Enter(작업 중이면 끼워 넣기)
     ./argus send <세션> --file inbox/<파일>   여러 줄 메시지는 파일로(보낸 뒤 지운다)
     ./argus remote <세션>            그 세션의 리모트 컨트롤(/remote-control) 켜기
+    ./argus shell <세션>             그 세션 폴더에서 보드 오른쪽 터미널 서랍에 셸 탭 열기
     ./argus quit <세션> [--force]    세션 종료 — Claude Code 를 /exit 로 닫고 터미널 탭도 닫는다(작업 중이면 --force 로 멈추고 종료)
     ./argus restart <세션>           세션 다시 시작 — 끄고 보드 터미널에서 같은 대화로 다시 연다(업데이트 반영 · 새 모델이 /model 에 보이게)
     ./argus import <세션>            보드 터미널로 가져오기 — 다른 터미널(Orca·tmux)에서 도는 세션을 옮기거나 꺼진 세션을 이어 열기
@@ -969,6 +970,12 @@ def cmd_focus(args):
     _say(s, _post(s, "focus").get("message") or "앞으로 가져왔습니다")
 
 
+def cmd_shell(args):
+    _need(args, 1, "shell <세션>   (그 세션 폴더에서 보드 오른쪽 터미널 서랍에 셸 탭 열기)")
+    s = target(args[0])
+    _say(s, _post(s, "shell").get("message") or "열었습니다")
+
+
 def cmd_branch(args, action):
     _need(args, 1, action + " <세션>")
     s = resolve(api("GET", "/api/state?archived=1"), args[0]) or sys.exit("세션을 찾지 못했습니다: " + args[0])
@@ -1151,7 +1158,7 @@ def cmd_calendar(args):
 def main():
     args = sys.argv[1:]
     cmds = {"sessions": cmd_sessions, "usage": cmd_usage, "session": cmd_session, "search": cmd_search, "timeline": cmd_timeline, "turn": cmd_turn, "inbox": cmd_inbox, "calendar": cmd_calendar,
-            "send": cmd_send, "remote": cmd_remote, "notes": cmd_notes, "events": cmd_events, "git": cmd_git,
+            "send": cmd_send, "remote": cmd_remote, "shell": cmd_shell, "notes": cmd_notes, "events": cmd_events, "git": cmd_git,
             "quit": cmd_quit, "restart": cmd_restart, "import": lambda a: cmd_restart(a, False), "archive": cmd_archive, "unarchive": lambda a: cmd_archive(a, False), "new": cmd_new, "note": cmd_note,
             "pin": cmd_pin, "unpin": lambda a: cmd_pin(a, False), "rename": cmd_rename, "stop": cmd_stop, "model": cmd_model,
             "perm": cmd_perm, "rewind": cmd_rewind, "ask": cmd_ask, "answer": cmd_answer, "focus": cmd_focus,

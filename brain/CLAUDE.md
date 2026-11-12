@@ -82,6 +82,7 @@
 ./argus send <세션 ID> --file inbox/<파일>   여러 줄 메시지(보낸 뒤 파일은 지워진다)
 ./argus send <세션 ID> --clear-input …   터미널 입력칸에 남은 글을 지우고 보낸다(사용자가 지워도 된다고 했을 때만)
 ./argus remote <세션 ID>            그 세션의 리모트 컨트롤 켜기
+./argus shell <세션 ID>             그 세션 폴더(워크트리)에서 보드 오른쪽 터미널 서랍에 셸 탭 열기 — 「그 세션 폴더에서 터미널 열어 줘」. 명령은 치지 않는다(사용자가 친다)
 ./argus quit <세션 ID> [--force]    세션 종료 — Claude Code 를 /exit 로 닫고 터미널 탭도 닫기(작업 중이면 --force 로 멈추고)
 ./argus restart <세션 ID>           세션 다시 시작 — 끄고 보드 터미널에서 같은 대화로 다시 연다. Claude Code·Codex 업데이트를 반영하거나 새 모델(/model 에 없을 때)을 쓰려면. 칸·할 일은 그대로, 그 세션의 백그라운드 작업은 끊긴다. 작업 중이면 안 됨
 ./argus import <세션 ID>            보드 터미널로 가져오기 — Orca·tmux 에서 도는 세션을 옮기거나, 꺼진 세션을 보드 터미널에서 이어 연다

@@ -808,6 +808,12 @@ const I18N_ROWS = [
   ["작업 중 · 지금 작업은 그대로, 다음 요청부터 적용", "作業中・今の作業はそのまま、次の依頼から適用", "Working · the current task continues; applies from the next request"],
   ["확인 필요 상태에서는 바꿀 수 없습니다. 터미널에서 승인·답변을 먼저 해 주세요", "確認待ちの間は変更できません。先にターミナルで承認・回答してください", "Can't change while it's waiting for you. Approve or answer in the terminal first"],
   ["{} · 지금 작업은 그대로 이어지고, 다음 요청부터 적용됩니다", "{}・今の作業はそのまま続き、次の依頼から適用されます", "{} · the current task continues; applies from the next request"],
+  // ---- 세션 폴더에서 셸(11/12)
+  ["⌨ 이 폴더에서 셸", "⌨ このフォルダでシェル", "⌨ Shell in this folder"],
+  ["오른쪽 터미널 서랍 · {}", "右のターミナルドロワー・{}", "right terminal drawer · {}"],
+  ["이 폴더에서 셸을 열었습니다: {}", "このフォルダでシェルを開きました: {}", "Opened a shell in this folder: {}"],
+  ["이 폴더의 셸 탭으로 갔습니다: {}", "このフォルダのシェルタブに移りました: {}", "Switched to this folder's shell tab: {}"],
+  ["이 세션의 작업 폴더를 모릅니다", "このセッションの作業フォルダが分かりません", "This session's working folder is unknown"],
 ];
 
 const I18N = (() => {

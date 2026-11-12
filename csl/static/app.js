@@ -502,6 +502,10 @@ async function poll() {
   S.boards = data.boards || [];   // 세션이 아닌 보드 칸(터미널·마크다운) — 칸 순서에는 세션과 섞인다
   S.settings = data.settings || {};
   S.dev = !!data.dev;   // 개발용 기록이 켜져 있음(저장소에 .dev/ 가 있음) — ⋮ 「🐞 지금 상태 저장」
+  // 브레인이 남긴 「그 세션 폴더에서 셸 열기」 요청 — 처음 받은 것은 지난 요청이라 넘기고, 보고 있는 창 하나만 연다
+  const sr = data.shell_req;
+  if (sr && S.shellReqAt !== undefined && sr.at > S.shellReqAt && !document.hidden) openShellAt(sr.sid, sr.cwd);
+  if (sr || S.shellReqAt === undefined) S.shellReqAt = sr ? Math.max(sr.at, S.shellReqAt || 0) : 0;
   if (!S.colsInit && S.settings.board_cols) { S.boardLimit = S.settings.board_cols; S.colsInit = true; }
   S.inboxNew = data.inbox_new || 0;
   S.inboxNewAt = data.inbox_new_at || [];
@@ -2895,6 +2899,7 @@ function openColMenu(btn) {
       ${s.state !== "ended" && !s.desktop ? `<button class="cm-item danger" data-cm="quit">⏻ 세션 종료 <span class="muted">Codex 를 닫고(/quit) 터미널 탭도 닫기</span></button>` : ""}
       <button class="cm-item" data-cm="pin">📌 ${pinOf(s) ? "고정 풀기" : "맨 앞에 고정"} <span class="muted">P</span></button>
       <button class="cm-item" data-cm="diff">🧾 변경 보기 <span class="muted">커밋 안 한 변경</span></button>
+      ${shellItem(s)}
       ${S.dev ? `<button class="cm-item" data-cm="dev-snap">🐞 지금 상태 저장 <span class="muted">개발용 · .dev/</span></button>` : ""}
       ${colWidthOf(sid) ? `<button class="cm-item" data-cm="width-reset">↔ 기본 너비로 <span class="muted">${colWidthOf(sid)}px</span></button>` : ""}
       ${s.state === "ended" ? `<button class="cm-item danger" data-cm="delete">🗑 보드에서 지우기 <span class="muted">칸·대화 기록</span></button>` : ""}`;
@@ -2911,11 +2916,17 @@ function openColMenu(btn) {
     ${s.brain ? "" /* 브레인은 패널에 따로 떠서 고정·목표·변경·너비가 의미 없다 — 다시 열기·종료·원격만 */ : `<button class="cm-item" data-cm="pin">📌 ${pinOf(s) ? "고정 풀기" : "맨 앞에 고정"} <span class="muted">P</span></button>
     ${d !== "ended" ? `<button class="cm-item" data-cm="goal">🎯 ${s.goal && !s.goal.met ? "목표 바꾸기·풀기" : "목표 걸기"} <span class="muted">/goal</span></button>` : ""}
     <button class="cm-item" data-cm="diff">🧾 변경 보기 <span class="muted">커밋 안 한 변경</span></button>
+    ${shellItem(s)}
     ${S.dev ? `<button class="cm-item" data-cm="dev-snap">🐞 지금 상태 저장 <span class="muted">개발용 · .dev/</span></button>` : ""}
     ${colWidthOf(sid) ? `<button class="cm-item" data-cm="width-reset">↔ 기본 너비로 <span class="muted">${colWidthOf(sid)}px</span></button>` : ""}
     ${s.state === "ended" ? `<button class="cm-item danger" data-cm="delete">🗑 보드에서 지우기 <span class="muted">칸·대화 기록</span></button>` : ""}`}`;
   menu.hidden = false;
   placeMenu(menu, btn, "right", 4);
+}
+function shellItem(s) {
+  if (!s.cwd) return "";
+  const dir = s.cwd.split("/").filter(Boolean).pop() || "/";
+  return `<button class="cm-item" data-cm="shell">⌨ 이 폴더에서 셸 <span class="muted">오른쪽 터미널 서랍 · ${esc(dir)}</span></button>`;
 }
 $("#colMenu").addEventListener("click", async e => {
   const menu = $("#colMenu");
@@ -3049,6 +3060,7 @@ $("#colMenu").addEventListener("click", async e => {
   if (item.dataset.cm === "pin") return togglePin(sid);
   if (item.dataset.cm === "goal") return openGoalMenu(sid, btnOfCol(sid, ".col-menu-btn"));
   if (item.dataset.cm === "diff") return openDiff(sid);
+  if (item.dataset.cm === "shell") { menu.hidden = true; return openShellAt(sid); }
   if (item.dataset.cm === "dev-snap") {   // 개발용: 오류 없이 이상할 때 그 순간을 .dev/send-failures/ 에 남긴다
     const col = colEl(sid), ta = col && col.querySelector(".cmp-text"), s2 = sessionById(sid);
     const client = { draft: ta ? ta.value : null, display_state: s2 ? displayState(s2) : null, view: S.view, board_mode: S.boardMode,
@@ -6569,6 +6581,24 @@ async function newShell() {
     TP.cur = r.name;
     await refreshShells();
     showShell(r.name, true);
+  } catch (e) { toast(e.message); }
+  finally { TP.busy = false; }
+}
+// 그 세션의 작업 폴더(워크트리)에서 셸 탭을 연다 — 같은 폴더에서 아무것도 안 돌고 있는 셸 탭이 있으면 그 탭으로
+async function openShellAt(sid, cwd) {
+  const s = sessionById(sid);
+  cwd = cwd || (s && s.cwd);
+  if (!cwd) return toast("이 세션의 작업 폴더를 모릅니다");
+  if (TP.busy) return;
+  TP.busy = true;
+  try {
+    const list = await refreshShells();
+    const idle = (list || []).find(x => x.path === cwd && SHELLS.has(x.command));
+    const name = idle ? idle.name : (await termApi("POST", "/api/shells", { cwd })).name;
+    TP.cur = name;
+    if (!idle) await refreshShells();
+    if (!TP.open) setTermPanelOpen(true); else showShell(name, true);
+    toast((idle ? "이 폴더의 셸 탭으로 갔습니다: " : "이 폴더에서 셸을 열었습니다: ") + cwd.replace(/^\/Users\/[^/]+/, "~"));
   } catch (e) { toast(e.message); }
   finally { TP.busy = false; }
 }

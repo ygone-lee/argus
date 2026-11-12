@@ -488,7 +488,7 @@ def mark_dialog(conn, sid, box):
 
 
 BRAIN_ACTIONS = re.compile(
-    r"/api/sessions/([\w\-]+)/(?:send|remote|quit|import|archive|pin|rename|interrupt|model|permission|rewind|answer|prompt|focus|switch|attach|close-branch)"
+    r"/api/sessions/([\w\-]+)/(?:send|remote|quit|import|archive|pin|rename|interrupt|model|permission|rewind|answer|prompt|focus|shell|switch|attach|close-branch)"
     r"|/api/sessions/new|/api/agents/[0-9a-f]{8}/\w+|/api/(?:config|settings|open|daily)|/api/notes/\d+|/api/inbox/\d+/delegate")
 
 
@@ -604,7 +604,7 @@ def live_remote(sid):
     return run[sid].get("bridge") or ""
 
 
-def brain_guard(conn, body, target_sid):
+def brain_guard(conn, body, target_sid, allow_self=False):
     """브레인(./argus send·remote·quit·archive·new)가 보낸 요청이면 막을 이유(문자열), 아니면 None.
 
     자동 정리(인박스 정리해줘 (자동)) 중에는 보내지 못한다 — 그때 읽는 슬랙·메일 본문의 지시로 다른 세션이 움직이지 않게.
@@ -614,7 +614,7 @@ def brain_guard(conn, body, target_sid):
         return None
     if src in inboxrun.RUN_SIDS:
         return "인박스 정리 일꾼은 세션을 움직이거나 설정을 바꿀 수 없습니다"
-    if src == target_sid:
+    if src == target_sid and not allow_self:   # allow_self: 자기 폴더에서 셸 열기처럼 자기에게 해도 되는 것
         return "자기 자신에게는 보낼 수 없습니다"
     row = conn.execute("SELECT cwd FROM sessions WHERE session_id=?", (src,)).fetchone()
     if not row or not brain.is_brain(row["cwd"]):
@@ -730,6 +730,9 @@ def follow_rename(conn, s):
 
 LAUNCHED = {}   # 보드에서 띄운 Orca 터미널 핸들 → 시각(서버가 켜져 있는 동안)
 IMPORTING = {}  # 보드 터미널로 가져오는 중인 세션 → 시작 시각(종료 → 이어 열기 사이에도 칸을 보이게)
+# 브레인(./argus shell)이 「그 세션 폴더에서 셸을 열어 달라」고 남긴 요청 {sid, cwd, at}. 셸은 보드 화면이 토큰(X-Argus-Term)을
+# 가지고 만든다 — 셸을 띄우는 길은 같은 출처·토큰만 열어 두고, 브레인은 화면에 부탁만 한다
+SHELL_REQ = {}
 RESTARTING = set()  # 그중 「세션 다시 시작」인 것 — 칸 가운데 안내 문구를 「다시 시작하는 중」으로
 # 보드가 띄운 브레인 탭 {"handle", "terminal", "at"} — 세션은 훅(SessionStart)으로 잡히는데, 처음 실행이면 그 전에
 # 폴더 신뢰·권한 모드 같은 확인 창이 터미널에 뜬다. 그동안 브레인 패널이 그 탭 화면을 읽어 보드에서 고르게 한다
@@ -1790,7 +1793,7 @@ def list_state(conn, days, show_archived):
             "codex_usage": codex.rate_limits() if codex.available() else None,
             "codex": codex_info(conn) if codex.available() else None,
             "inbox_new": len(inbox_new_at), "inbox_new_at": inbox_new_at, "boards": boards.listing(conn, show_archived),
-            "update": update.summary(conn), "setup": setup_issues(conn), "dev": devlog.enabled()}
+            "update": update.summary(conn), "setup": setup_issues(conn), "dev": devlog.enabled(), "shell_req": SHELL_REQ.get("v")}
 
 
 def setup_issues(conn):
@@ -2336,7 +2339,7 @@ class Handler(BaseHTTPRequestHandler):
         if method in ("POST", "PATCH", "DELETE") and isinstance(body, dict) and body.get("from"):
             g = BRAIN_ACTIONS.fullmatch(path)
             if g:
-                why = brain_guard(conn, body, g.group(1) or "")
+                why = brain_guard(conn, body, g.group(1) or "", allow_self=path.endswith("/shell"))
                 if why:
                     return self._send(403, {"error": why})
         m = re.fullmatch(r"/api/sessions/([\w\-]+)/commands", path)
@@ -3730,6 +3733,22 @@ class Handler(BaseHTTPRequestHandler):
             if found:   # 제목으로 새로 찾은 Orca 핸들은 다음을 위해 기억
                 conn.execute("UPDATE sessions SET terminal=? WHERE session_id=?", (json.dumps(found), row["session_id"]))
             return self._send(200, {"ok": ok, "message": message})
+
+        m = re.fullmatch(r"/api/sessions/([\w\-]+)/shell", path)
+        if m and method == "POST":
+            # 그 세션의 작업 폴더(워크트리)에서 오른쪽 터미널 서랍에 셸 탭을 열어 달라는 요청 — 열린 보드 화면이 받아 연다
+            row = session_row(conn, m.group(1))
+            if row is None:
+                return self._send(404, {"error": "no session"})
+            why = brain_guard(conn, body, row["session_id"], allow_self=True)
+            if why:
+                return self._send(403, {"error": why})
+            cwd = row.get("cwd") or ""
+            if not cwd or not os.path.isdir(os.path.expanduser(cwd)):
+                return self._send(409, {"error": "그 세션의 작업 폴더가 없습니다(지워진 워크트리일 수 있음)"})
+            SHELL_REQ["v"] = {"sid": row["session_id"], "cwd": cwd, "at": store.now()}
+            return self._send(200, {"ok": True, "cwd": cwd,
+                                    "message": "보드 오른쪽 터미널 서랍에 이 폴더의 셸을 엽니다(보드 화면이 열려 있을 때): " + cwd})
 
         m = re.fullmatch(r"/api/sessions/([\w\-]+)/activity", path)
         if m and method == "GET":
