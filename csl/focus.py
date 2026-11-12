@@ -394,6 +394,10 @@ def _landed(t, text, wait=2.0):
             g = re.sub(r"\s+", "", got)
             if (want and want in g) or "[Pastedtext" in g or "[Image#" in g or (not want and g):
                 return True
+            # 입력칸은 높이가 정해져 있어 여러 줄 글이 길면 첫 줄이 위로 밀려 안 보이고 「❯」가 중간 줄에 붙는다 —
+            # 그때는 글의 마지막 줄이 입력칸에 보이면 들어간 것
+            if want_end and want_end in g:
+                return True
         elif want_end:
             # 여러 줄 글이 화면보다 길면 입력칸 윗부분(위 가로줄과 「❯」 첫 줄)이 화면 위로 밀려 안 보인다 —
             # 그때는 아래 가로줄 바로 위에 글의 마지막 줄이 보이면 들어간 것
