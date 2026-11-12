@@ -4589,7 +4589,11 @@ function openModelMenu(btn) {
   menu.dataset.sid = sid;
   menu._onPick = null;
   menu._pick = { model: choices.includes(cur) ? cur : null, effort: efforts.includes(s.effort) ? s.effort : null };
-  const busy = !["idle", "done", "error"].includes(s.state);
+  // Claude Code 는 작업 중에도 바꿀 수 있다(지금 작업은 그대로, 다음 요청부터). 확인 필요 상태·Codex 작업 중은 막는다
+  const working = s.state === "working" && !cx;
+  const busy = !["idle", "done", "error"].includes(s.state) && !working;
+  const note = busy ? (cx ? "작업 중에는 바꿀 수 없습니다" : "확인 필요 상태에서는 바꿀 수 없습니다")
+    : working ? "작업 중 · 지금 작업은 그대로, 다음 요청부터 적용" : "이 세션에만 적용 · 기본값은 그대로";
   const draw = () => {
     const p = menu._pick;
     menu.innerHTML = `<div class="mm-title">모델 <span class="muted">지금: ${esc(cur || "알 수 없음")}</span></div>
@@ -4597,7 +4601,7 @@ function openModelMenu(btn) {
       <div class="mm-title">${cx ? "추론" : "effort"} <span class="muted">지금: ${esc(s.effort || "알 수 없음")}</span></div>
       <div class="mm-row">${efforts.map(e => `<button class="mm-opt ${p.effort === e ? "on" : ""}" data-mm-effort="${e}">${e}</button>`).join("")}</div>
       <div class="mm-foot">
-        <span class="muted">${busy ? "작업 중에는 바꿀 수 없습니다" : "이 세션에만 적용 · 기본값은 그대로"}</span>
+        <span class="muted">${note}</span>
         <button class="btn primary" data-mm-apply ${busy ? "disabled" : ""}>적용</button>
       </div>`;
   };

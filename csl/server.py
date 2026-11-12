@@ -3359,11 +3359,16 @@ class Handler(BaseHTTPRequestHandler):
             sess = session_row(conn, m.group(1))
             if sess is None:
                 return self._send(404, {"error": "no session"})
-            if sess["state"] not in ("idle", "done", "error"):
-                return self._send(409, {"error": "작업 중이거나 확인 필요 상태에서는 바꿀 수 없습니다. 끝난 뒤 다시 해 주세요"})
+            # Claude Code 는 작업 중에도 /model 창이 바로 열리고, 바꿔도 지금 작업은 멈추지 않는다(다음 요청부터 — v2.1.322 실측).
+            # 확인 필요(승인·질문 창)는 그 창에 키가 들어가니 막는다. Codex 는 확인하지 않았으니 작업 중에도 막는다
+            codex_sess = sess.get("agent") == "codex"
+            if sess["state"] not in ("idle", "done", "error") and (codex_sess or sess["state"] != "working"):
+                return self._send(409, {"error": "작업 중이거나 확인 필요 상태에서는 바꿀 수 없습니다. 끝난 뒤 다시 해 주세요"
+                                        if codex_sess else "확인 필요 상태에서는 바꿀 수 없습니다. 터미널에서 승인·답변을 먼저 해 주세요"})
+            working = sess["state"] == "working"
             model = (body.get("model") or "").strip() or None
             effort = (body.get("effort") or "").strip() or None
-            if sess.get("agent") == "codex":
+            if codex_sess:
                 return self._send(*codex_model(conn, sess, model, effort))
             if model and model not in MODEL_CHOICES:
                 return self._send(400, {"error": "모르는 모델입니다"})
@@ -3378,6 +3383,8 @@ class Handler(BaseHTTPRequestHandler):
             if not ok:
                 conn.execute("UPDATE sessions SET model_switch_at=NULL WHERE session_id=?", (sess["session_id"],))
                 return self._send(502, {"error": msg})
+            if working:
+                msg += " · 지금 작업은 그대로 이어지고, 다음 요청부터 적용됩니다"
             if model:
                 conn.execute("UPDATE sessions SET model=? WHERE session_id=?", (model, sess["session_id"]))
             if effort and "effort 는 그대로" not in msg:

@@ -766,7 +766,9 @@ def set_model_effort(t, model_label=None, effort=None):
         return False, "선택 창을 열지 못했습니다: " + err
 
     def abort(msg):
-        _raw(t, ESC)
+        # 선택 창이 떠 있을 때만 Esc 로 닫는다 — 창이 안 열린 채 Esc 가 들어가면 작업 중인 Claude 가 멈춘다(작업 중에도 바꿀 수 있게 됐다)
+        if any("Select model" in ln for ln in _screen(t)):
+            _raw(t, ESC)
         return False, msg
 
     rows = cur_effort = None

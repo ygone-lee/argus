@@ -803,6 +803,11 @@ const I18N_ROWS = [
   ["Argus 는 각 에이전트의 훅으로 세션 상태를 받습니다. 처음 설치할 때 없던 에이전트를 나중에 깔았거나, 업데이트 뒤 훅이 모자라면 여기서 넣으세요. 터미널에서는", "Argus は各エージェントのフックでセッションの状態を受け取ります。最初のインストール時になかったエージェントを後で入れたときや、アップデート後にフックが足りないときはここで追加してください。ターミナルでは", "Argus gets session state through each agent's hooks. If you installed an agent after setting up Argus, or hooks are missing after an update, add them here. In a terminal:"],
   ["· 점검은", "・確認は", "· check:"],
   ["지금: {}", "現在: {}", "Now: {}"], ["알 수 없음", "不明", "unknown"], ["적용", "適用", "Apply"],
+  // ---- 작업 중 모델 바꾸기(11/12)
+  ["확인 필요 상태에서는 바꿀 수 없습니다", "確認待ちの間は変更できません", "Can't change while it's waiting for you"],
+  ["작업 중 · 지금 작업은 그대로, 다음 요청부터 적용", "作業中・今の作業はそのまま、次の依頼から適用", "Working · the current task continues; applies from the next request"],
+  ["확인 필요 상태에서는 바꿀 수 없습니다. 터미널에서 승인·답변을 먼저 해 주세요", "確認待ちの間は変更できません。先にターミナルで承認・回答してください", "Can't change while it's waiting for you. Approve or answer in the terminal first"],
+  ["{} · 지금 작업은 그대로 이어지고, 다음 요청부터 적용됩니다", "{}・今の作業はそのまま続き、次の依頼から適用されます", "{} · the current task continues; applies from the next request"],
 ];
 
 const I18N = (() => {
