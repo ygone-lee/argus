@@ -856,7 +856,10 @@ def _dirty_check(d):
         st = _git(d, "diff", "HEAD", "--shortstat", timeout=10)
         m1, m2 = re.search(r"(\d+) insertion", st), re.search(r"(\d+) deletion", st)
         add, dele = int(m1.group(1)) if m1 else 0, int(m2.group(1)) if m2 else 0
-    return {"files": changed + new, "new": new, "add": add + new_lines, "del": dele, "at": store.now()}
+    # 지금 브랜치 — 브랜치는 세션 시작·요청 때만 읽어서, 한 턴 안에서 git checkout 하면 다음 요청까지 칸에 옛 이름이 남았다
+    head = _git(d, "rev-parse", "--abbrev-ref", "HEAD", timeout=5).strip()
+    return {"files": changed + new, "new": new, "add": add + new_lines, "del": dele, "at": store.now(),
+            "branch": head if head and head != "HEAD" else None}
 
 
 def _dirty_loop():
@@ -1769,6 +1772,11 @@ def list_state(conn, days, show_archived):
                              for x in store.bg_tasks(s.get("transcript_path"))] if s["state"] != "ended" else []
         # 커밋 안 한 변경 수 — 백그라운드에서 확인해 둔 값(변경 보기와 같은 폴더: 워크트리 없으면 cwd)
         s["dirty"] = dirty_of(s.get("worktree") or s.get("cwd")) if s["state"] != "ended" and not is_brain else None
+        live_branch = (s["dirty"] or {}).get("branch")
+        if live_branch and live_branch != s.get("branch"):   # 그 폴더에서 브랜치를 바꿨다 — 칸·기록에 맞춘다
+            s["branch"] = live_branch
+            conn.execute("UPDATE sessions SET branch=? WHERE session_id=?", (live_branch, s["session_id"]))
+            conn.commit()
         # 마지막·첫 요청과 마지막 응답은 위 SELECT 의 하위 쿼리로 한 번에(세션마다 쿼리 3개씩 돌던 것)
         s["last_prompt"] = {"prompt": s.pop("lp_prompt"), "prompt_at": s.pop("lp_at")} if s["lp_prompt"] is not None else None
         s["first_prompt"] = s.pop("fp_prompt")
