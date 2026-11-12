@@ -814,6 +814,15 @@ const I18N_ROWS = [
   ["이 폴더에서 셸을 열었습니다: {}", "このフォルダでシェルを開きました: {}", "Opened a shell in this folder: {}"],
   ["이 폴더의 셸 탭으로 갔습니다: {}", "このフォルダのシェルタブに移りました: {}", "Switched to this folder's shell tab: {}"],
   ["이 세션의 작업 폴더를 모릅니다", "このセッションの作業フォルダが分かりません", "This session's working folder is unknown"],
+  // ---- 쉬는 팀원 접기(11/12)
+  ["👥 쉬는 팀원 {} ▸", "👥 待機中のチームメイト {} ▸", "👥 {} idle teammates ▸"],
+  ["◂ 접기", "◂ たたむ", "◂ Collapse"],
+  ["쉬는 팀원 — 눌러서 펼치기(다시 일을 시작하면 탭이 저절로 나옵니다)", "待機中のチームメイト — クリックで展開(再び作業を始めるとタブが自動で出ます)", "Idle teammates — click to expand (a tab comes back by itself when one starts working again)"],
+  ["쉬는 팀원 접기", "待機中のチームメイトをたたむ", "Collapse idle teammates"],
+  ["👥 끝난 팀원 보기", "👥 終了したチームメイトを表示", "👥 Show ended teammates"],
+  ["👥 끝난 팀원 숨기기", "👥 終了したチームメイトを隠す", "👥 Hide ended teammates"],
+  ["{}명 · 이 칸 탭에", "{} 人・この列のタブに", "{} · as tabs in this column"],
+  ["이 칸 탭에서", "この列のタブから", "from this column's tabs"],
 ];
 
 const I18N = (() => {

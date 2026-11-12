@@ -1833,6 +1833,7 @@ select {
 .ib-run-sum { margin-top: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: calc(13px * var(--fs, 1)); max-height: 360px; overflow: auto; }
 .rename-saving { font-size: calc(12px * var(--fs, 1)); margin-left: 8px; flex: none; }
 .fam-tab.team .fam-tab-t { font-weight: 600; }
+.fam-tab.fam-fold { font-weight: 500; color: var(--text-3); border-style: dashed; border-color: var(--border); border-bottom: 0; }
 /* 다크: 밝은 상태색(초록·노랑·빨강·파랑) 위의 변경 종류 글자는 어둡게, 보라 라벨은 밝게 */
 [data-theme="dark"] .dv-st { color: #14130f; }
 [data-theme="dark"] .ib-kind.me { color: #b69cf0; background: color-mix(in srgb, #b69cf0 14%, transparent); }

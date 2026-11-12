@@ -1455,6 +1455,8 @@ const isTeammate = s => s.branch_kind === "team";
 // 보드 터미널: 칸 안에서 터미널을 켜 둔 세션(open) · 붙어 있는 xterm(live: 칸의 .col-term → 연결)
 const TERM = { lib: null, token: null, open: new Set(load("csl.termOpen", [])), live: new Map() };
 S.famSel = load("csl.famSel", {});   // 가족 뿌리 session_id → 고른 갈래
+S.famOpen = new Set();   // 쉬는 팀원 탭을 펼쳐 둔 가족(뿌리 session_id) — 이 화면에서만
+S.famEnded = new Set();   // 끝난 팀원도 탭에 꺼내 둔 가족(칸 ⋮ 「끝난 팀원 보기」) — 이 화면에서만
 function famRootOf(s, byId) {
   let cur = s;
   for (let i = 0; i < 20 && (isBranch(cur) || isTeammate(cur)) && byId.has(cur.continued_from); i++) cur = byId.get(cur.continued_from);
@@ -1462,10 +1464,14 @@ function famRootOf(s, byId) {
 }
 function boardFamilies() {
   const byId = new Map(S.sessions.map(s => [s.session_id, s]));
-  const fams = new Map();
+  const fams = new Map(), hidden = new Map();
   for (const s of S.sessions.concat(S.boards || [])) {
     if (liveBrain(s) || s.archived && !S.showEnded && !S.reveal.has(s.session_id)) continue;
     const r = famRootOf(s, byId);
+    // 끝난 팀원은 탭에서 뺀다(Claude Code 의 에이전트 패널도 끝난 팀원은 보이지 않는다). 지금 그 탭을 보고 있거나
+    // 그 칸 ⋮ 「끝난 팀원 보기」·「종료·보관 세션도 보기」·검색에서 고른 것이면 둔다
+    if (isTeammate(s) && s.state === "ended" && !S.showEnded && !S.famEnded.has(r) && !S.reveal.has(s.session_id)
+        && S.famSel[r] !== s.session_id) { hidden.set(r, (hidden.get(r) || 0) + 1); continue; }
     if (!fams.has(r)) fams.set(r, []);
     fams.get(r).push(s);
   }
@@ -1480,6 +1486,8 @@ function boardFamilies() {
     sel._fam = members.length > 1 ? { root, members: [...members].sort((p, q) => (p.started_at || 0) - (q.started_at || 0)) } : null;
     sel._famPin = Math.max(...members.map(m => m.pinned || 0));
     sel._famAct = Math.max(...members.map(m => m.last_activity || 0));
+    sel._famRoot = root;
+    sel._famHidden = hidden.get(root) || 0;   // 숨긴 끝난 팀원 수 — 칸 ⋮ 「끝난 팀원 보기」
     out.push(sel);
   }
   return out;
@@ -1856,7 +1864,8 @@ function updateCol(col, s, rank, lastPin) {
   if (!col._topRo) { col._topRo = true; TOP_RO.observe(col); }
 }
 function famSig(s) {
-  return s._fam ? s._fam.members.map(m => m.session_id + ":" + displayState(m) + ":" + (m.title || "") + ":" + (m.term_handle || "")).join(",") : "";
+  return s._fam ? s._fam.members.map(m => m.session_id + ":" + displayState(m) + ":" + (m.title || "") + ":" + (m.term_handle || "")).join(",")
+    + (S.famOpen.has(s._fam.root) ? ":open" : "") : "";
 }
 // 갈래 탭(칸 위) + 고른 갈래가 지금 터미널에 없을 때의 「전환 · 열기」 줄(입력창 위)
 function updateFamily(col, s) {
@@ -1864,7 +1873,20 @@ function updateFamily(col, s) {
   if (!box) return;
   const fam = s._fam;
   box.hidden = !fam;
-  setHtml(box, fam ? fam.members.map(m => {
+  // 쉬는 팀원은 Claude Code 의 에이전트 패널처럼 접는다: 팀원이 아무도 일하지 않으면 모두 「👥 쉬는 팀원 N」 하나로,
+  // 누가 일하는 중이면 쉬는 팀원 3명까지 보이고 나머지만 접는다. 일하는 중·확인 필요·오류·지금 보는 탭은 접지 않는다
+  let shown = fam ? fam.members : [], folded = [];
+  if (fam) {
+    const resting = m => isTeammate(m) && m.session_id !== s.session_id && ["done", "idle", "ended"].includes(displayState(m));
+    const idle = fam.members.filter(resting);
+    const busy = fam.members.some(m => isTeammate(m) && !resting(m) && ["working", "waiting", "error"].includes(displayState(m)));
+    folded = S.famOpen.has(fam.root) ? [] : busy ? idle.slice(3) : idle;
+    shown = fam.members.filter(m => !folded.includes(m));
+  }
+  const fold = !fam || !(folded.length || S.famOpen.has(fam.root)) ? "" : folded.length
+    ? `<button class="fam-tab team fam-fold" data-action="fam-fold" data-root="${esc(fam.root)}" title="쉬는 팀원 — 눌러서 펼치기(다시 일을 시작하면 탭이 저절로 나옵니다)">👥 쉬는 팀원 ${folded.length} ▸</button>`
+    : `<button class="fam-tab team fam-fold" data-action="fam-fold" data-root="${esc(fam.root)}" title="쉬는 팀원 접기">◂ 접기</button>`;
+  setHtml(box, fam ? shown.map(m => {
     const d = displayState(m), team = isTeammate(m);
     const label = m.session_id === fam.root ? (fam.members.some(isTeammate) && !fam.members.some(isBranch) ? "팀장" : "원본")
       : team ? "👥 " + (m.team_agent || sessionTitle(m)) : "⑂ " + sessionTitle(m);
@@ -1872,7 +1894,7 @@ function updateFamily(col, s) {
     return `<button class="fam-tab ${m.session_id === s.session_id ? "on" : ""} ${team ? "team" : ""}" data-action="fam-tab" data-root="${esc(fam.root)}" data-sid="${esc(m.session_id)}"
       title="${esc(tip)}"><span class="dot ${d}"></span><span class="${m.session_id === fam.root ? "fam-tab-o" : "fam-tab-t"}">${esc(clamp(label, 28))}</span>${m.bg ? '<span class="fam-bg">백그라운드</span>' : ""}${
       m.session_id === fam.root || team ? "" : `<span class="fam-x" data-action="fam-close" data-sid="${esc(m.session_id)}" title="이 갈래 닫기(두 번 눌러 확인)">✕</span>`}</button>`;
-  }).join("") : "");
+  }).join("") + fold : "");
   let bar = col.querySelector(".fam-bar");
   // 팀원은 팀장이 관리한다 — 끝났거나 터미널이 없어도 전환·이어 열기를 권하지 않는다
   const need = fam && !isTeammate(s) && (s.state === "ended" || (s.bg && !s.term_handle));
@@ -2905,6 +2927,7 @@ function openColMenu(btn) {
       <button class="cm-item" data-cm="pin">📌 ${pinOf(s) ? "고정 풀기" : "맨 앞에 고정"} <span class="muted">P</span></button>
       <button class="cm-item" data-cm="diff">🧾 변경 보기 <span class="muted">커밋 안 한 변경</span></button>
       ${shellItem(s)}
+      ${endedTeamItem(s)}
       ${S.dev ? `<button class="cm-item" data-cm="dev-snap">🐞 지금 상태 저장 <span class="muted">개발용 · .dev/</span></button>` : ""}
       ${colWidthOf(sid) ? `<button class="cm-item" data-cm="width-reset">↔ 기본 너비로 <span class="muted">${colWidthOf(sid)}px</span></button>` : ""}
       ${s.state === "ended" ? `<button class="cm-item danger" data-cm="delete">🗑 보드에서 지우기 <span class="muted">칸·대화 기록</span></button>` : ""}`;
@@ -2922,11 +2945,18 @@ function openColMenu(btn) {
     ${d !== "ended" ? `<button class="cm-item" data-cm="goal">🎯 ${s.goal && !s.goal.met ? "목표 바꾸기·풀기" : "목표 걸기"} <span class="muted">/goal</span></button>` : ""}
     <button class="cm-item" data-cm="diff">🧾 변경 보기 <span class="muted">커밋 안 한 변경</span></button>
     ${shellItem(s)}
+    ${endedTeamItem(s)}
     ${S.dev ? `<button class="cm-item" data-cm="dev-snap">🐞 지금 상태 저장 <span class="muted">개발용 · .dev/</span></button>` : ""}
     ${colWidthOf(sid) ? `<button class="cm-item" data-cm="width-reset">↔ 기본 너비로 <span class="muted">${colWidthOf(sid)}px</span></button>` : ""}
     ${s.state === "ended" ? `<button class="cm-item danger" data-cm="delete">🗑 보드에서 지우기 <span class="muted">칸·대화 기록</span></button>` : ""}`}`;
   menu.hidden = false;
   placeMenu(menu, btn, "right", 4);
+}
+// 이 칸(팀장)의 끝난 팀원을 탭으로 꺼내 보기·다시 숨기기 — 전체 「종료·보관 세션도 보기」를 켜지 않고 이 칸만
+function endedTeamItem(s) {
+  const root = s._famRoot || s.session_id;
+  if (S.famEnded.has(root)) return `<button class="cm-item" data-cm="team-ended">👥 끝난 팀원 숨기기 <span class="muted">이 칸 탭에서</span></button>`;
+  return s._famHidden ? `<button class="cm-item" data-cm="team-ended">👥 끝난 팀원 보기 <span class="muted">${s._famHidden}명 · 이 칸 탭에</span></button>` : "";
 }
 function shellItem(s) {
   if (!s.cwd) return "";
@@ -3066,6 +3096,13 @@ $("#colMenu").addEventListener("click", async e => {
   if (item.dataset.cm === "goal") return openGoalMenu(sid, btnOfCol(sid, ".col-menu-btn"));
   if (item.dataset.cm === "diff") return openDiff(sid);
   if (item.dataset.cm === "shell") { menu.hidden = true; return openShellAt(sid); }
+  if (item.dataset.cm === "team-ended") {
+    menu.hidden = true;
+    const root = s._famRoot || sid;
+    if (S.famEnded.has(root)) { S.famEnded.delete(root); S.famOpen.delete(root); }
+    else { S.famEnded.add(root); S.famOpen.add(root); }   // 꺼낼 때는 접힌 묶음도 펼쳐 바로 보이게
+    return renderBoard();
+  }
   if (item.dataset.cm === "dev-snap") {   // 개발용: 오류 없이 이상할 때 그 순간을 .dev/send-failures/ 에 남긴다
     const col = colEl(sid), ta = col && col.querySelector(".cmp-text"), s2 = sessionById(sid);
     const client = { draft: ta ? ta.value : null, display_state: s2 ? displayState(s2) : null, view: S.view, board_mode: S.boardMode,
@@ -5885,6 +5922,13 @@ document.addEventListener("click", async e => {
     try { toast((await api("POST", `/api/sessions/${el.dataset.sid}/close-branch`, {})).message); }
     catch (err) { return toast(err.message); }
     return refresh();
+  }
+  if (a === "fam-fold") {
+    const root = el.dataset.root;
+    if (S.famOpen.has(root)) S.famOpen.delete(root); else S.famOpen.add(root);
+    const col = el.closest(".col"), cs = col && sessionById(col.dataset.col);
+    if (cs) updateFamily(col, cs);
+    return;
   }
   if (a === "fam-tab") {
     S.famSel[el.dataset.root] = el.dataset.sid;
