@@ -3562,7 +3562,8 @@ class Handler(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/api/sessions/([\w\-]+)/tasks/([\w\-]+)", path)
         if m and method == "GET":
             # 백그라운드 작업 하나가 지금 무엇을 하는지(서브에이전트 기록의 텍스트·도구 호출, 또는 명령 출력 끝부분)
-            row = conn.execute("SELECT transcript_path FROM sessions WHERE session_id=?", (m.group(1),)).fetchone()
+            row = conn.execute("SELECT transcript_path, cwd, worktree, project_root FROM sessions WHERE session_id=?",
+                               (m.group(1),)).fetchone()
             task = next((x for x in store.bg_tasks(row["transcript_path"]) if x["id"] == m.group(2)), None) if row else None
             if not task:
                 return self._send(404, {"error": "그 작업을 찾지 못했습니다(끝난 지 30분이 지났거나 기록에 없음)"})
@@ -3572,8 +3573,9 @@ class Handler(BaseHTTPRequestHandler):
             if mate:   # 팀원: 그 팀원 세션의 기록에서 Claude 텍스트·도구 호출
                 view = {"items": store.read_activity(mate["transcript_path"], (task["started_at"] or 0) - 5, limit=60), "text": None}
             else:
-                view = store.bg_task_view(task)
+                view = store.bg_task_view(task, roots=(row["cwd"], row["worktree"], row["project_root"]))
             task.pop("output", None)
+            task.pop("log", None)
             return self._send(200, {"task": task, **view})
         m = re.fullmatch(r"/api/sessions/([\w\-]+)/diff", path)
         if m and method == "GET":

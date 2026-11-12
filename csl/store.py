@@ -1018,6 +1018,34 @@ _TN_TAG = re.compile(r"<(task-id|tool-use-id|status|summary|output-file)>(.*?)</
 _TEAMMATE = re.compile(r"^name: (\S+)", re.M)
 
 
+# 명령이 출력을 직접 파일로 돌리면(`cmd > log 2>&1`, `| tee log`) Claude Code 의 작업 출력 파일은 비어 있다 —
+# 그 파일을 대신 읽는다. 절대 경로(~·$HOME 포함)만, 첫 번째 것만
+_REDIR = re.compile(r"""(?:(?<![<>&\d])\d?>>?|&>>?)\s*("[^"]+"|'[^']+'|[^\s;&|<>()]+)|\btee\s+(?:-a\s+)?("[^"]+"|'[^']+'|[^\s;&|<>()]+)""")
+
+
+def _redirect_target(command):
+    for m in _REDIR.finditer(command or ""):
+        t = (m.group(1) or m.group(2) or "").strip("'\"")
+        if not t or t.startswith("&") or t == "/dev/null":
+            continue
+        t = re.sub(r"^(\$HOME|\$\{HOME\}|~)(?=/)", os.path.expanduser("~"), t)
+        if t.startswith("/"):
+            return t
+    return None
+
+
+# 그 파일을 읽어도 되는 자리: 임시 폴더, Claude Code 기록 폴더, 그 세션의 작업 폴더. 자격 증명 폴더는 어디서든 읽지 않는다
+_NEVER = ("/.ssh/", "/.aws/", "/.config/", "/.gnupg/", "/.kube/", "/.docker/")
+
+
+def _log_ok(real, roots=()):
+    if any(x in real + "/" for x in _NEVER):
+        return False
+    ok = ("/private/tmp/", "/tmp/", os.path.realpath(os.path.expanduser("~/.claude/projects")) + "/")
+    ok += tuple(os.path.realpath(r) + "/" for r in roots if r and r not in ("/", os.path.expanduser("~")))
+    return real.startswith(ok)
+
+
 def _bg_scan(st, raw):
     try:
         d = json.loads(raw)
@@ -1033,7 +1061,8 @@ def _bg_scan(st, raw):
                 agent = b.get("name") == "Agent"
                 desc = inp.get("description") or ("" if agent else inp.get("command")) or b.get("name") or ""
                 tasks[b.get("id")] = {"id": b.get("id"), "kind": "agent" if agent else "bash", "desc": mask(" ".join(str(desc).split())[:120]),
-                                      "started_at": ts, "status": "running", "finished_at": None, "summary": None, "output": None}
+                                      "started_at": ts, "status": "running", "finished_at": None, "summary": None, "output": None,
+                                      "log": None if agent else _redirect_target(inp.get("command") or "")}
         return
     att = d.get("attachment") if isinstance(d.get("attachment"), dict) else {}
     if d.get("type") == "queue-operation" and d.get("operation") == "enqueue" and isinstance(d.get("content"), str):
@@ -1105,25 +1134,39 @@ def bg_tasks(path, now_t=None):
                                     or x["finished_at"] and t - x["finished_at"] < BG_DONE_KEEP)]
 
 
-def bg_task_view(task, limit=60):
-    """작업 하나가 지금 무엇을 하는지: 서브에이전트면 그 기록의 텍스트·도구 호출, 명령이면 출력 끝부분(색 코드 뺌·가림)."""
+def _tail(real, n=16000):
+    try:
+        size = os.path.getsize(real)
+        with open(real, "rb") as f:
+            f.seek(max(0, size - n))
+            return f.read().decode("utf-8", "replace")
+    except OSError:
+        return None
+
+
+def bg_task_view(task, limit=60, roots=()):
+    """작업 하나가 지금 무엇을 하는지: 서브에이전트면 그 기록의 텍스트·도구 호출, 명령이면 출력 끝부분(색 코드 뺌·가림).
+    명령이 출력을 파일로 돌렸으면(> log, | tee log) 비어 있는 작업 출력 대신 그 파일 끝부분 — roots 는 그 세션의 작업 폴더들."""
     out = task.get("output")
     real = os.path.realpath(out) if out else ""
     # 기록에 적힌 경로라도 Claude Code 의 작업 출력 자리만 읽는다
     if not real or not os.path.isfile(real) or not (real.startswith(("/private/tmp/claude-", "/tmp/claude-"))
                                                    or real.startswith(os.path.expanduser("~/.claude/projects/"))):
-        return {"items": [], "text": None}
+        real = ""
     if task["kind"] == "agent":
-        return {"items": read_activity(real, 0, limit=limit, sidechain=True), "text": None}
-    try:
-        size = os.path.getsize(real)
-        with open(real, "rb") as f:
-            f.seek(max(0, size - 16000))
-            text = f.read().decode("utf-8", "replace")
-    except OSError:
+        return {"items": read_activity(real, 0, limit=limit, sidechain=True) if real else [], "text": None}
+    text = _tail(real) if real else None
+    source = None
+    log = os.path.realpath(task["log"]) if task.get("log") else ""
+    if (text is None or len(text.strip()) < 200) and log and os.path.isfile(log) and _log_ok(log, roots):
+        logged = _tail(log)
+        if logged is not None:
+            text = logged + (("\n" + text.strip()) if text and text.strip() else "")
+            source = task["log"]
+    if text is None:
         return {"items": [], "text": None}
     text = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", text).replace("\r", "")
-    return {"items": [], "text": mask(text[-12000:], private=False)}
+    return {"items": [], "text": mask(text[-12000:], private=False), "source": source}
 
 
 def get_setting(conn, key, default=None):
