@@ -1841,7 +1841,7 @@ function updateCol(col, s, rank, lastPin) {
     const html = detail ? threadHtml(s, turns, hidden, detail.asides)
       : `<div class="col-lazy">${visible ? "불러오는 중…" : "스크롤해서 보이면 대화를 불러옵니다"}</div>`;
     const restoreInner = keepInnerScroll(thread);
-    const sel = thread._html !== html && saveSel(thread);
+    const sel = thread._html !== htmlKey(html) && saveSel(thread);
     if (setHtml(thread, html)) {
       restoreSel(thread, sel);
       restoreInner();
@@ -2774,9 +2774,14 @@ addEventListener("pointerup", () => {
   SEL.down = null;
   if (SEL.held) { SEL.held = false; setTimeout(() => { renderBoard(); renderCards(); }, 0); }
 }, true);
+// 경과 시간·「N분 전」 숫자는 tickClock 이 매초 글자만 고친다 — 그 숫자만 다른 HTML 은 같은 것으로 보고 다시 쓰지 않는다.
+// (작업 중인 칸은 대화 끝 「작업 중 · 3분 47초」 때문에 보드를 다시 그릴 때마다 대화 전체를 갈아 끼워, 보낸 직후 화면이 하얗게 번쩍였다)
+const LIVE_TEXT = /(<span class="(?:elapsed|ago)" data-(?:since|ts)="[^"]*">)[^<]*(?=<\/span>)/g;
+function htmlKey(html) { return html.replace(LIVE_TEXT, "$1"); }
 function setHtml(el, html) {
-  if (el._html === html) return false;
-  el._html = html;
+  const key = htmlKey(html);
+  if (el._html === key) return false;
+  el._html = key;
   el.innerHTML = html;
   return true;
 }
@@ -5266,7 +5271,7 @@ async function sendCompose(el) {
     const cmd = cm && (S.cmds.get(sid) || []).find(c => c.name === cm[1]);
     if (cmd && cmd.kind === "interactive") setTimeout(() => focusTerminal(sid), 400);
     if (/^\/clear$/.test(text) && cs && cs.term_handle) followClear(sid, cs.term_handle);
-    setTimeout(refresh, 600);
+    setTimeout(() => refresh(sid), 600);   // 보낸 칸만 새로 — 다른 칸까지 캐시를 비우면 모든 칸의 대화를 다시 받아 그린다
   } catch (err) {
     el._clearInput = null;
     if (err.data && err.data.resume) openResume(sid, el);
