@@ -1592,10 +1592,15 @@ function renderBoard() {
   // 빠지는 칸 바로 뒤에 남는 칸을 기억해 두고, 순서를 다시 매긴 뒤에도 그 칸 바로 앞에서 줄어들게 한다
   const before = boardCols();
   const gone = [];
+  // 가족(원본·갈래·팀장·팀원) 탭을 바꾸면 칸의 세션이 바뀌어 옛 칸이 빠지고 새 칸이 선다 — 이때는 줄어드는 효과 없이 그 자리에서 바꾼다
+  const byId = new Map(S.sessions.map(x => [x.session_id, x]));
+  const roots = new Set(cols.map(x => x._fam ? x._fam.root : x.session_id));
   before.forEach((el, k) => {
     if (want.has(el.dataset.col)) return;
+    const old = byId.get(el.dataset.col);
+    if (old && roots.has(famRootOf(old, byId))) return gone.push([el, null, true]);
     const next = before.slice(k + 1).find(x => want.has(x.dataset.col));
-    gone.push([el, next ? next.dataset.col : null]);
+    gone.push([el, next ? next.dataset.col : null, false]);
   });
   // 순서가 바뀌는 칸도 제자리에서 새 자리로 옮겨 가게(FLIP): 바꾸기 전 위치를 재 둔다
   const was = new Map(before.filter(el => want.has(el.dataset.col)).map(el => [el, el.getBoundingClientRect().left]));
@@ -1624,7 +1629,7 @@ function renderBoard() {
     const lastPin = !!pinOf(s) && !(cols[i + 1] && pinOf(cols[i + 1]));
     if (s.board) updateBoardCol(col, s, i + 1, lastPin); else updateCol(col, s, i + 1, lastPin);
   });
-  for (const [el, nextSid] of gone) leaveCol(el, nextSid && board.querySelector(`.col[data-col="${CSS.escape(nextSid)}"]:not(.leaving)`));
+  for (const [el, nextSid, swap] of gone) leaveCol(el, nextSid && board.querySelector(`.col[data-col="${CSS.escape(nextSid)}"]:not(.leaving)`), swap);
   if (needFetch) setTimeout(() => refreshBoard().then(renderBoard), 0);
   if (atStart && board.scrollLeft !== 0) board.scrollLeft = 0;
   slideCols(was);   // 스크롤을 맞춘 뒤에 잰다
@@ -1643,11 +1648,11 @@ function renderBoard() {
 }
 const MOTION_OK = () => !matchMedia("(prefers-reduced-motion: reduce)").matches;
 // 보드에서 빠지는 칸: 폭을 0 으로 줄이며 흐려진 뒤 지운다. next(바로 뒤에 남는 칸) 바로 앞 자리에서 줄어든다
-function leaveCol(el, next) {
+function leaveCol(el, next, instant) {
   if (el.classList.contains("leaving")) return;
   colObserver().unobserve(el);
   S.visibleCols.delete(el.dataset.col);
-  if (!MOTION_OK() || !el.offsetParent) { el.remove(); return; }
+  if (instant || !MOTION_OK() || !el.offsetParent) { el.remove(); return; }
   if (next) { el.style.order = next.style.order; next.before(el); }   // 순서가 같으면 DOM 순서대로 — 다음 칸 바로 앞
   else el.style.order = 99999;
   el.style.flexBasis = el.offsetWidth + "px";
