@@ -422,6 +422,8 @@ body.view-board .board {
 .cf-chev { display: inline-block; width: 10px; font-size: calc(10px * var(--fs, 1)); }
 .col.notes-folded .note-add, .col.notes-folded .cf-notes { display: none; }
 .col.notes-folded .cf-label { margin-bottom: 0; }
+/* 접어 두면 한 줄만 — 대화 영역을 조금이라도 더 쓰게 위아래 여백을 줄이고 그림자도 뺀다(약 32px) */
+.col.notes-folded .col-fixed { padding-top: 5px; padding-bottom: 5px; min-height: 32px; justify-content: center; box-shadow: none; }
 .col-fixed .note { padding: 5px 6px; font-size: calc(13px * var(--fs, 1)); }
 .col-fixed .col-recap { margin: 8px 0 0; display: block; overflow: visible; cursor: pointer; }
 .col-fixed .col-recap:hover { background: var(--surface-hover); }
