@@ -2420,7 +2420,7 @@ const TASKV = { sid: null, tid: null, timer: 0 };
 async function openBgTask(sid, tid) {
   Object.assign(TASKV, { sid, tid });
   $("#taskModal").hidden = false;
-  $("#taskModal .task-body").innerHTML = '<div class="muted">불러오는 중…</div>';
+  setHtml($("#taskModal .task-body"), '<div class="muted">불러오는 중…</div>');   // setHtml 로 — 직접 바꾸면 기억해 둔 글과 어긋나 같은 출력이면 다시 안 그린다
   return drawBgTask(true);
 }
 async function drawBgTask(first) {
@@ -2430,7 +2430,7 @@ async function drawBgTask(first) {
   const { sid, tid } = TASKV;
   let r;
   try { r = await api("GET", `/api/sessions/${sid}/tasks/${tid}`); }
-  catch (err) { box.querySelector(".task-body").textContent = err.message; return; }
+  catch (err) { setHtml(box.querySelector(".task-body"), `<div class="muted">${esc(err.message)}</div>`); return; }
   if (box.hidden || TASKV.tid !== tid) return;
   const x = r.task, s = sessionById(sid);
   const [, label] = x.status === "running" ? ["", "진행 중"] : BGT_STATUS[x.status] || ["", x.status];
