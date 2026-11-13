@@ -6,6 +6,7 @@ macOS 기본 /usr/bin/python3(3.9)에서도 돌도록 표준 라이브러리만 
 import json
 import os
 import re
+import stat
 import sqlite3
 import subprocess
 import time
@@ -1034,6 +1035,30 @@ def _redirect_target(command):
     return None
 
 
+# 출력 파일을 스크립트 인자로 넘기고 스크립트 안에서 돌리면(`S=/tmp/x; bash $S/run.sh $S/out.txt`) 명령에 `>` 가 없다 —
+# 명령에 나온 파일 경로들(앞에서 `이름=값` 으로 정한 변수·~·$HOME 을 풀어서)을 모아 두고, 작업 출력이 비어 있으면
+# 그중 작업이 시작된 뒤에 쓰인 파일을 읽는다
+_ASSIGN = re.compile(r"""(?:^|[;&|\s])([A-Za-z_]\w*)=("[^"$`]*"|'[^']*'|[^\s;&|<>()$`'"]+)""")
+_PATHISH = re.compile(r"""("[^"]+"|'[^']+'|[^\s;&|<>()]+)""")
+
+
+def _path_args(command):
+    command = command or ""
+    env = {"HOME": os.path.expanduser("~")}
+    for name, val in _ASSIGN.findall(command):
+        env.setdefault(name, val.strip("'\""))
+    out = []
+    for tok in _PATHISH.findall(command):
+        t = tok.strip("'\"")
+        t = re.sub(r"^~(?=/)", env["HOME"], t)
+        t = re.sub(r"\$\{(\w+)\}|\$(\w+)", lambda m: env.get(m.group(1) or m.group(2), "\0"), t)
+        if "=" in t.split("/")[0]:
+            t = t.split("=", 1)[1]
+        if t.startswith("/") and "\0" not in t and "*" not in t and t not in out:
+            out.append(t)
+    return out[:20]
+
+
 # 그 파일을 읽어도 되는 자리: 임시 폴더, Claude Code 기록 폴더, 그 세션의 작업 폴더. 자격 증명 폴더는 어디서든 읽지 않는다
 _NEVER = ("/.ssh/", "/.aws/", "/.config/", "/.gnupg/", "/.kube/", "/.docker/")
 
@@ -1062,7 +1087,8 @@ def _bg_scan(st, raw):
                 desc = inp.get("description") or ("" if agent else inp.get("command")) or b.get("name") or ""
                 tasks[b.get("id")] = {"id": b.get("id"), "kind": "agent" if agent else "bash", "desc": mask(" ".join(str(desc).split())[:120]),
                                       "started_at": ts, "status": "running", "finished_at": None, "summary": None, "output": None,
-                                      "log": None if agent else _redirect_target(inp.get("command") or "")}
+                                      "log": None if agent else _redirect_target(inp.get("command") or ""),
+                                      "paths": [] if agent else _path_args(inp.get("command") or "")}
         return
     att = d.get("attachment") if isinstance(d.get("attachment"), dict) else {}
     if d.get("type") == "queue-operation" and d.get("operation") == "enqueue" and isinstance(d.get("content"), str):
@@ -1144,6 +1170,25 @@ def _tail(real, n=16000):
         return None
 
 
+def _arg_log(task, roots=()):
+    """명령 인자에 나온 파일 중 작업이 시작된 뒤에 내용이 쓰인 것(가장 최근 것). 실행한 스크립트·읽기만 한 파일은 시각이 앞서 빠진다."""
+    since = (task.get("started_at") or 0) - 2
+    best = None
+    for p in task.get("paths") or []:
+        real = os.path.realpath(p)
+        if not _log_ok(real, roots):   # 자리부터 — 자격 증명 폴더 같은 곳은 파일 정보도 보지 않는다
+            continue
+        try:
+            st = os.stat(real)
+        except OSError:
+            continue
+        if not stat.S_ISREG(st.st_mode) or not st.st_size or st.st_mtime < since:
+            continue
+        if not best or st.st_mtime > best[0]:
+            best = (st.st_mtime, real)
+    return best[1] if best else None
+
+
 def bg_task_view(task, limit=60, roots=()):
     """작업 하나가 지금 무엇을 하는지: 서브에이전트면 그 기록의 텍스트·도구 호출, 명령이면 출력 끝부분(색 코드 뺌·가림).
     명령이 출력을 파일로 돌렸으면(> log, | tee log) 비어 있는 작업 출력 대신 그 파일 끝부분 — roots 는 그 세션의 작업 폴더들."""
@@ -1163,6 +1208,12 @@ def bg_task_view(task, limit=60, roots=()):
         if logged is not None:
             text = logged + (("\n" + text.strip()) if text and text.strip() else "")
             source = task["log"]
+    if source is None and (text is None or len(text.strip()) < 200):
+        arg = _arg_log(task, roots)
+        logged = _tail(arg) if arg else None
+        if logged is not None:
+            text = logged + (("\n" + text.strip()) if text and text.strip() else "")
+            source = arg
     if text is None:
         return {"items": [], "text": None}
     text = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", text).replace("\r", "")

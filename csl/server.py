@@ -3584,6 +3584,7 @@ class Handler(BaseHTTPRequestHandler):
                 view = store.bg_task_view(task, roots=(row["cwd"], row["worktree"], row["project_root"]))
             task.pop("output", None)
             task.pop("log", None)
+            task.pop("paths", None)
             return self._send(200, {"task": task, **view})
         m = re.fullmatch(r"/api/sessions/([\w\-]+)/diff", path)
         if m and method == "GET":
