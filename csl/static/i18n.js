@@ -398,6 +398,7 @@ const I18N_ROWS = [
   ["중단 키를 보내지 못했습니다", "中断キーを送れませんでした", "Couldn't send the stop key"],
   ["터미널에 선택 창이 떠 있어 중단하지 않았습니다(Esc 가 그 창을 취소합니다): {*}", "ターミナルに選択ウィンドウが出ているため中断しませんでした(Esc はそのウィンドウを取り消します): {*}", "Didn't stop: a selection window is open in the terminal (Esc would cancel it): {*}"],
   ["터미널에 선택 창이 떠 있어 보내지 않았습니다. 터미널에서 먼저 골라 주세요: {*}", "ターミナルに選択ウィンドウが出ているため送っていません。先にターミナルで選んでください: {*}", "Not sent: a selection window is open in the terminal. Pick there first: {*}"],
+  ["터미널에 선택 창이 떠 있어 보내지 않았습니다. 먼저 골라 주세요: {*}", "ターミナルに選択ウィンドウが出ているため送っていません。先に選んでください: {*}", "Not sent: a selection window is open in the terminal. Pick an option first: {*}"],
   ["리모트 컨트롤을 켜는 중 확인 창이 떠서 메시지는 보내지 않았습니다. 터미널에서 고른 뒤 다시 보내 주세요: {*}", "リモートコントロールをオンにする途中で確認ウィンドウが出たため、メッセージは送っていません。ターミナルで選んでから送り直してください: {*}", "A confirmation window opened while turning on Remote Control, so the message wasn't sent. Pick in the terminal, then send again: {*}"],
   ["터미널에 선택 창이 떠 있습니다. 터미널에서 먼저 골라 주세요: {*}", "ターミナルに選択ウィンドウが出ています。先にターミナルで選んでください: {*}", "A selection window is open in the terminal. Pick there first: {*}"],
   ["리모트 컨트롤 확인 창이 떠 있습니다 — 터미널에서 골라 주세요: {*}", "リモートコントロールの確認ウィンドウが出ています — ターミナルで選んでください: {*}", "Remote Control is asking for confirmation — pick in the terminal: {*}"],
@@ -823,6 +824,12 @@ const I18N_ROWS = [
   ["👥 끝난 팀원 숨기기", "👥 終了したチームメイトを隠す", "👥 Hide ended teammates"],
   ["{}명 · 이 칸 탭에", "{} 人・この列のタブに", "{} · as tabs in this column"],
   ["이 칸 탭에서", "この列のタブから", "from this column's tabs"],
+  ["이 창 때문에 못 보냈습니다 — 고른 뒤 다시 보내세요(글은 그대로)", "この画面のため送れませんでした — 選んでからもう一度送ってください(文はそのまま)", "This prompt blocked your message — pick, then send again (your text is kept)"],
+  ["🔐 터미널에 선택 창이 떠 있습니다", "🔐 ターミナルに選択画面が出ています", "🔐 The terminal is showing a prompt"],
+  ["보드에서 읽지 못하는 창입니다", "ボードでは読めない画面です", "The board can't read this prompt"],
+  ["보드에서 읽지 못하는 창입니다 — 고른 뒤 다시 보내세요(글은 그대로)", "ボードでは読めない画面です — 選んでからもう一度送ってください(文はそのまま)", "The board can't read this prompt — pick in the terminal, then send again (your text is kept)"],
+  ["⌨ 터미널에서 고르기", "⌨ ターミナルで選ぶ", "⌨ Pick in the terminal"],
+  ["터미널에 선택 창이 떠 있어 보내지 않았습니다 — 칸에서 골라 주세요", "ターミナルに選択画面が出ているため送っていません — カラムで選んでください", "Not sent — the terminal is showing a prompt. Pick in the column"],
 ];
 
 const I18N = (() => {

@@ -1042,6 +1042,7 @@ button.ctx-chip:hover { box-shadow: 0 0 0 1px var(--border-strong) inset; color:
 .ask-card[hidden] { display: none; }
 .ask-head { display: flex; align-items: baseline; gap: 8px; font-size: calc(13px * var(--fs, 1)); margin-bottom: 6px; }
 .ask-head .muted { font-size: calc(11.5px * var(--fs, 1)); }
+.ask-head > b, .ask-head > .linkish { white-space: nowrap; flex-shrink: 0; }   /* 좁은 칸에서 「확인 / 필요」로 꺾이지 않게 */
 .ask-q { margin: 8px 0 4px; }
 .ask-qhead { font-size: calc(13px * var(--fs, 1)); font-weight: 600; margin-bottom: 4px; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
 .ask-qhead .muted { font-weight: 400; font-size: calc(11.5px * var(--fs, 1)); }

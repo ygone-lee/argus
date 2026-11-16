@@ -652,6 +652,32 @@ def is_busy(t):
     return any(_BUSY.search(ln) for ln in lines[max(0, top - 6):top])
 
 
+_DIALOG_FOOT = re.compile(r"Enter to (?:confirm|select)|Esc to cancel")
+_WINDOW_FOOT = re.compile(r"Enter to (?:confirm|select|continue)|Esc to (?:cancel|close|continue)")
+
+
+def _dialog_block(lines):
+    """입력칸은 그대로 보이고 그 바로 위에 선택 창이 붙는 경우(예: 「Teach auto mode about your environment?」 1. Yes …) —
+    키 입력은 그 창이 받아 글이 입력칸에 들어가지 않고, Enter 는 그 창의 선택이 된다. 입력칸 위 가로줄 두 개 사이에
+    「Enter to confirm · Esc to cancel」 같은 안내 줄이 있으면 그 창의 줄 범위 (시작, 끝), 아니면 None."""
+    rules = [i for i, ln in enumerate(lines) if ln.lstrip().startswith("──")]
+    for a, b in zip(reversed(rules[:-1]), reversed(rules[1:])):
+        if lines[a + 1:b] and lines[a + 1].startswith(("❯", "!")):   # 입력칸 — 그 바로 위 칸을 본다
+            above = [r for r in rules if r < a]
+            if above and any(_DIALOG_FOOT.search(ln) for ln in lines[above[-1] + 1:a]):
+                return above[-1] + 1, a
+            return None
+    return None
+
+
+def _dialog_above_input(screen):
+    """입력칸 위에 붙은 선택 창의 글(한 줄로), 없으면 None."""
+    lines = [ln.replace("\xa0", " ").rstrip() for ln in screen]
+    blk = _dialog_block(lines)
+    box = [ln.strip() for ln in lines[blk[0]:blk[1]] if ln.strip()] if blk else []
+    return " / ".join(box)[:400] if box else None
+
+
 def dialog_text(t, wait=0.0):
     """입력칸 대신 선택·확인 창이 떠 있으면 그 창의 글(아래쪽 몇 줄), 입력칸이 보이면 None.
 
@@ -661,8 +687,14 @@ def dialog_text(t, wait=0.0):
         time.sleep(wait)
     screen = _screen(t)   # 한 번만 읽는다(읽을 때마다 터미널 CLI 하위 프로세스)
     if _input_line_of(screen) is not None:
-        return None
+        return _dialog_above_input(screen)
     lines = [ln.replace("\xa0", " ").rstrip() for ln in screen]
+    # 창이 경계(── · ▔▔) 밑에 떠 있으면 그 경계부터 — 창 제목부터 보이게
+    tops = [i for i, ln in enumerate(lines) if ln.lstrip().startswith(("──", "▔"))]
+    if tops and any(_WINDOW_FOOT.search(ln) for ln in lines[tops[-1]:]):
+        box = [ln.strip() for ln in lines[tops[-1] + 1:] if ln.strip()]
+        if box:
+            return " / ".join(box)[:400]
     body = [ln.strip() for ln in lines if ln.strip() and not ln.lstrip().startswith("──")]
     return " / ".join(body[-6:])[:400] or "(화면을 읽지 못함)"
 
@@ -981,8 +1013,17 @@ def prompt_view(t):
     """{"head": [설명 줄…], "options": [{"n", "label", "hint", "on"}]} 또는 None(입력칸이 보이거나 고를 줄이 없음)."""
     lines = [ln.replace("\xa0", " ").rstrip() for ln in _screen(t)]
     if _input_line_of(lines) is not None:
-        return None
+        # 입력칸 위에 붙은 선택 창(훅 없이 뜬다 — auto mode 안내 등)이면 그 창만 잘라 읽는다
+        blk = _dialog_block(lines)
+        if not blk:
+            return None
+        lines = ["──"] + lines[blk[0]:blk[1]]
     idx = [i for i, ln in enumerate(lines) if _OPTION.match(ln)]
+    # 번호 목록이 창 「위」(대화)에만 있고 창은 그 아래 경계(── · ▔▔) 밑에 따로 떠 있으면 — 번호 없는 설정 창
+    # (「Teach auto mode…」의 ←/→ 로 바꾸는 항목 등) — 대화의 「1. … 2. …」를 선택지로 읽지 않는다
+    below = [i for i, ln in enumerate(lines) if idx and i > idx[-1] and ln.lstrip().startswith(("──", "▔"))]
+    if below and any(_WINDOW_FOOT.search(ln) for ln in lines[below[0]:]):
+        idx = []
     if not idx:
         return _plain_menu(lines)
     # 창은 화면 맨 아래 — 마지막 선택지 위의 마지막 경계(── · ▔▔) 아래 줄만 본다. 그 위 대화에 있는 번호 목록

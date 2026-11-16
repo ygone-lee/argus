@@ -3019,7 +3019,9 @@ class Handler(BaseHTTPRequestHandler):
             if not handle:
                 return self._send(409 if method == "POST" else 200, {"error": err} if method == "POST" else {"prompt": None})
             if method == "GET":
-                return self._send(200, {"prompt": focus.prompt_view(handle)})
+                v = focus.prompt_view(handle)
+                # 고를 줄을 읽지 못한 창이면 그 글만 — 보드는 「터미널에서 고르기」로 안내한다
+                return self._send(200, {"prompt": v, "dialog": None if v else focus.dialog_text(handle)})
             ok, msg = focus.answer_prompt(handle, int(body.get("n") or 0), body.get("label") or "")
             if ok:
                 # 「No」로 거절하면 Claude Code 는 그 턴을 끊고(Interrupted) 훅을 보내지 않는다 — 입력칸이 돌아왔고 일하지 않으면
@@ -3152,8 +3154,8 @@ class Handler(BaseHTTPRequestHandler):
             if box and focus._btw_view(focus._screen(handle), "")[1] is not None:
                 focus._raw(handle, focus.ESC)   # 지난 곁질문(/btw) 창이 열린 채 남아 있으면 닫는다(목록은 남는다)
                 box = focus.dialog_text(handle, wait=0.4)
-            if box:   # 훅 없이 뜨는 선택 창(/remote-control 등) — 글이 그 창의 선택으로 들어가지 않게
-                return self._send(409, {"error": "터미널에 선택 창이 떠 있어 보내지 않았습니다. 터미널에서 먼저 골라 주세요: " + box})
+            if box:   # 훅 없이 뜨는 선택 창(/remote-control 등) — 글이 그 창의 선택으로 들어가지 않게. 보드는 그 칸에 고르는 카드를 띄운다
+                return self._send(409, {"error": "터미널에 선택 창이 떠 있어 보내지 않았습니다. 먼저 골라 주세요: " + box, "dialog": True})
             # 터미널 입력칸에 남은 글(터미널에서 치던 글·중단해서 되돌아온 요청)이 있으면 그 뒤에 이어 붙지 않게 멈추고,
             # 그 글을 보여 줘 보드가 「지우고 보내기 · 가져오기 · 터미널에서」를 고르게 한다. clear_input 에 그 글을 실어 다시 보내면
             # 입력칸이 아직 그 글 그대로일 때만 지우고 보낸다

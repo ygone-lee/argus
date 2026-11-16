@@ -4890,9 +4890,12 @@ function suggestionFor(s) {
 // ------------------------------------------------------------------ 터미널의 선택 창(권한 확인·계획 승인 …) 고르기
 // 「확인 필요」인데 질문 창(AskUserQuestion)이 아니면, 그 터미널 화면의 선택지를 읽어 버튼으로 보여 준다. 누르면 그 번호 키만
 // 보낸다(서버가 같은 창·같은 줄인지 다시 확인). 확인 필요인 동안만 2.5초마다 다시 읽는다
-S.prompts = new Map();   // session_id → 선택 창 {head, options} 또는 null
+S.prompts = new Map();   // session_id → 선택 창 {head, options} · 고를 줄을 못 읽은 창 {fallback: 글} · 없으면 null
 S.promptAt = new Map();
-function promptWanted(s) { return s && s.state === "waiting" && !askOf(s); }
+// 보내려는데 터미널에 훅 없이 뜬 선택 창(auto mode 안내 등)이 걸린 세션 — 상태는 「완료」 그대로라 평소엔 창을 보지 않는다.
+// 걸린 뒤에는 창이 닫힐 때까지 그 칸에 고르는 카드를 띄운다
+S.dialogs = new Set();
+function promptWanted(s) { return s && ((s.state === "waiting" && !askOf(s)) || S.dialogs.has(s.session_id)); }
 // 질문 카드가 보이는 칸: 터미널에 그 질문 창이 정말 있는지 5초에 한 번 묻는다. 없으면(평소 입력칸) 서버가 지운다 —
 // 질문 훅만 오고 창은 뜨지 않으면 「질문에 답할 차례」로 입력창이 막히고 답도 넣을 곳이 없었다
 S.askAt = new Map();
@@ -4917,7 +4920,14 @@ async function syncPrompts() {
     if (Date.now() - (S.promptAt.get(s.session_id) || 0) < 2500) continue;
     S.promptAt.set(s.session_id, Date.now());
     let v = null;
-    try { v = (await api("GET", `/api/sessions/${s.session_id}/prompt`)).prompt; } catch (e) { /* 터미널을 못 찾음 */ }
+    try {
+      const r = await api("GET", `/api/sessions/${s.session_id}/prompt`);
+      v = r.prompt || (r.dialog ? { fallback: r.dialog } : null);
+    } catch (e) { /* 터미널을 못 찾음 */ }
+    if (!v && S.dialogs.has(s.session_id)) {   // 창이 닫혔다(터미널에서 골랐거나) — 쓰던 글을 다시 보내면 된다
+      S.dialogs.delete(s.session_id);
+      if (!focusElsewhere(s.session_id)) focusComposerIn(colEl(s.session_id));
+    }
     S.prompts.set(s.session_id, v);
     document.querySelectorAll(`.col[data-col="${CSS.escape(s.session_id)}"] .prompt-card`).forEach(el => updatePrompt(el, s));
   }
@@ -4935,13 +4945,20 @@ function pcLineClass(head, i, code) {
 function updatePrompt(el, s) {
   if (!el) return;
   const v = promptWanted(s) ? S.prompts.get(s.session_id) : null;
-  if (!v || !v.options || !v.options.length) { el.hidden = true; el.dataset.key = ""; return; }
+  if (!v || (!v.fallback && (!v.options || !v.options.length))) { el.hidden = true; el.dataset.key = ""; return; }
   el.hidden = false;
   const key = JSON.stringify(v);
   if (el.dataset.key === key) return;
   el.dataset.key = key;
   const sid = s.session_id;
-  el.innerHTML = `<div class="ask-head"><b>🔐 확인 필요</b><span class="muted">터미널의 선택 창 — 골라서 넣습니다</span>
+  const blocked = S.dialogs.has(sid);   // 보내려다 걸린 창 — 고르면 창이 닫히고, 쓰던 글은 입력창에 남아 있다
+  if (v.fallback) {
+    el.innerHTML = `<div class="ask-head"><b>🔐 터미널에 선택 창이 떠 있습니다</b><span class="muted">보드에서 읽지 못하는 창입니다${blocked ? " — 고른 뒤 다시 보내세요(글은 그대로)" : ""}</span></div>
+      <div class="pc-head"><div class="pc-desc">${esc(v.fallback)}</div></div>
+      <div class="pc-opts"><button class="btn primary" data-action="ask-term" data-sid="${esc(sid)}">⌨ 터미널에서 고르기</button></div>`;
+    return;
+  }
+  el.innerHTML = `<div class="ask-head"><b>🔐 확인 필요</b><span class="muted">${blocked ? "이 창 때문에 못 보냈습니다 — 고른 뒤 다시 보내세요(글은 그대로)" : "터미널의 선택 창 — 골라서 넣습니다"}</span>
       <span class="spacer"></span><button class="linkish" data-action="ask-term" data-sid="${esc(sid)}">터미널로 ↗</button></div>
     <div class="pc-head">${v.head.map((ln, i) => `<div class="${pcLineClass(v.head, i, v.code)}">${esc(ln)}</div>`).join("")}</div>
     <div class="pc-opts">${v.options.map(o => `<button class="btn pc-opt ${o.n === 1 ? "primary" : ""} ${/^(no|remove|delete|discard)\b|아니|삭제|지우/i.test(o.label) ? "pc-no" : ""}"
@@ -4957,6 +4974,7 @@ async function pickPrompt(b) {
     S.prompts.delete(sid);
     card.hidden = true;
     card.dataset.key = "";
+    if (S.dialogs.delete(sid)) focusComposerIn(colEl(sid));   // 보내려다 걸린 창이었다 — 쓰던 글로 돌아가 다시 보내게
     setTimeout(() => refresh(sid), 500);
   } catch (err) {
     card.querySelector(".pc-msg").textContent = err.message;
@@ -5276,6 +5294,12 @@ async function sendCompose(el) {
     el._clearInput = null;
     if (err.data && err.data.resume) openResume(sid, el);
     else if (err.data && err.data.leftover) setTimeout(() => openLeftover(el, err.data), 0);   // 입력창이 다시 풀린 뒤에 연다
+    else if (err.data && err.data.dialog) {   // 터미널에 선택 창 — 그 칸에 고르는 카드를 띄운다(쓰던 글은 그대로)
+      S.dialogs.add(sid);
+      S.promptAt.delete(sid);
+      toast("터미널에 선택 창이 떠 있어 보내지 않았습니다 — 칸에서 골라 주세요");
+      syncPrompts();
+    }
     else toast(err.message);
   } finally {
     el.classList.remove("sending");
