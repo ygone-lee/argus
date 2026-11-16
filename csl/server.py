@@ -543,6 +543,19 @@ def card_prompt(card):
     return "\n".join(lines) if len(lines) > 1 else ""
 
 
+def resume_dir(conn, sid, cwd):
+    """세션을 이어 열 폴더. 워크트리가 지워졌으면(바꾼 게 없는 워크트리는 Claude Code 가 종료하면서 지운다) 저장소 루트 —
+    Claude Code 는 루트에서도 그 대화를 이어 연다. 둘 다 없으면 None."""
+    cwd = cwd or ""
+    if os.path.isdir(cwd):
+        return cwd
+    root = conn.execute("SELECT project_root FROM sessions WHERE session_id=?", (sid,)).fetchone()
+    root = (root and root[0]) or ""
+    if "/.claude/worktrees/" in cwd and os.path.isdir(root):
+        return root
+    return None
+
+
 def resume_flags(conn, sid):
     """이어 열 때(--resume) 그 세션이 쓰던 모델·effort·권한 모드를 넘기는 claude 인자(끝에 빈칸). 모르는 값은 뺀다.
     권한 확인 없이(bypassPermissions)였으면 그대로 — 그 모드는 켤 때 허락 옵션이 있어야 해서 함께 붙인다(--allow-…: 나중에
@@ -2151,14 +2164,9 @@ class Handler(BaseHTTPRequestHandler):
             LAUNCHED[tg2.handle] = store.now()
             conn.execute("UPDATE sessions SET terminal=? WHERE session_id=?", (json.dumps(tg2.terminal.remember({}, tg2.handle)), sid))
             return self._send(200, {"ok": True, "message": "백그라운드 세션을 보드 터미널에 붙였습니다"})
-        # 이어 열 폴더 — 지워진 워크트리면 저장소 루트에서(Claude Code 가 워크트리 묶음을 풀고 그 폴더에서 이어 연다)
-        cwd = full["cwd"] or ""
-        if not os.path.isdir(cwd):
-            root = conn.execute("SELECT project_root FROM sessions WHERE session_id=?", (sid,)).fetchone()[0] or ""
-            if "/.claude/worktrees/" in cwd and os.path.isdir(root):
-                cwd = root
-            else:
-                return self._send(409, {"error": "세션 폴더가 없습니다: " + cwd})
+        cwd = resume_dir(conn, sid, full["cwd"])
+        if not cwd:
+            return self._send(409, {"error": "세션 폴더가 없습니다: " + (full["cwd"] or "")})
         IMPORTING[sid] = store.now()
         if body.get("restart"):
             RESTARTING.add(sid)
@@ -2187,6 +2195,10 @@ class Handler(BaseHTTPRequestHandler):
                 if sid not in (focus.running_sessions() or {}):
                     break
                 time.sleep(0.5)
+            # 바꾼 게 없는 워크트리는 Claude Code 가 종료하면서 묻지 않고 지운다 — 끝낸 「뒤」에 폴더를 다시 정한다
+            cwd = resume_dir(conn, sid, cwd)
+            if not cwd:
+                return self._send(409, {"error": "종료하면서 세션 폴더가 지워져 다시 열지 못했습니다"})
         tg2, err = focus.new_claude_terminal(cwd, extra=resume_flags(conn, sid) + "--resume " + shlex.quote(sid), terminal="web")
         if not tg2:
             return self._send(502, {"error": err})
@@ -3664,9 +3676,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(409, {"error": "이미 다른 터미널에서 실행 중입니다 — 「터미널로 이동」으로 찾아 주세요"})
             if sess["state"] != "ended" and not not_running(conn, sid):
                 return self._send(409, {"error": "실행 중인지 확인하지 못해 새로 열지 않았습니다 — 그 터미널을 확인해 주세요"})
-            cwd = sess["cwd"] or ""
-            if not os.path.isdir(cwd):
-                return self._send(409, {"error": "세션 폴더가 없습니다(워크트리를 지웠나요?): " + cwd})
+            cwd = resume_dir(conn, sid, sess["cwd"])
+            if not cwd:
+                return self._send(409, {"error": "세션 폴더가 없습니다(워크트리를 지웠나요?): " + (sess["cwd"] or "")})
             tg, err = focus.new_claude_terminal(cwd, extra=resume_flags(conn, sid) + "--resume " + shlex.quote(sid), terminal="web")
             if not tg:
                 return self._send(502, {"error": err})
