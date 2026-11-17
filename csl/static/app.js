@@ -3480,8 +3480,10 @@ function inboxCardHtml(x) {
   const urg = { high: "🔴 급함", normal: "", low: "낮음" }[x.urgency] || "";
   const done = x.status === "done" || x.status === "ignored";
   const canFill = target && (x.prompt || kind === "me");   // 내가 할 일 카드는 프롬프트가 없으면 카드 내용(cardPrompt)으로
-  const canNew = x.prompt && (x.rec_type === "new" || (x.rec_type === "session" && !target) || (kind === "me" && !target));
   const active = ["sent", "working", "waiting", "summarizing", "needs"].includes(x.stage);
+  // 새 세션으로: 내가 할 일 카드는 프롬프트가 없어도 카드 내용(cardPrompt)으로 — 「다른 세션에」와 같은 기준
+  const canNew = kind === "me" ? !target && !done && !active
+    : x.prompt && (x.rec_type === "new" || (x.rec_type === "session" && !target));
   const canDelegate = canFill && !active && (x.status === "new" || x.status === "doing");
   // ▾ 다른 세션 고르기: 브레인이 고른 세션이 아닐 때 맡기기·입력창에·넥스트 액션에 보낼 세션을 바꾼다
   const canPick = !done && !active;   // 내가 할 일 카드도 다른 세션에 보낼 수 있게
