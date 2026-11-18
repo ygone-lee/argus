@@ -617,6 +617,14 @@ def live_remote(sid):
     return run[sid].get("bridge") or ""
 
 
+def rc_pending(conn, sess):
+    """보드가 /remote-control 을 보낸 뒤로 훅이 한 번도 안 왔는가 — 그러면 켜졌는지 아직 모른다(다시 보내면 상태 창이 입력을 가로챈다)."""
+    if not sess["rc_requested_at"]:
+        return False
+    last = conn.execute("SELECT last_activity FROM sessions WHERE session_id=?", (sess["session_id"],)).fetchone()[0]
+    return (last or 0) <= sess["rc_requested_at"]
+
+
 def brain_guard(conn, body, target_sid, allow_self=False):
     """브레인(./argus send·remote·quit·archive·new)가 보낸 요청이면 막을 이유(문자열), 아니면 None.
 
@@ -3183,13 +3191,14 @@ class Handler(BaseHTTPRequestHandler):
                 paths = save_images(images)
             except ValueError as e:
                 return self._send(400, {"error": str(e)})
-            # 자동 리모트: 대화한 세션만, 꺼져 있고 아직 한 번도 켜 달라고 보낸 적이 없을 때만.
-            # 이미 켜진 세션에 /remote-control 을 다시 보내면 상태 창이 떠서 이어 보내는 글을 가로챈다
+            # 자동 리모트: 대화한 세션만, 꺼져 있을 때만. 이미 켜진 세션에 /remote-control 을 다시 보내면 상태 창이 떠서
+            # 이어 보내는 글을 가로챈다. 켜 달라고 보낸 뒤 훅이 한 번도 안 왔으면(켜졌는지 아직 모름) 다시 보내지 않는다 —
+            # 그 뒤로 응답이 오갔는데 지금 꺼져 있으면(PC 를 오래 안 써 연결이 끊긴 경우 등) 다시 켠다
             rc_sent = False
             # 브레인·카드 맡기기처럼 다른 세션이 보낸 것(from)은 사용자가 그 세션과 직접 대화한 게 아니니 켜지 않는다
             live = live_remote(sess["session_id"])
             if (store.get_setting(conn, "auto_remote", False) and not body.get("from")
-                    and not (live if live is not None else sess["remote"]) and not sess["rc_requested_at"]):
+                    and not (live if live is not None else sess["remote"]) and not rc_pending(conn, sess)):
                 rc_sent, _, _ = focus.send_prompt(handle, "/remote-control")
                 if rc_sent:
                     conn.execute("UPDATE sessions SET rc_requested_at=? WHERE session_id=?", (store.now(), sess["session_id"]))
@@ -3351,11 +3360,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(409, {"error": "확인 필요 상태입니다. 터미널에서 승인·답변을 먼저 해 주세요"})
             if sess["state"] == "ended":
                 return self._send(409, {"error": "종료된 세션입니다"})
-            if sess["rc_requested_at"]:
-                # 보낸 뒤로 훅이 한 번도 안 왔으면 켜졌는지 아직 모른다. 이미 켜진 세션에 다시 보내면 상태 창이 떠서 입력을 가로챈다
-                last = conn.execute("SELECT last_activity FROM sessions WHERE session_id=?", (sess["session_id"],)).fetchone()[0]
-                if (last or 0) <= sess["rc_requested_at"]:
-                    return self._send(409, {"error": "이미 켜 달라고 보냈습니다 — 다음 응답 때 연결이 확인됩니다"})
+            if rc_pending(conn, sess):
+                return self._send(409, {"error": "이미 켜 달라고 보냈습니다 — 다음 응답 때 연결이 확인됩니다"})
             handle, err = terminal_target(conn, sess)
             if not handle:
                 return self._send(409, {"error": err})
