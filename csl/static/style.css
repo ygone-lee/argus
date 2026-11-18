@@ -2170,6 +2170,11 @@ li.note.note-moved { outline: 2px solid transparent; outline-offset: -2px; borde
 .ma-head { display: flex; align-items: baseline; gap: 8px; margin: 0 4px 4px; font-size: calc(11.5px * var(--fs, 1)); color: var(--text-3); }
 .ma-who { font-weight: 650; color: var(--text-2); }
 .ma-time { font-variant-numeric: tabular-nums; }
+.ma-from { max-width: 22em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 8px; border-radius: 999px;
+  border: 0; background: var(--accent-soft); color: var(--accent); font: inherit; font-weight: 650; align-self: center; }
+button.ma-from { cursor: pointer; }
+button.ma-from:hover { text-decoration: underline; }
+.ma-state { padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-3); align-self: center; }
 .bubble.ma-bubble { border-radius: 16px 16px 16px 4px; background: var(--surface-2); border: 1px solid var(--border); }
 .msg-agent + .msg-agent { margin-top: 8px; }
 .msg-agent .linkish { margin: 2px 4px 0; }

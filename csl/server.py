@@ -678,7 +678,8 @@ def list_events(conn, kinds=None, unseen=False, project=None, before=None, limit
         " LEFT JOIN turns rp ON e.kind IN ('response', 'waiting', 'question', 'error') AND rp.id ="
         "  (SELECT t4.id FROM turns t4 WHERE t4.session_id = e.session_id AND t4.prompt IS NOT NULL"
         "   AND t4.prompt NOT LIKE '<task-notification>%' AND t4.prompt NOT LIKE '<agent-message%'"
-        "   AND t4.prompt NOT LIKE '<teammate-message%' AND t4.prompt NOT LIKE '[자동 알림]%'"   # 에이전트·Argus 가 넣은 것 — 내 요청이 아님
+        "   AND t4.prompt NOT LIKE '<teammate-message%' AND t4.prompt NOT LIKE '<cross-session-message%'"
+        "   AND t4.prompt NOT LIKE 'Another Claude session sent a message:%' AND t4.prompt NOT LIKE '[자동 알림]%'"   # 에이전트·Argus 가 넣은 것 — 내 요청이 아님
         "   AND t4.prompt_at <= COALESCE(pt.prompt_at, e.at)"
         "   ORDER BY t4.prompt_at DESC, t4.id DESC LIMIT 1)"
         " WHERE " + " AND ".join(where) +

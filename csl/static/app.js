@@ -142,7 +142,10 @@ function promptSummary(text, n = 120) {
 function sessionTitle(s) {
   // 팀원의 첫 요청은 팀장이 보낸 <teammate-message …> 지시문이라 제목으로 쓰지 않고 팀원 이름으로
   if (!s.title && s.team_agent) return "👥 " + s.team_agent;
-  return s.title || promptSummary(s.first_prompt, 60) || "(아직 요청 없음)";
+  if (s.title) return s.title;
+  // 다른 세션·팀장이 보낸 글로 시작한 세션은 태그 대신 본문으로
+  const am = agentMessages(s.first_prompt);
+  return promptSummary(am ? am[0].body : s.first_prompt, 60) || "(아직 요청 없음)";
 }
 // 어느 에이전트의 세션인지 — claude(Claude Code) · codex(OpenAI Codex CLI·데스크톱 앱)
 function isCodex(s) { return !!s && s.agent === "codex"; }
@@ -1209,11 +1212,12 @@ function noticeHtml(n, time) {
       ${n.summary ? `<span class="notice-sum">· ${esc(n.summary)}</span>` : ""}<span class="muted"> ${time}</span></div>`;
 }
 // 사람이 아니라 에이전트·Argus 가 대화에 넣은 메시지 — 서브에이전트 보고(<agent-message>), 에이전트 팀의 팀장·팀원 메시지
-// (<teammate-message>), 브레인에게 가는 Argus 자동 알림([자동 알림]). 내 요청 말풍선(오른쪽) 대신 왼쪽에 보낸 쪽 이름과 함께.
+// (<teammate-message>), 다른 세션이 보낸 메시지(<cross-session-message>), 브레인에게 가는 Argus 자동 알림([자동 알림]). 내 요청 말풍선(오른쪽) 대신 왼쪽에 보낸 쪽 이름과 함께.
 // 둘러싼 태그와 하네스 안내문은 걷어 내고 본문만. 아니면 null
 function agentMessages(prompt) {
   if (!prompt) return null;
-  const p = prompt.trim();
+  // 팀원 메시지는 「Another Claude session sent a message:」 한 줄 뒤에 태그가 오기도 한다
+  const p = prompt.trim().replace(/^Another Claude session sent a message:\s*\n/, "");
   let m = /^<agent-message from="([^"]*)">\s*([\s\S]*?)\s*(?:<\/agent-message>)?$/.exec(p);
   if (m) {
     let body = m[2].replace(/^\[Subagent hand-back\][\s\S]*?The report follows:\s*\n/, "");
@@ -1227,7 +1231,24 @@ function agentMessages(prompt) {
     for (const x of p.matchAll(/<teammate-message\b([^>]*)>([\s\S]*?)(?:<\/teammate-message>|$)/g)) {
       const id = (/teammate_id="([^"]*)"/.exec(x[1]) || [])[1] || "";
       const lead = id === "team-lead";
-      out.push({ icon: "👥", who: lead ? "팀장" : "팀원 " + id, tip: lead ? "에이전트 팀의 팀장이 보낸 메시지" : "에이전트 팀의 팀원이 보낸 메시지", body: x[2].trim() });
+      let body = x[2].trim(), idle = null;
+      if (body.startsWith('{"type":')) { try { idle = JSON.parse(body); } catch (e) { idle = null; } }
+      // 팀원이 일을 마치고 쉬게 될 때 보내는 알림(JSON) — 결과 글만, 없으면 한 줄
+      if (idle && idle.type === "idle_notification") body = (idle.result || "").trim() || "_할 일을 마치고 대기 중입니다_";
+      out.push({ icon: "👥", who: lead ? "팀장" : "팀원", from: lead ? "" : id, state: idle && idle.type === "idle_notification" ? "대기" : "",
+        tip: lead ? "에이전트 팀의 팀장이 보낸 메시지" : "에이전트 팀의 팀원이 보낸 메시지", body });
+    }
+    return out.length ? out : null;
+  }
+  if (/^<cross-session-message\b/.test(p)) {
+    // 다른 Claude Code 세션이 SendMessage 로 보낸 글 — from-name 은 그 세션 이름(워크트리 이름 등). 보드에 있는 세션이면 그 제목으로
+    const out = [];
+    for (const x of p.matchAll(/<cross-session-message\b([^>]*)>([\s\S]*?)(?:<\/cross-session-message>|$)/g)) {
+      const name = (/from-name="([^"]*)"/.exec(x[1]) || [])[1] || "";
+      const wt = name.replace(/-\d+$/, "");
+      const from = wt && S.sessions.find(s => (s.cwd || "").replace(/\/+$/, "").endsWith("/" + wt));
+      out.push({ icon: "📨", who: "다른 세션", from: (from && from.title) || name || "?", fromSid: from ? from.session_id : "",
+        tip: "다른 Claude Code 세션이 보낸 메시지" + (name ? " (" + name + ")" : "") + " — 사용자가 보낸 요청이 아닙니다", body: x[2].trim() });
     }
     return out.length ? out : null;
   }
@@ -1235,11 +1256,18 @@ function agentMessages(prompt) {
   if (m) return [{ icon: "🔔", who: "Argus 자동 알림", tip: "Argus 가 브레인에게 넣은 자동 알림 — 사용자가 보낸 요청이 아닙니다", body: m[1].trim() }];
   return null;
 }
+// 보낸 쪽 이름(다른 세션 제목·팀원 이름)은 본문과 구분되게 칩으로. 보드에 있는 세션이면 눌러서 그 칸으로
+function maFrom(x) {
+  if (!x.from) return "";
+  return x.fromSid
+    ? `<button class="ma-from" data-action="goto-col" data-sid="${esc(x.fromSid)}" title="${esc(x.from)} 칸으로 가기">${esc(x.from)}</button>`
+    : `<span class="ma-from">${esc(x.from)}</span>`;
+}
 function agentMsgHtml(list, t, at) {
   const open = S.promptOpen.has(t.id);
   const long = list.reduce((n, x) => n + x.body.length, 0) > 500 || list.some(x => x.body.split("\n").length > 8);
   return list.map((x, i) => `<div class="msg-agent">
-      <div class="ma-head" title="${esc(x.tip)}"><span class="ma-who">${x.icon} ${esc(x.who)}</span>${i === 0 && at ? `<span class="ma-time">${dateLabel(at)} ${hm(at)}</span>` : ""}</div>
+      <div class="ma-head" title="${esc(x.tip)}"><span class="ma-who">${x.icon} ${esc(x.who)}</span>${maFrom(x)}${x.state ? `<span class="ma-state">${esc(x.state)}</span>` : ""}${i === 0 && at ? `<span class="ma-time">${dateLabel(at)} ${hm(at)}</span>` : ""}</div>
       <div class="bubble md ma-bubble ${long && !open ? "clamped" : ""}">${mdCached(x.body)}</div></div>`).join("") +
     (long ? `<div class="msg-agent"><button class="linkish" data-action="toggle-prompt" data-tid="${t.id}">${open ? "접기" : "전체 보기"}</button></div>` : "");
 }
@@ -5974,6 +6002,7 @@ document.addEventListener("click", async e => {
     renderBoard();
     return focusCol(el.dataset.sid);
   }
+  if (a === "goto-col") return focusCol(el.dataset.sid);
   if (a === "fam-switch" || a === "fam-attach") {
     el.disabled = true;
     try {
@@ -8141,7 +8170,7 @@ function sessionCardHtml(s, rank) {
     : '<div class="sc-recap-none muted">아직 응답이 없습니다</div>';
   const lp0 = s.last_prompt && s.last_prompt.prompt;
   const am = agentMessages(lp0);   // 마지막 「요청」이 에이전트·Argus 메시지면 보낸 쪽과 본문으로
-  const lp = am ? am[0].icon + " " + am[0].who + ": " + am[0].body : lp0;
+  const lp = am ? am[0].icon + " " + am[0].who + (am[0].from ? " " + am[0].from : "") + ": " + am[0].body : lp0;
   const notes = +s.open_notes || 0;
   const key = rank <= 9 ? `<span class="sc-key">⌘${rank}</span>` : "";
   return `<article class="scard ${d} ${pinOf(s) ? "pinned" : ""}" data-scard="${esc(s.session_id)}" style="--proj:${projColor(s.project_root || s.cwd)}">
