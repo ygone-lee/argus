@@ -1009,8 +1009,14 @@ function thumbsIn(text) {
 // 요청 글 — 붙인 이미지 자리([Image #N], Claude Code 가 남기는 표시)에 대화 기록 속 그 이미지를 썸네일로. 누르면 새 탭에서 크게
 // 글 속 그 자리에는 작은 「🖼 N」 표시만 두고, 이미지는 글 아래 한 줄로 모은다 — 글자 사이에 끼워 넣으면 문장 끝에 붙거나
 // 줄이 엉뚱하게 바뀌어 정렬이 어긋났다
+// Claude Code 가 붙여넣기로 받은 글을 감싼 <pasted_content id="…"> 태그 — 잘린 덩어리는 다시 잇고 태그는 뗀다(서버 store.unwrap_pasted 와 같게)
+function unwrapPasted(s) {
+  if (!s || !s.includes("<pasted_content")) return s;
+  return s.replace(/\n<\/pasted_content(?: id="([^"]*)")?>\n*<pasted_content(?: id="\1")?>\n/g, "")
+    .replace(/<pasted_content(?: id="([^"]*)")?>\n?([\s\S]*?)\n?<\/pasted_content(?: id="\1")?>/g, "$2");
+}
 function promptHtml(t) {
-  const html = mdCached(t.prompt);
+  const html = mdCached(unwrapPasted(t.prompt));
   if (!t.id || !html.includes("[Image #")) return html;
   let k = 0;
   const thumbs = [];

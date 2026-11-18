@@ -497,7 +497,7 @@ def handle(data):
                                                 " AND status='running'", (sid,)).fetchone()):
                     conn.execute(
                         "INSERT INTO turns (session_id, prompt_id, prompt, prompt_at, status) VALUES (?,?,?,?,?)",
-                        (sid, data.get("prompt_id"), store.mask(data.get("prompt") or ""), t, "running"),
+                        (sid, data.get("prompt_id"), store.mask(store.unwrap_pasted(data.get("prompt") or "")), t, "running"),
                     )
                 set_state(conn, sid, "working")
                 conn.execute("UPDATE sessions SET compact_at=NULL WHERE session_id=?", (sid,))

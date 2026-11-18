@@ -143,7 +143,7 @@ def backfill(days):
                     conn.executemany(
                         "INSERT INTO turns (session_id, prompt, prompt_at, response, response_at, status)"
                         " VALUES (?,?,?,?,?,?)",
-                        [(sid, store.mask(t["prompt"]), t["prompt_at"], store.mask(t["response"], private=False),
+                        [(sid, store.mask(store.unwrap_pasted(t["prompt"])), t["prompt_at"], store.mask(t["response"], private=False),
                           t["response_at"], t["status"] if t["response"] else "interrupted") for t in info["turns"]])
                     with_turns.add(sid)
                     imported += 1

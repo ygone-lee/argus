@@ -705,6 +705,19 @@ _EXTRA_TEXT_MAX = 4000
 _EXTRAS_MAX = 80
 
 
+# Claude Code 는 붙여넣기로 들어온 글(보드가 보낸 긴 글도 한꺼번에 들어가면 붙여넣기로 본다)을
+# <pasted_content id="…">…</pasted_content id="…"> 로 감싸 기록하고, 긴 글은 중간에서 잘라 같은 id 의 덩어리 여러 개로 남긴다.
+# 대화 칸에는 사용자가 쓴 그대로 보이게 덩어리를 다시 잇고 태그를 뗀다
+_PASTE_SPLIT = re.compile(r'\n</pasted_content(?: id="([^"]*)")?>\n*<pasted_content(?: id="\1")?>\n')
+_PASTE_BLOCK = re.compile(r'<pasted_content(?: id="([^"]*)")?>\n?(.*?)\n?</pasted_content(?: id="\1")?>', re.S)
+
+
+def unwrap_pasted(text):
+    if not text or "<pasted_content" not in text:
+        return text
+    return _PASTE_BLOCK.sub(lambda m: m.group(2), _PASTE_SPLIT.sub("", text))
+
+
 def is_task_notice(prompt):
     """백그라운드 작업이 끝났을 때 Claude Code 가 대화에 넣는 알림(요청 훅으로 온다)."""
     return (prompt or "").lstrip().startswith(TASK_NOTICE)

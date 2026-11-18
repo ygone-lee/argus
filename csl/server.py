@@ -1791,8 +1791,8 @@ def list_state(conn, days, show_archived):
             conn.execute("UPDATE sessions SET branch=? WHERE session_id=?", (live_branch, s["session_id"]))
             conn.commit()
         # 마지막·첫 요청과 마지막 응답은 위 SELECT 의 하위 쿼리로 한 번에(세션마다 쿼리 3개씩 돌던 것)
-        s["last_prompt"] = {"prompt": s.pop("lp_prompt"), "prompt_at": s.pop("lp_at")} if s["lp_prompt"] is not None else None
-        s["first_prompt"] = s.pop("fp_prompt")
+        s["last_prompt"] = {"prompt": store.unwrap_pasted(s.pop("lp_prompt")), "prompt_at": s.pop("lp_at")} if s["lp_prompt"] is not None else None
+        s["first_prompt"] = store.unwrap_pasted(s.pop("fp_prompt"))
         s["last_response"] = {"response": s.pop("lr_response"), "len": s.pop("lr_len"), "response_at": s.pop("lr_at")} \
             if s["lr_at"] is not None else None
         for k in ("lp_prompt", "lp_at", "lr_response", "lr_len", "lr_at"):
@@ -2999,7 +2999,7 @@ class Handler(BaseHTTPRequestHandler):
                 x["alive"] = bool(x.get("pid"))
                 k = known.get(x.get("sessionId"))
                 if k:
-                    lp = k["lp_prompt"] or ""
+                    lp = store.unwrap_pasted(k["lp_prompt"] or "")
                     k["lp_prompt"] = " ".join((store.notice_line(lp) if store.is_task_notice(lp) else lp).split())[:200]
                     k["lr_response"] = " ".join((k["lr_response"] or "").split())[:200]
                 x["board"] = k
