@@ -185,7 +185,9 @@ def not_running(conn, sid):
     run = focus.running_sessions()
     if run is None or sid in run:
         return False
-    row = conn.execute("SELECT last_activity FROM sessions WHERE session_id=?", (sid,)).fetchone()
+    row = conn.execute("SELECT last_activity, branch_kind FROM sessions WHERE session_id=?", (sid,)).fetchone()
+    if row and row[1] == "team":   # 에이전트 팀의 팀원은 실행 목록(~/.claude/sessions)에 없다 — 모름. 터미널 전면 프로세스로 본다
+        return False
     return bool(row) and store.now() - (row[0] or 0) > 60
 
 

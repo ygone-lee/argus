@@ -281,6 +281,12 @@ def focus(session):
 
 # ---------------------------------------------------------------- 보드에서 보내기
 
+def _is_claude_comm(comm):
+    """ps 의 comm 이 Claude Code 인가 — 「claude」(설치 링크로 띄운 것) 또는 버전 경로 그대로
+    (…/claude/versions/2.1.327 — 에이전트 팀이 팀원을 띄울 때는 링크가 아니라 이 경로로 실행된다)."""
+    return os.path.basename(comm) == "claude" or "/claude/versions/" in comm
+
+
 def claude_alive(session, t):
     """그 터미널 전면에서 아직 Claude Code 가 돌고 있는지.
 
@@ -294,7 +300,7 @@ def claude_alive(session, t):
             return False
         for line in r.stdout.splitlines():
             parts = line.split(None, 1)
-            if len(parts) == 2 and "+" in parts[0] and os.path.basename(parts[1].strip()) == "claude":
+            if len(parts) == 2 and "+" in parts[0] and _is_claude_comm(parts[1].strip()):
                 return True
         return False
     info = t.terminal.info(t.handle) if t else None
