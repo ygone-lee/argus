@@ -2829,14 +2829,16 @@ class Handler(BaseHTTPRequestHandler):
             # 보드 터미널 웹소켓 토큰(서버를 띄울 때마다 새로). Host 검사를 지난 같은 출처 화면만 읽을 수 있다(CORS 없음)
             return self._send(200, {"token": webterm.TOKEN, "available": bool(tmux_term._bin())})
         if method == "GET" and path == "/api/folders":
-            # 새 세션 폴더 후보: 터미널(Orca 등)에 열린 프로젝트 먼저, 그다음 최근 세션의 프로젝트(워크트리) 폴더
+            # 새 세션 폴더 후보: 터미널(Orca 등)에 열린 프로젝트 먼저, 그다음 최근 세션의 프로젝트 루트 폴더.
+            # 워크트리 폴더는 넣지 않는다 — 새 세션은 기본으로 그 저장소에 새 워크트리(claude -w)를 만들어 시작하니 루트를 고르면 된다
             projects = focus.open_projects()
             seen, recent = {p["path"] for p in projects}, []
-            for r in conn.execute("SELECT COALESCE(worktree, project_root, cwd) AS p, MAX(last_activity) AS t FROM sessions"
-                                  " WHERE COALESCE(worktree, project_root, cwd) IS NOT NULL GROUP BY p ORDER BY t DESC LIMIT 40"):
+            for r in conn.execute("SELECT COALESCE(project_root, cwd) AS p, MAX(last_activity) AS t FROM sessions"
+                                  " WHERE COALESCE(project_root, cwd) IS NOT NULL GROUP BY p ORDER BY t DESC LIMIT 40"):
                 p = r["p"]
-                if p not in seen and os.path.isdir(p) and "/.claude/jobs/" not in p \
-                        and "/Library/Application Support/Claude/" not in p:   # 백그라운드 작업·데스크톱 앱 임시 폴더 제외
+                if p not in seen and os.path.isdir(p) and "/.claude/jobs/" not in p and "/.claude/worktrees/" not in p \
+                        and "/Library/Application Support/Claude/" not in p \
+                        and not p.startswith(("/private/tmp/", "/tmp/", "/private/var/folders/")):   # 백그라운드 작업·데스크톱 앱·임시 폴더 제외
                     seen.add(p)
                     recent.append(p)
             return self._send(200, {"projects": projects, "recent": recent[:12]})
