@@ -267,7 +267,7 @@ const I18N_ROWS = [
   ["접기", "閉じる", "Collapse"], ["요청 전체 보기", "依頼をすべて表示", "Show full prompt"], ["이전 대화 더 보기 ({}턴 남음)", "以前の会話をもっと見る(残り {} ターン)", "Load earlier ({} turns left)"],
   ["아직 요청이 없습니다.", "まだ依頼はありません。", "No prompts yet."], ["불러오는 중…", "読み込み中…", "Loading…"], ["스크롤해서 보이면 대화를 불러옵니다", "スクロールして表示されたら会話を読み込みます", "Loads when scrolled into view"],
   ["기록된 작업 과정이 없습니다.", "記録された作業過程はありません。", "No recorded steps."], ["앞선 단계 {}개 생략", "前の {} ステップを省略", "{} earlier steps hidden"],
-  ["진행 중인 작업에 덧붙인 요청 — 아래에서 함께 처리 중", "進行中の作業に追加した依頼 — 下でまとめて処理中", "Added to the running task — handled below"],
+  ["작업 중에 다음 요청이 들어옴 — 아래에서 이어서 함께 처리 중", "作業中に次の依頼が届きました — 下で続けてまとめて処理中", "Another request came in while working — continued together below"],
   ["응답 없음 — 중단됐거나 다음 요청과 함께 처리됨", "応答なし — 中断されたか次の依頼と一緒に処理", "No reply — interrupted or handled with the next prompt"], ["응답 없음 (중단됨)", "応答なし(中断)", "No reply (interrupted)"],
   ["실패", "失敗", "Failed"], ["중단", "中断", "Interrupted"], ["작업 중 · {}", "作業中 · {}", "Working · {}"], ["앞선 중간 메시지 {}개 보기", "前の途中メッセージ {} 件を表示", "Show {} earlier messages"], ["중간 메시지 접기", "途中メッセージを閉じる", "Hide earlier messages"],
   ["백그라운드 작업 {}", "バックグラウンド作業 {}", "Background task {}"], ["끝남", "完了", "finished"],

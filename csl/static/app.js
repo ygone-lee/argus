@@ -581,6 +581,22 @@ function runningTurn(turns) {
   }
   return null;
 }
+// 지금 작업이 시작된 요청 — 작업 중에 덧붙인 요청이 있으면 그 앞의 첫 요청. 진행 과정은 여기서부터 받아 와야
+// 덧붙이기 전 단계가 사라지지 않는다
+function runStartTurn(turns) {
+  let i = turns.length - 1;
+  while (i >= 0 && !(turns[i].status === "running" && !turns[i].response_at)) i--;
+  if (i < 0) return null;
+  while (i > 0 && turns[i - 1].status === "running" && !turns[i - 1].response_at && turns[i - 1].prompt_at) i--;
+  return turns[i];
+}
+// 같은 작업에서 이 요청 다음에 들어온 요청(덧붙인 요청·작업 중 함께 처리된 요청)의 시각 — 단계를 요청마다 나눌 때
+function nextPromptAt(s, t) {
+  const turns = ((S.boardCache.get(s.session_id) || {}).detail || {}).turns || [];
+  const i = turns.findIndex(x => x.id === t.id);
+  const n = i >= 0 ? turns.slice(i + 1).find(x => x.prompt_at) : null;
+  return n ? n.prompt_at : null;
+}
 function shownSessions() {
   const b = S.brainOpen && brainSession();
   return boardSessions().slice(0, S.boardLimit).filter(s => S.visibleCols.has(s.session_id)).concat(b ? [b] : [])
@@ -591,7 +607,7 @@ async function refreshLive() {
   const active = new Map();   // session_id → 진행 중 턴의 시작 시각
   for (const [s, detail] of shownSessions()) {
     if (!detail || !["working", "waiting"].includes(s.state)) continue;
-    const t = runningTurn(detail.turns);
+    const t = runStartTurn(detail.turns);
     if (t && t.prompt_at) active.set(s.session_id, t.prompt_at);
   }
   if (active.size) {
@@ -937,10 +953,20 @@ function turnHtml(t, s, lastRunId) {
 
   let claude;
   if (t.status === "running" && !t.response_at && t.id !== lastRunId) {
-    claude = '<div class="msg-claude muted-line">진행 중인 작업에 덧붙인 요청 — 아래에서 함께 처리 중</div>';
+    // 다음 요청이 들어오기 전까지 한 단계는 이 요청 아래에 남긴다(진행 과정은 작업이 시작된 요청부터 받아 온다)
+    const live = S.live.get(s.session_id), until = nextPromptAt(s, t);
+    const items = live && t.prompt_at && live.since <= t.prompt_at
+      ? live.items.filter(it => it.at >= t.prompt_at && (!until || it.at < until)) : [];
+    const shown = items.slice(-30);
+    claude = (shown.length ? `<div class="msg-claude">
+      <div class="who-line"><span class="who-name">${agentName(s)}</span></div>
+      ${items.length > shown.length ? `<div class="muted step">앞선 단계 ${items.length - shown.length}개 생략</div>` : ""}
+      <div class="steps">${stepsHtml(shown)}</div></div>` : "") +
+      '<div class="msg-claude muted-line">작업 중에 다음 요청이 들어옴 — 아래에서 이어서 함께 처리 중</div>';
   } else if (t.status === "running" && !t.response_at) {
     const live = S.live.get(s.session_id);
-    const items = live && live.since === t.prompt_at ? live.items : [];
+    const items = live && t.prompt_at && live.since <= t.prompt_at ? live.items.filter(it => it.at >= t.prompt_at) : [];
+    const start = (live && live.since) || t.prompt_at;   // 경과 시간은 작업이 시작된 요청부터
     const shown = items.slice(-30);
     const waiting = s.state === "waiting";
     claude = `<div class="msg-claude">
@@ -948,10 +974,15 @@ function turnHtml(t, s, lastRunId) {
       ${items.length > shown.length ? `<div class="muted step">앞선 단계 ${items.length - shown.length}개 생략</div>` : ""}
       ${shown.length ? `<div class="steps">${stepsHtml(shown)}</div>` : ""}
       <div class="live-indicator ${waiting ? "live-wait" : ""}"><span class="dot ${waiting ? "waiting" : "working"}"></span>
-        ${waiting ? esc(s.state_detail || "확인 필요") : "작업 중"} · <span class="elapsed" data-since="${t.prompt_at}">${dur(Date.now() / 1000 - t.prompt_at)}</span></div>
+        ${waiting ? esc(s.state_detail || "확인 필요") : "작업 중"} · <span class="elapsed" data-since="${start}">${dur(Date.now() / 1000 - start)}</span></div>
     </div>`;
   } else if (t.status === "merged") {
-    claude = '<div class="msg-claude muted-line">응답 없음 — 중단됐거나 다음 요청과 함께 처리됨</div>';
+    // 작업 중에 다음 요청이 들어와 응답이 그쪽에 붙은 요청 — 그 사이 한 단계는 「작업 과정 보기」로
+    const trailOpen = S.trailOpen.has(t.id), trail = S.trail.get(t.id);
+    const trailHtml = !trailOpen ? "" : !trail ? '<div class="steps"><div class="step muted">불러오는 중…</div></div>'
+      : trail.length ? `<div class="steps">${stepsHtml(trail)}</div>` : '<div class="steps"><div class="step muted">기록된 작업 과정이 없습니다.</div></div>';
+    claude = `<div class="msg-claude muted-line">응답 없음 — 중단됐거나 다음 요청과 함께 처리됨${t.prompt_at
+      ? ` <button class="linkish" data-action="toggle-trail" data-tid="${t.id}" data-sid="${esc(s.session_id)}">${trailOpen ? "작업 과정 접기" : "작업 과정 보기"}</button>` : ""}</div>${trailHtml}`;
   } else if (!t.response) {
     claude = '<div class="msg-claude muted-line">응답 없음 (중단됨)</div>';
   } else {
@@ -5936,7 +5967,9 @@ async function toggleTrail(tid, sid) {
   const t = (pool || []).find(x => x.id === tid);
   if (!t) return;
   try {
-    const r = await api("GET", `/api/sessions/${sid}/activity?since=${t.prompt_at}&until=${t.response_at}`);
+    // 다음 요청과 함께 처리된 요청(merged)은 그 다음 요청이 들어오기 전까지만
+    const nxt = t.status === "merged" ? (pool.slice(pool.indexOf(t) + 1).find(x => x.prompt_at) || {}).prompt_at : null;
+    const r = await api("GET", `/api/sessions/${sid}/activity?since=${t.prompt_at}&until=${nxt || t.response_at}`);
     S.trail.set(tid, r.items);
   } catch (e) {
     S.trail.set(tid, []);
