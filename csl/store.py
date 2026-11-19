@@ -1388,37 +1388,40 @@ def _last_context_tokens(path, tail_bytes=1024 * 1024):
 
 
 def _status_rate_limits():
-    """상태줄 탭 중 가장 최근 것의 사용 한도(있으면). (5시간 %, 리셋, 주간 %, 리셋, 시각)"""
-    best = None
+    """상태줄 탭들에서 지금 사용 한도. (5시간 %, 리셋, 주간 %, 리셋, 시각)
+    쉬던 세션도 상태줄을 다시 그리며 그 세션이 마지막으로 받은 옛 값을 새 시각으로 남긴다 — 가장 최근 파일이 가장 새 값이 아니다.
+    한 기간(같은 resets_at) 안에서 사용량은 줄지 않으므로, 가장 늦게 초기화되는 기간(=지금 기간)의 가장 큰 값을 쓴다."""
     try:
         names = os.listdir(STATUS_DIR)
     except OSError:
         return None
+    best = {"five_hour": None, "seven_day": None}   # 창 → (resets_at, pct, mtime)
+    newest = 0
     for name in names:
         if not name.endswith(".json"):
             continue
         path = os.path.join(STATUS_DIR, name)
         try:
             mtime = os.path.getmtime(path)   # 목록을 읽은 사이 지워질 수 있다 — 그 파일만 건너뛴다
-        except OSError:
-            continue
-        if best and mtime <= best[0]:
-            continue
-        try:
             with open(path, encoding="utf-8") as f:
                 rl = json.load(f).get("rate_limits")
         except (OSError, ValueError):
             continue
-        five, week = (rl or {}).get("five_hour") or {}, (rl or {}).get("seven_day") or {}
-        if five.get("used_percentage") is None and week.get("used_percentage") is None:
-            continue
-        best = (mtime, five, week)
-    if not best:
+        for key in best:
+            w = (rl or {}).get(key) or {}
+            pct = w.get("used_percentage")
+            if pct is None:
+                continue
+            cand = (parse_ts(w.get("resets_at")) or 0, pct, mtime)
+            if best[key] is None or cand[:2] > best[key][:2]:
+                best[key] = cand
+            newest = max(newest, mtime)
+    five, week = best["five_hour"], best["seven_day"]
+    if not five and not week:
         return None
-    mtime, five, week = best
-    return {"five_hour": five.get("used_percentage"), "five_hour_reset": parse_ts(five.get("resets_at")),
-            "seven_day": week.get("used_percentage"), "seven_day_reset": parse_ts(week.get("resets_at")),
-            "updated_at": mtime}
+    return {"five_hour": five and five[1], "five_hour_reset": (five and five[0]) or None,
+            "seven_day": week and week[1], "seven_day_reset": (week and week[0]) or None,
+            "updated_at": newest}
 
 
 CLAUDE_JSON = os.path.expanduser("~/.claude.json")
