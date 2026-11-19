@@ -12,7 +12,7 @@ const I18N_SKIP = ".col-term, .tp-tabs, .md, .bubble, .col-title, .title-text, .
   ".chip.proj, .pm-name, .pc-name, .cmp-text, .note-input, .ctx-note, .nm-prompt, textarea, script, style, code, pre, " +
   // 카드 보기·곁질문·활동·인박스 칸반·카드 기록·카드 대화의 사용자 내용
   ".fam-tab-t, .goal-t, .ag-main b, .ag-last, .ib-run-sum, .ib-file, .pc-head, .pc-opt, .bgt-desc, .task-title, .task-meta, .task-body, .dv-tbl, .dv-fname, .dv-commit, .diff-title, .sc-title, .sc-recap, .sc-last, .sc-meta .chip, .aside-q, .aside-a, .act-main b, .act-text, .ib-todo, .ibl-text, " +
-  ".sp-desc:not(.sp-board), .kb-h > div, .ibc-u, .ibc-err, .cmp-rich, .sref, .chip.wt, .chip.br, .ib-stage .muted, .ib-reply-text, .cn-name, .act-main .muted, .act-ask-t, .sw-title, .sw-where, .resume-name, .ibp-t, .ibp-sub, .skill-row label .muted";
+  ".sp-desc:not(.sp-board), .kb-h > div, .ibc-u, .ibc-err, .cmp-rich, .sref, .chip.wt, .chip.br, .ib-stage .muted, .ib-reply-text, .cn-name, .act-main .muted, .act-ask-t, .sw-title, .sw-where, .resume-name, .ibp-t, .ibp-sub, .skill-row label .muted, mark.cfg-m";
 
 // [한국어, 日本語, English]
 const I18N_ROWS = [
@@ -491,6 +491,8 @@ const I18N_ROWS = [
   // 세션 빠른 이동
   ["세션 이름·프로젝트·브랜치 몇 글자", "セッション名・プロジェクト・ブランチを数文字", "A few letters of a session, project or branch"],
   ["맞는 세션이 없습니다", "一致するセッションがありません", "No matching session"],
+  ["설정 검색 — 띄엄띄엄 쳐도 찾습니다", "設定を検索 — 飛び飛びの文字でも見つかります", "Search settings — fuzzy, skipped letters are fine"],
+  ["맞는 설정이 없습니다", "一致する設定がありません", "No matching setting"],
   ["이동 ·", "移動・", "go ·"], ["닫기", "閉じる", "close"],
   ["두 번", "2回", "twice"],
   ["세션 빠른 이동 — 보드 순서 목록에서", "セッションのクイック移動 — ボード順の一覧で", "Quick session switcher — in the board-ordered list,"],

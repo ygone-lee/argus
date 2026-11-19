@@ -1187,6 +1187,22 @@ body.bp-resizing, body.bp-resizing *, body.tp-resizing, body.tp-resizing * { cur
 /* ---------------------------------------------------------------- 설정 창 */
 .settings-box { width: min(760px, 94vw); max-height: 86vh; display: flex; flex-direction: column; }
 .settings-body { overflow-y: auto; padding-right: 4px; }
+/* 설정 검색 — 맞은 글자 덩어리마다 색을 돌려 칠한다(강조·파랑·초록·노랑, 다크에선 각 -soft 가 어두운 색) */
+.cfg-search { position: relative; display: flex; align-items: center; gap: 10px; margin: 2px 0 6px; }
+.cfg-search input { flex: 1; min-width: 0; padding: 8px 12px 8px 32px; border: 1px solid var(--border-strong); border-radius: 999px;
+  background: var(--surface-2); color: var(--text); font: inherit; font-size: calc(13.5px * var(--fs, 1)); outline: none; transition: border-color .15s, box-shadow .15s; }
+.cfg-search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); background: var(--surface); }
+.cfg-search-ico { position: absolute; left: 12px; color: var(--text-3); font-size: calc(15px * var(--fs, 1)); pointer-events: none; }
+#cfgCount { flex: none; font-size: calc(12px * var(--fs, 1)); font-variant-numeric: tabular-nums; }
+.cfg-off { display: none !important; }
+#settings .settings-box { height: 86vh; }
+#settings .settings-body { flex: 1; }   /* 검색으로 줄이 줄어도 창 크기가 출렁이지 않게 */
+.cfg-none { padding: 18px 4px; text-align: center; }
+mark.cfg-m { padding: 0 1px; margin: 0 -1px; border-radius: 4px; font-weight: 700; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+mark.cfg-m.m0 { background: var(--accent-soft); color: var(--accent); }
+mark.cfg-m.m1 { background: var(--unread-soft); color: var(--unread); }
+mark.cfg-m.m2 { background: var(--working-soft); color: var(--working); }
+mark.cfg-m.m3 { background: var(--waiting-soft); color: var(--waiting); }
 .cfg-group h3 { margin: 14px 0 4px; font-size: calc(13px * var(--fs, 1)); color: var(--text-2); }
 .cfg-row { display: flex; align-items: center; gap: 14px; padding: 8px 2px; border-bottom: 1px solid var(--border); }
 .cfg-row label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: calc(13px * var(--fs, 1)); cursor: default; }

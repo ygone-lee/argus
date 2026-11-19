@@ -6994,9 +6994,81 @@ async function openSettings() {
     `<section class="cfg-group" id="cfgSkills"><h3>스킬</h3><p class="muted cfg-skill-wait">불러오는 중…</p></section>`);
   $("#settingsMsg").textContent = "";
   $("#settings").hidden = false;
+  $("#cfgSearch").value = "";
+  cfgFilter();
+  $("#cfgSearch").focus();
   drawSetup();
   drawSkills();
 }
+// 설정 검색: 이름은 퍼지(띄엄띄엄 맞는 글자), 설명은 이어진 글자로 찾는다. 묶음 이름이 맞으면 그 묶음 전체를 보인다.
+// 맞은 글자는 이어진 덩어리마다 색을 돌려 가며 칠한다. 칠하기 전 모습(i18n 으로 옮긴 글)은 CFG_ORIG 에 두고 검색어가 바뀔 때마다 되돌린다
+const CFG_ORIG = new WeakMap();
+function cfgRestore(el) {
+  if (!el) return "";
+  if (CFG_ORIG.has(el)) el.innerHTML = CFG_ORIG.get(el);
+  else CFG_ORIG.set(el, el.innerHTML);
+  return el.textContent;
+}
+function cfgPaint(el, hits) {
+  if (!el || !hits || !hits.length || el.childElementCount) return;   // 로고 같은 요소가 섞인 이름은 칠하지 않는다(찾기는 한다)
+  const text = el.textContent, set = new Set(hits);
+  let out = "", run = -1;
+  for (let i = 0; i < text.length; i++) {
+    const on = set.has(i);
+    if (on && !set.has(i - 1)) out += `<mark class="cfg-m m${++run % 4}">`;
+    out += esc(text[i]);
+    if (on && !set.has(i + 1)) out += "</mark>";
+  }
+  el.innerHTML = out;
+}
+function cfgFilter() {
+  const inp = $("#cfgSearch");
+  if (!inp) return;
+  const q = inp.value.trim(), qq = q.toLowerCase().replace(/\s+/g, "");
+  let shown = 0, total = 0;
+  $("#settingsBody").querySelectorAll(".cfg-group").forEach(sec => {
+    const h3 = sec.querySelector("h3");
+    const g = q ? fuzzy(q, cfgRestore(h3)) : (cfgRestore(h3), null);
+    const gHit = g && g.score >= 800 ? g : null;   // 묶음 이름은 이어진 글자로 맞을 때만(짧아서 띄엄띄엄은 너무 잘 맞는다)
+    cfgPaint(h3, gHit && gHit.hits);
+    let any = false;
+    sec.querySelectorAll(".cfg-row").forEach(row => {
+      total++;
+      const lab = row.querySelector("label");
+      const title = lab && lab.querySelector("b"), help = lab && lab.querySelector(":scope > .muted");
+      const tt = cfgRestore(title), ht = cfgRestore(help);
+      let ok = !q;
+      if (q) {
+        const ft = fuzzy(q, tt);
+        const at = qq ? ht.toLowerCase().indexOf(qq) : -1;
+        cfgPaint(title, ft && ft.hits);
+        if (at >= 0) cfgPaint(help, [...qq].map((_, k) => at + k));
+        ok = !!(ft || at >= 0 || gHit);
+      }
+      row.classList.toggle("cfg-off", !ok);
+      if (ok) { any = true; shown++; }
+    });
+    sec.classList.toggle("cfg-off", !!q && !any && !gHit);
+  });
+  $("#cfgCount").textContent = q ? `${shown}/${total}` : "";
+  let none = $("#settingsBody").querySelector(".cfg-none");
+  if (q && !shown && !none) $("#settingsBody").insertAdjacentHTML("afterbegin", `<p class="cfg-none muted">맞는 설정이 없습니다</p>`);
+  else if ((!q || shown) && none) none.remove();
+}
+$("#cfgSearch").addEventListener("input", cfgFilter);
+$("#cfgSearch").addEventListener("keydown", e => {
+  if (imeBusy(e)) return;
+  if (e.key === "Escape" && e.target.value) {   // 검색어부터 지운다(한 번 더 누르면 창이 닫힌다)
+    e.preventDefault(); e.stopPropagation();
+    e.target.value = "";
+    cfgFilter();
+  } else if (e.key === "Enter") {   // 처음 맞은 설정의 입력칸으로
+    e.preventDefault();
+    const row = $("#settingsBody").querySelector(".cfg-group:not(.cfg-off) .cfg-row:not(.cfg-off)");
+    const ctl = row && row.querySelector(".cfg-ctl input, .cfg-ctl select, .cfg-ctl button");
+    if (ctl) { ctl.scrollIntoView({ block: "center" }); ctl.focus(); }
+  }
+});
 // 설정 창 「에이전트 연결」: Claude Code·Codex 에 Argus 훅이 들어 있는지 · 나중에 깐 에이전트도 여기서 훅을 넣는다
 async function drawSetup() {
   const box = $("#cfgSetup");
@@ -7020,6 +7092,7 @@ async function drawSetup() {
         ${x.ours ? item(x.trusted >= x.ours, `승인 ${x.trusted}/${x.ours}`, x.trusted >= x.ours ? "" : "Codex CLI 에서 /hooks 를 열어 Argus 훅을 승인해 주세요") : ""}</ul></label>
       <div class="cfg-ctl">${cxHooks ? "" : `<button class="btn" data-setup="codex">훅 넣기</button>`}</div></div>`;
   setHtml(box, `<h3>에이전트 연결</h3><p class="muted cfg-skill-help">Argus 는 각 에이전트의 훅으로 세션 상태를 받습니다. 처음 설치할 때 없던 에이전트를 나중에 깔았거나, 업데이트 뒤 훅이 모자라면 여기서 넣으세요. 터미널에서는 <code>./ctl.sh install</code> · 점검은 <code>./ctl.sh check</code>.</p>` + claude + codexRow);
+  cfgFilter();
 }
 async function runSetup(which, btn) {
   if (btn) btn.disabled = true;
@@ -7073,6 +7146,7 @@ async function drawSkills() {
     (r.items.length ? r.items.map(k => `<div class="cfg-row skill-row"><label><b>${esc(k.name)}</b><span class="muted">${esc(k.description)}</span></label>
       <div class="cfg-ctl skill-ctl">${ctl(k, "claude", k.claude_path)}${r.codex ? ctl(k, "codex", k.codex_path) : ""}</div></div>`).join("")
       : `<p class="muted">저장소에 스킬이 없습니다</p>`));
+  cfgFilter();
 }
 async function saveSettings() {
   const body = {};
