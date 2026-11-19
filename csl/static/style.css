@@ -439,7 +439,7 @@ body.view-board .board {
 .col .md pre { font-size: calc(11.5px * var(--fs, 1)); }
 
 /* 보드 좌우 여백. 스크롤 스냅은 쓰지 않는다(앞에 칸이 끼어들면 스냅이 스크롤을 옮겨 1번 칸이 화면 밖으로 밀림) */
-body.view-board .board { padding: 16px 20px 10px; gap: 14px; overflow-anchor: none; }
+body.view-board .board { padding: 16px 20px 10px; gap: 14px; overflow-anchor: none; scroll-padding-inline: 20px; }   /* 칸으로 옮겨 스크롤할 때도 보드 여백만큼 띄운다 */
 body.view-board .board::after { content: ""; flex: 0 0 6px; }
 
 
@@ -600,6 +600,19 @@ button.rc-badge { border: 0; font: inherit; cursor: pointer; }
 /* ---------------------------------------------------------------- 지금 칸(단축키 대상) */
 /* 주황(--accent)은 프로젝트 색(ax-dream 등)과 겹쳐 헷갈리므로 지금 칸 표시는 무채색 */
 .col.active { outline: 2px solid color-mix(in srgb, var(--text) 55%, transparent); outline-offset: 2px; }
+/* 키보드로 칸 선택 상태에 들어왔을 때(입력칸 밖): 테두리를 굵고 진하게 하고 한 번 조여 들게, 입력창 위에 쓸 수 있는 키를 띄운다 */
+body.kb-colsel .col.active:not(:focus-within) { outline: 2px solid color-mix(in srgb, var(--text) 85%, transparent); outline-offset: 2px;
+  animation: colsel-in .32s cubic-bezier(.2, .8, .3, 1); }
+@keyframes colsel-in { from { outline-offset: 9px; outline-color: transparent; } }
+body.kb-colsel .col.active:not(:focus-within) .cmp-box { opacity: .6; }
+.col-keyhint { display: none; position: absolute; right: 12px; bottom: calc(100% + 8px); z-index: 3; gap: 10px; align-items: center;
+  padding: 5px 10px; border-radius: 999px; background: var(--text); color: var(--surface); font-size: calc(11.5px * var(--fs, 1));
+  white-space: nowrap; pointer-events: none; box-shadow: 0 4px 14px rgba(0, 0, 0, .18); }
+.col-keyhint span { display: inline-flex; align-items: center; gap: 3px; }
+.col-keyhint kbd { min-width: 17px; padding: 0 4px; border-radius: 4px; background: color-mix(in srgb, var(--surface) 22%, transparent);
+  color: inherit; font: inherit; font-weight: 700; text-align: center; border: 0; box-shadow: none; }
+body.kb-colsel .col.active:not(:focus-within) .col-keyhint { display: inline-flex; animation: keyhint-in .25s ease-out; }
+@keyframes keyhint-in { from { opacity: 0; transform: translateY(4px); } }
 
 /* ---------------------------------------------------------------- 대화 검색 */
 .search-wrap { position: relative; }

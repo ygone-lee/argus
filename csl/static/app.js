@@ -438,7 +438,7 @@ function ensureColVisible(sid) {
   const c = col.getBoundingClientRect(), b = board.getBoundingClientRect();
   if (c.left >= b.left - 2 && c.right <= b.right + 2) return;
   // 칸이 보드 폭보다 넓으면 왼쪽 끝을 맞추고, 아니면 가장 덜 움직이는 쪽으로
-  const delta = c.width > b.width || c.left < b.left ? c.left - b.left - 12 : c.right - b.right + 12;
+  const delta = c.width > b.width || c.left < b.left ? c.left - b.left - 20 : c.right - b.right + 20;   // 보드 여백(scroll-padding)과 같게
   board.scrollLeft += delta;
 }
 // 갈래 가족의 한 세션으로 가려면(검색·활동·빠른 이동에서) 그 갈래를 칸의 탭에서 골라 둔다
@@ -485,6 +485,9 @@ async function focusCol(sid) {
   col.classList.remove("flash");
   void col.offsetWidth;
   col.classList.add("flash");
+  // 다 재생한 뒤엔 뗀다 — 남아 있으면 animation 이 바뀌는 순간(선택 표시가 풀릴 때 등) 다시 재생된다
+  clearTimeout(col._flashT);
+  col._flashT = setTimeout(() => col.classList.remove("flash"), 1300);
   setActive(sid);
   return col;
 }
@@ -4449,7 +4452,17 @@ function toColumnState(sid) {
   const a = document.activeElement;
   if (a && a !== document.body) a.blur();
   setActive(sid);
+  kbColSel();
 }
+// 키보드로 칸 선택 상태(입력칸 밖, ← → ↑ ↓ 가 칸을 다룸)에 들어왔다는 표시 — 지금 칸 테두리가 굵어지며 한 번 조여 들고
+// 입력창 위에 쓸 수 있는 키가 뜬다. 마우스를 누르거나 입력칸·넥스트 액션으로 들어가면 사라진다(마우스로 쓸 때는 안 보이게)
+function kbColSel(on = true) {
+  document.body.classList.toggle("kb-colsel", on);
+  // 칸으로 옮길 때 붙는 주황 강조(.flash)는 이 표시에 가려진다 — 남겨 두면 칸이 선택에서 빠지는 순간 다시 재생된다
+  if (on) document.querySelectorAll(".col.flash").forEach(c => c.classList.remove("flash"));
+}
+document.addEventListener("mousedown", () => kbColSel(false), true);
+document.addEventListener("focusin", e => { if (e.target !== document.body) kbColSel(false); });
 function goUpFromColumn(sid) {
   if (!sid) return;
   if (S.notesFolded.has(sid)) toggleNotes(sid);   // 접혀 있으면 펴고 들어간다
@@ -4895,6 +4908,7 @@ function composerHtml(sid) {
       <span class="cmp-sendgrp"><button type="button" class="cmp-send" data-action="cmp-send" title="보내기 ( Enter )">↑</button><button type="button" class="cmp-more" data-action="cmp-more" title="보내기 방법 — 응답이 끝나면 보내기 · 넥스트 액션에만 넣기" aria-haspopup="true"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M3.5 6 8 10.5 12.5 6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button></span>
     </div>
     <div class="cmp-hint"></div>
+    <div class="col-keyhint" aria-hidden="true"><span><kbd>←</kbd><kbd>→</kbd> 칸 이동</span><span><kbd>↑</kbd> 넥스트 액션</span><span><kbd>↓</kbd> 입력창</span></div>
     <input class="cmp-file" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
   </div>`;
 }
@@ -5638,6 +5652,7 @@ document.addEventListener("keydown", e => {
     const sid = e.target.closest(".composer").dataset.sid;
     e.target.blur();
     setActive(sid);
+    kbColSel();
   }
 });
 document.addEventListener("paste", e => {
@@ -6361,7 +6376,9 @@ document.addEventListener("keydown", e => {
       const n = boardSessions().slice(0, S.boardLimit).length;
       const cur = activeRank() || 1;
       const next = code === "ArrowLeft" ? Math.max(1, cur - (S.activeCol ? 1 : 0)) : Math.min(n, cur + (S.activeCol ? 1 : 0));
-      return gotoRank(next);
+      const r = gotoRank(next);
+      kbColSel();
+      return r;
     }
     case "ArrowUp":
       e.preventDefault();

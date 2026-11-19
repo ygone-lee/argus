@@ -405,7 +405,7 @@ These use the Orca terminal's CLI (`/Applications/Orca.app/Contents/Resources/bi
   | ↓ on the last line of the next-action input | First to-do (or column selection if there are none) |
   | ↓ (or J), C or Enter | Message box of the current column |
   | Arrows / H J K L in the card view | Select a card (the nearest card in that direction on screen); Enter expands it and focuses its message box; T and P act on the selected card |
-  | ↑ (on the first line of the message box) | Leave the box and go back to column selection, so ← → move between columns |
+  | ↑ (on the first line of the message box) | Leave the box and go back to column selection, so ← → move between columns. Column selection reached from the keyboard shows itself: the column outline thickens with a short snap-in and a key hint (← → · ↑ · ↓) floats above the message box until you click or focus an input |
   | N | Next-action input of the current column |
   | T | Jump to the current column's terminal |
   | P | Pin / unpin the current column |

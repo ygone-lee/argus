@@ -493,6 +493,7 @@ const I18N_ROWS = [
   ["맞는 세션이 없습니다", "一致するセッションがありません", "No matching session"],
   ["설정 검색 — 띄엄띄엄 쳐도 찾습니다", "設定を検索 — 飛び飛びの文字でも見つかります", "Search settings — fuzzy, skipped letters are fine"],
   ["맞는 설정이 없습니다", "一致する設定がありません", "No matching setting"],
+  ["칸 이동", "列を移動", "switch column"], ["입력창", "入力欄", "message box"],
   ["이동 ·", "移動・", "go ·"], ["닫기", "閉じる", "close"],
   ["두 번", "2回", "twice"],
   ["세션 빠른 이동 — 보드 순서 목록에서", "セッションのクイック移動 — ボード順の一覧で", "Quick session switcher — in the board-ordered list,"],
