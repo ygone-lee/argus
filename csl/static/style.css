@@ -1391,6 +1391,8 @@ select {
 .kb-group { border-radius: var(--radius); }
 .kb-group.dragging { opacity: .45; }
 .kb-group .ib-card { margin: 0; cursor: grab; }
+.kb-group .ib-chat { cursor: auto; }
+.kb-group .ib-chat .ibc-msgs { cursor: text; }
 .kb-col[data-kb-col="done"] .ib-card { opacity: .75; }
 .kb-thread { font-size: calc(12px * var(--fs, 1)); margin: 6px 4px 0; }
 .kb-hist { margin: 6px 0 0 10px; padding-left: 10px; border-left: 2px solid var(--border-strong); display: flex; flex-direction: column; gap: 6px; }

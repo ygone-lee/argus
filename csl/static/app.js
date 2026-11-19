@@ -7860,6 +7860,15 @@ $("#kanban").addEventListener("click", e => {
   S.kbOpen.has(k) ? S.kbOpen.delete(k) : S.kbOpen.add(k);
   loadKanban(true);
 });
+// 카드 대화(.ib-chat) 안에서 누르면 그동안 묶음을 끌 수 없게 — 대화 글을 드래그로 골라 복사할 수 있게 한다.
+// draggable 인 조상 안에서는 브라우저가 글 선택 대신 끌기를 시작한다. 손을 떼면 다시 끌 수 있게 되돌린다
+$("#kanban").addEventListener("mousedown", e => {
+  const g = e.target.closest && e.target.closest(".kb-group");
+  if (!g || !e.target.closest(".ib-chat")) return;
+  g.draggable = false;
+  const back = () => { g.draggable = true; };
+  document.addEventListener("mouseup", back, { once: true });
+});
 // 끌어 옮기기: 묶음 전체의 카드 상태를 바꾼다
 $("#kanban").addEventListener("dragstart", e => {
   const g = e.target.closest && e.target.closest(".kb-group");
