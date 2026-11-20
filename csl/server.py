@@ -967,7 +967,7 @@ def _claude_after(tg, echo, before=None, transcript=None, since=0):
         # 바로 끝난 명령 — 보내기 전 화면에 없던, 입력칸 위의 새 줄(「❯ /명령」 메아리·입력칸·상태 줄은 뺀다)
         # 입력칸(❯) 바로 위 경계까지 — 앞서 열렸던 창이 남긴 가로줄에 속지 않게 입력칸 줄을 기준으로
         prompt_i = next((i for i in range(len(lines) - 1, 0, -1) if lines[i].lstrip().startswith("❯")
-                         and lines[i - 1].lstrip().startswith("──")), None)
+                         and focus._is_rule(lines[i - 1])), None)
         end = prompt_i - 1 if prompt_i else len(lines)
         new = codex._new_lines(before or [], lines[:end]) if before is not None else lines[:end]
         out = [ln.rstrip() for ln in new if ln.strip() and not _CL_CHROME.match(ln)]

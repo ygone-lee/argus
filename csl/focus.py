@@ -391,7 +391,9 @@ def _landed(t, text, wait=2.0):
     화면을 못 읽거나 입력칸이 안 보이면(창이 떴다) False."""
     lines = [ln for ln in IMAGE_TOKEN.sub("", text).splitlines() if ln.strip()]
     want = re.sub(r"\s+", "", re.sub(r"^\s*!", "", lines[0] if lines else ""))[:30]
-    want_end = re.sub(r"\s+", "", lines[-1])[-30:] if len(lines) > 1 else ""
+    # 끝 줄은 글자가 있는 줄로 — 「─────」 같은 선만 있는 줄은 화면의 다른 선과 구별되지 않는다
+    worded = [ln for ln in lines[1:] if re.search(r"\w", ln)]
+    want_end = re.sub(r"\s+", "", worded[-1])[-30:] if worded else ""
     end = time.time() + wait
     while True:
         screen = _screen(t)
@@ -532,9 +534,16 @@ def input_line(t):
     return _input_line_of(_screen(t))
 
 
+def _is_rule(line):
+    """입력칸 위·아래 가로줄인지. Claude Code 는 이 줄을 맨 왼쪽 칸부터 그린다. 입력칸 안의 글은 두 칸 들여 그려지므로,
+    붙여넣은 글에 「──── 제목 ────」 같은 줄이 있어도 들여쓰기로 가린다 — 그 줄을 경계로 잘못 보면 입력칸을 엉뚱하게 잘라
+    글이 들어갔는데도 「들어가지 않았다」고 본다(11-20)."""
+    return line.startswith("──")
+
+
 def _input_line_of(lines):
     """화면 줄에서 입력칸 글(입력칸이 안 보이면 None)."""
-    rules = [i for i, ln in enumerate(lines) if ln.lstrip().startswith("──")]
+    rules = [i for i, ln in enumerate(lines) if _is_rule(ln)]
     # 입력칸은 가로줄 두 개 사이, 첫 줄이 ❯ 로 시작한다(셸 모드 — 「!」를 친 뒤 — 면 「!」로)
     for a, b in zip(reversed(rules[:-1]), reversed(rules[1:])):
         body = lines[a + 1:b]
@@ -574,7 +583,7 @@ def typed_input(t):
     if not ansi:
         return None
     plain = [_SGR.sub("", ln).replace("\xa0", " ").rstrip() for ln in ansi]
-    rules = [i for i, ln in enumerate(plain) if ln.lstrip().startswith("──")]
+    rules = [i for i, ln in enumerate(plain) if _is_rule(ln)]
     for a, b in zip(reversed(rules[:-1]), reversed(rules[1:])):
         if b > a + 1 and plain[a + 1].startswith(("❯", "!")):
             body = [_undimmed(ln).replace("\xa0", " ") for ln in ansi[a + 1:b]]
@@ -638,7 +647,7 @@ def take_back(t, prompt, wait=2.0):
 
 def _input_tail(lines):
     """입력칸 윗부분이 화면 위로 밀려 첫 줄(❯)이 안 보일 때, 맨 아래 가로줄 위에 보이는 입력칸 글. 가로줄이 없으면 None."""
-    rules = [i for i, ln in enumerate(lines) if ln.lstrip().startswith("──")]
+    rules = [i for i, ln in enumerate(lines) if _is_rule(ln)]
     if not rules:
         return None
     b = rules[-1]
@@ -653,7 +662,7 @@ _BUSY = re.compile(r"…\s*\((?:\d+h\s*)?(?:\d+m\s*)?\d+s\b")   # 「✽ Honking
 def is_busy(t):
     """입력칸 위에 진행 줄(…(N초)이 보이면 Claude 가 아직 작업 중."""
     lines = _screen(t)
-    rules = [i for i, ln in enumerate(lines) if ln.lstrip().startswith("──")]
+    rules = [i for i, ln in enumerate(lines) if _is_rule(ln)]
     top = rules[-2] if len(rules) >= 2 else len(lines)
     return any(_BUSY.search(ln) for ln in lines[max(0, top - 6):top])
 
@@ -666,7 +675,7 @@ def _dialog_block(lines):
     """입력칸은 그대로 보이고 그 바로 위에 선택 창이 붙는 경우(예: 「Teach auto mode about your environment?」 1. Yes …) —
     키 입력은 그 창이 받아 글이 입력칸에 들어가지 않고, Enter 는 그 창의 선택이 된다. 입력칸 위 가로줄 두 개 사이에
     「Enter to confirm · Esc to cancel」 같은 안내 줄이 있으면 그 창의 줄 범위 (시작, 끝), 아니면 None."""
-    rules = [i for i, ln in enumerate(lines) if ln.lstrip().startswith("──")]
+    rules = [i for i, ln in enumerate(lines) if _is_rule(ln)]
     for a, b in zip(reversed(rules[:-1]), reversed(rules[1:])):
         if lines[a + 1:b] and lines[a + 1].startswith(("❯", "!")):   # 입력칸 — 그 바로 위 칸을 본다
             above = [r for r in rules if r < a]
