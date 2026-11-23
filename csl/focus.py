@@ -394,6 +394,7 @@ def _landed(t, text, wait=2.0):
     # 끝 줄은 글자가 있는 줄로 — 「─────」 같은 선만 있는 줄은 화면의 다른 선과 구별되지 않는다
     worded = [ln for ln in lines[1:] if re.search(r"\w", ln)]
     want_end = re.sub(r"\s+", "", worded[-1])[-30:] if worded else ""
+    whole = re.sub(r"\s+", "", "\n".join(lines))
     end = time.time() + wait
     while True:
         screen = _screen(t)
@@ -406,17 +407,34 @@ def _landed(t, text, wait=2.0):
             # 그때는 글의 마지막 줄이 입력칸에 보이면 들어간 것
             if want_end and want_end in g:
                 return True
-        elif want_end:
+        else:
             # 여러 줄 글이 화면보다 길면 입력칸 윗부분(위 가로줄과 「❯」 첫 줄)이 화면 위로 밀려 안 보인다 —
             # 그때는 아래 가로줄 바로 위에 글의 마지막 줄이 보이면 들어간 것
             tail = _input_tail(screen)
-            if tail is not None and want_end in re.sub(r"\s+", "", tail):
+            if want_end and tail is not None and want_end in re.sub(r"\s+", "", tail):
                 return True
+            g = re.sub(r"\s+", "", _input_open(screen) or "")
+        # 입력칸 위에 다른 상자(피드백 초안 등)가 붙어 화면이 모자라면 입력칸 아랫부분(아래 가로줄·상태 줄)이 화면 밑으로
+        # 잘리고, 입력칸 안도 스크롤돼 첫 줄·끝 줄이 다 안 보일 수 있다(11-23). 입력칸은 보내기 전에 비어 있었으므로(LEFTOVER 확인)
+        # 보이는 부분이 보낸 글의 한 토막이면 들어간 것 — 짧은 토막은 우연히 겹칠 수 있어 20자 이상일 때만
+        if g and len(g) >= 20 and g in whole:
+            return True
         if time.time() >= end:
             if devlog.enabled():   # Enter 를 누르지 않은 이유 — 마지막으로 본 화면과 찾던 글
                 devlog.step("not_landed", want=want, want_end=want_end, input_line=got, screen=screen)
             return False
         time.sleep(0.25)
+
+
+def _input_open(lines):
+    """입력칸 아래 가로줄이 화면 밑으로 잘려 안 보일 때, 마지막 가로줄 아래 「❯」부터 화면 끝까지의 글. 아니면 None."""
+    rules = [i for i, ln in enumerate(lines) if _is_rule(ln)]
+    if not rules or rules[-1] + 1 >= len(lines) or not lines[rules[-1] + 1].startswith(("❯", "!")):
+        return None
+    body = lines[rules[-1] + 1:]
+    first = body[0][1:].replace("\xa0", " ").strip()
+    rest = [ln.replace("\xa0", " ")[2:].rstrip() for ln in body[1:]]
+    return "\n".join([first] + rest).strip()
 
 
 IMAGE_TOKEN = re.compile(r"\[이미지 (\d+)\]")
