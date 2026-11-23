@@ -882,6 +882,13 @@ REWIND_LABELS = {
     "summarize_upto": "summarize up to here",
 }
 _OPTION = re.compile(r"^\s*(❯)?\s*(\d+)\.\s+(.+?)\s*$")
+# 확인 창 머리 문구 — 2.1.316 「Confirm you want to restore to the point before …」, 2.1.329 「Restore to the point before you
+# sent this message:」(고른 요청은 「│ …」 줄로 따로 보인다)
+_REWIND_CONFIRM = ("Confirm you want to restore", "Restore to the point before")
+
+
+def _rewind_confirm(lines):
+    return any(p in ln for ln in lines for p in _REWIND_CONFIRM)
 
 
 def _norm_text(s):
@@ -943,7 +950,13 @@ def rewind(t, prompt, mode, skip=0):
         return False, "되돌리기 창을 열지 못했습니다: " + err
 
     def abort(msg):
-        _raw(t, ESC)
+        # 확인 창에서 Esc 는 창을 닫지 않고 목록으로 돌아간다(2.1.329 실측) — 「Rewind」 창이 사라질 때까지 한 번 더.
+        # 빈 입력칸에서 Esc 를 빨리 두 번 누르면 되돌리기 목록이 다시 열리므로, 창이 남아 있는 것을 본 뒤에만 누른다
+        for _ in range(3):
+            _raw(t, ESC)
+            time.sleep(0.8)
+            if _rewind_view(_screen(t)) is None:
+                break
         return False, msg
 
     cur = shown = None
@@ -977,7 +990,7 @@ def rewind(t, prompt, mode, skip=0):
     for _ in range(15):
         time.sleep(0.2)
         lines = _screen(t)
-        if any("Confirm you want to restore" in ln for ln in lines):
+        if _rewind_confirm(lines):
             rows = [m.groups() for m in (_OPTION.match(ln) for ln in lines[-12:]) if m]
             if rows:
                 break
@@ -998,7 +1011,7 @@ def rewind(t, prompt, mode, skip=0):
     _raw(t, "\r")
     for _ in range(25):
         time.sleep(0.3)
-        if not any("Confirm you want to restore" in ln for ln in _screen(t)):
+        if not _rewind_confirm(_screen(t)):
             if mode in ("conversation", "both") and not _clear_restored(t):
                 return True, "되돌렸습니다 — 다만 입력칸이 보이지 않아 터미널 입력칸의 되돌린 요청은 비우지 못했습니다(터미널에서 확인해 주세요)"
             return True, "되돌렸습니다"
