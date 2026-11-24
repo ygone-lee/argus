@@ -51,6 +51,13 @@ class Web(Tmux):
         for k, v in OPTIONS:
             self._t("set-option", "-g", k, v)
         self._t("set-environment", "-g", "ARGUS_WEB", "1")
+        # 에이전트 팀은 팀장 창 오른쪽에 팀원 창을 세로로 쌓는다. 창 크기는 마지막에 붙은 화면(window-size latest — 칸 안의
+        # 좁은 터미널 등)을 따르는데, 좁아질 때 팀원 쪽 폭은 그대로 두고 팀장 창만 줄여 9칸까지 찌그러졌다 — 입력칸 경계선이
+        # 잘려 보드가 입력칸을 못 찾고 팀원 목록을 「선택 창」으로 읽어 보내지 않았다(11-24). 크기가 바뀔 때마다 팀장 창이
+        # 절반을 갖는 배치로 다시 맞춘다(창이 하나면 그대로)
+        self._t("set-option", "-gw", "main-pane-width", "50%")
+        self._t("set-hook", "-g", "window-resized",
+                "if-shell -F '#{>:#{window_panes},1}' 'select-layout main-vertical'")
         # 서버를 처음 띄운 쪽(예전엔 Claude 세션 안의 보드 서버)의 세션 변수가 전역 환경에 남아 있으면 지운다 — 새 세션이 물려받지 않게
         r = self._t("show-environment", "-g")
         for line in (r.stdout.splitlines() if r else []):
@@ -78,6 +85,7 @@ class Web(Tmux):
             return None, "tmux 가 없습니다"
         if not name:
             return None, "보드 터미널이 닫혔습니다"
+        self._setup()   # 설정을 넣기 전에 띄운 서버에도(배치 고정 훅 등)
         return [b, "-u"] + SERVER + ["attach-session", "-t", "=" + name], None
 
     def release(self, argv):
