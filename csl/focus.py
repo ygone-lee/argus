@@ -429,10 +429,10 @@ def _landed(t, text, wait=2.0):
 def _input_open(lines):
     """입력칸 아래 가로줄이 화면 밑으로 잘려 안 보일 때, 마지막 가로줄 아래 「❯」부터 화면 끝까지의 글. 아니면 None."""
     rules = [i for i, ln in enumerate(lines) if _is_rule(ln)]
-    if not rules or rules[-1] + 1 >= len(lines) or not lines[rules[-1] + 1].startswith(("❯", "!")):
+    if not rules or not _box_start(lines, rules[-1]):
         return None
     body = lines[rules[-1] + 1:]
-    first = body[0][1:].replace("\xa0", " ").strip()
+    first = (body[0][1:] if body[0].startswith(("❯", "!")) else body[0]).replace("\xa0", " ").strip()
     rest = [ln.replace("\xa0", " ")[2:].rstrip() for ln in body[1:]]
     return "\n".join([first] + rest).strip()
 
@@ -559,14 +559,23 @@ def _is_rule(line):
     return line.startswith("──")
 
 
+_MORE_ABOVE = re.compile(r"^─+ ↑ \d+ more\b")
+
+
+def _box_start(lines, a):
+    """가로줄 a 바로 아래가 입력칸의 시작인지 — 첫 줄이 「❯」(셸 모드면 「!」)로 시작하거나, 칸이 좁아 글이 입력칸 높이보다
+    길게 꺾여 첫 줄(❯)이 입력칸 안에서 위로 스크롤돼 위 가로줄이 「─── ↑ 1 more ───」로 바뀐 경우(11-25)."""
+    return a + 1 < len(lines) and (lines[a + 1].startswith(("❯", "!")) or bool(_MORE_ABOVE.match(lines[a])))
+
+
 def _input_line_of(lines):
     """화면 줄에서 입력칸 글(입력칸이 안 보이면 None)."""
     rules = [i for i, ln in enumerate(lines) if _is_rule(ln)]
     # 입력칸은 가로줄 두 개 사이, 첫 줄이 ❯ 로 시작한다(셸 모드 — 「!」를 친 뒤 — 면 「!」로)
     for a, b in zip(reversed(rules[:-1]), reversed(rules[1:])):
         body = lines[a + 1:b]
-        if body and body[0].startswith(("❯", "!")):
-            first = body[0][1:].replace("\xa0", " ").strip()
+        if body and _box_start(lines, a):
+            first = (body[0][1:] if body[0].startswith(("❯", "!")) else body[0]).replace("\xa0", " ").strip()
             rest = [ln.replace("\xa0", " ")[2:].rstrip() for ln in body[1:]]
             return "\n".join([first] + rest).strip()
     return None
@@ -603,7 +612,7 @@ def typed_input(t):
     plain = [_SGR.sub("", ln).replace("\xa0", " ").rstrip() for ln in ansi]
     rules = [i for i, ln in enumerate(plain) if _is_rule(ln)]
     for a, b in zip(reversed(rules[:-1]), reversed(rules[1:])):
-        if b > a + 1 and plain[a + 1].startswith(("❯", "!")):
+        if b > a + 1 and _box_start(plain, a):
             body = [_undimmed(ln).replace("\xa0", " ") for ln in ansi[a + 1:b]]
             body[0] = body[0].lstrip()[1:] if body[0].lstrip()[:1] in ("❯", "!") else body[0]
             return "\n".join(x.rstrip() for x in body).strip()
@@ -695,7 +704,7 @@ def _dialog_block(lines):
     「Enter to confirm · Esc to cancel」 같은 안내 줄이 있으면 그 창의 줄 범위 (시작, 끝), 아니면 None."""
     rules = [i for i, ln in enumerate(lines) if _is_rule(ln)]
     for a, b in zip(reversed(rules[:-1]), reversed(rules[1:])):
-        if lines[a + 1:b] and lines[a + 1].startswith(("❯", "!")):   # 입력칸 — 그 바로 위 칸을 본다
+        if lines[a + 1:b] and _box_start(lines, a):   # 입력칸 — 그 바로 위 칸을 본다
             above = [r for r in rules if r < a]
             if above and any(_DIALOG_FOOT.search(ln) for ln in lines[above[-1] + 1:a]):
                 return above[-1] + 1, a
