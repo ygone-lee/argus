@@ -561,7 +561,7 @@ def _last_token_count(path):
 
 _PERM_CACHE = {}
 _PERM_SET = {}   # 세션 id → (권한 상태, 바꾼 시각) — 보드에서 /permissions 로 바꾼 뒤 다음 요청 전까지
-_PERM_UPDATED = re.compile(r"Permissions updated to (.+?)\.?\s*$")
+_PERM_UPDATED = re.compile(r"(?:Permissions updated to|Permission selection requested:) (.+?)\.?\s*$")   # 0.170 부터 뒤의 문구
 
 
 def _perm_of_name(name):
@@ -626,6 +626,15 @@ def _config_perm(cwd):
     return _perm_of(cfg.get("approval_policy") or "on-request", sandbox, cfg.get("approvals_reviewer"))
 
 
+def _sandbox_of_profile(ts):
+    """thread_settings 의 권한 프로필 → 샌드박스 이름. active_permission_profile.id 는 「:danger-full-access」·「:workspace」·
+    「:read-only」, permission_profile.type 「disabled」는 샌드박스 없음."""
+    pid = ((ts.get("active_permission_profile") or {}).get("id") or "").lstrip(":")
+    if pid:
+        return "workspace-write" if pid == "workspace" else pid
+    return "danger-full-access" if (ts.get("permission_profile") or {}).get("type") == "disabled" else ""
+
+
 def perm_mode(path, cwd=None, sid=None):
     """권한 상태 — "plan"(계획) · "auto"(Approve for me — 자동 검토) · "bypassPermissions"(Full Access) ·
     "readonly"(Read Only) · "default"(Ask for approval). rollout 의 마지막 turn_context 로 본다. 요청마다 적히므로
@@ -649,20 +658,27 @@ def perm_mode(path, cwd=None, sid=None):
             f.seek(max(0, st.st_size - 2 * 1024 * 1024))
             data = f.read()
         for raw in reversed(data.splitlines()):
-            if b'"turn_context"' not in raw:
+            if b'"turn_context"' not in raw and b'"thread_settings_applied"' not in raw:
                 continue
             try:
                 d = json.loads(raw)
             except ValueError:
                 continue
+            p = d.get("payload") or {}
             if d.get("type") == "turn_context":
-                ctx = d.get("payload") or {}
-                ctx_at = _ts(d.get("timestamp")) or 0
-                break
+                ctx = dict(p, sandbox=(p.get("sandbox_policy") or {}).get("type") or "")
+            elif d.get("type") == "event_msg" and p.get("type") == "thread_settings_applied":
+                # 터미널에서 /permissions 로 바꾸면(0.170) 다음 요청을 기다리지 않고 바로 이 이벤트가 적힌다
+                ctx = dict(p.get("thread_settings") or {})
+                ctx["sandbox"] = _sandbox_of_profile(ctx)
+            else:
+                continue
+            ctx_at = _ts(d.get("timestamp")) or 0
+            break
     except OSError:
         return None
     if ctx:
-        mode = _perm_of(ctx.get("approval_policy"), (ctx.get("sandbox_policy") or {}).get("type") or "",
+        mode = _perm_of(ctx.get("approval_policy"), ctx["sandbox"],
                         ctx.get("approvals_reviewer"), (ctx.get("collaboration_mode") or {}).get("mode"))
     else:
         mode = _config_perm(cwd)
