@@ -7014,6 +7014,8 @@ document.addEventListener("input", e => {
 const CHOICE_LABEL = {
   update_mode: { notify: "알림만", auto: "자동으로 받기", off: "끔" },
   update_channel: { stable: "안정판(릴리스만)", latest: "최신판(main 의 모든 커밋)" },
+  codex_default_perm: { bypassPermissions: "Full Access(묻지 않음)", auto: "Approve for me(위험한 것만 묻기)",
+                        default: "Ask for approval", readonly: "Read Only", "": "Codex 설정대로" },
 };
 async function openSettings() {
   try { CFG = (await api("GET", "/api/config")).items; } catch (e) { return toast(e.message); }
@@ -7023,7 +7025,7 @@ async function openSettings() {
     if (c.type === "bool") return `<input type="checkbox" id="${id}" ${c.value ? "checked" : ""}>`;
     if (c.type === "choice") {
       return `<select id="${id}">${c.options.map(o => `<option value="${esc(String(o))}" ${String(o) === String(c.value) ? "selected" : ""}>${
-        o === "" ? "기본(설정대로)" : o === 0 && c.key === "brain_slack_every" ? "끔" : esc((CHOICE_LABEL[c.key] || {})[o] || String(o))}</option>`).join("")}</select>`;
+        o === "" ? esc((CHOICE_LABEL[c.key] || {})[""] || "기본(설정대로)") : o === 0 && c.key === "brain_slack_every" ? "끔" : esc((CHOICE_LABEL[c.key] || {})[o] || String(o))}</option>`).join("")}</select>`;
     }
     if (c.type === "int") return `<input type="number" id="${id}" value="${c.value}" min="${c.options[0]}" max="${c.options[1]}">`;
     return `<input type="text" id="${id}" class="cfg-path" value="${esc(c.value)}" spellcheck="false">`;

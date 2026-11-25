@@ -15,6 +15,7 @@ CARDCHAT_MODELS = {"Sonnet 5.5": "claude-sonnet-5-5", "Opus 5.5": "claude-opus-5
                    "Haiku 5.5": "claude-haiku-5-5"}
 EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 BRAIN_PERMS = ["auto", "manual", "acceptEdits", "plan"]   # claude --permission-mode 값(manual = 명령마다 묻기)
+CODEX_PERMS = ["bypassPermissions", "auto", "default", "readonly", ""]   # codex.perm_args 가 실행 옵션으로 바꾼다
 
 # (키, 묶음, 이름, 종류, 기본값, 옵션, 설명)
 #   종류: int(옵션 = (최소, 최대)) · bool · choice(옵션 = 고를 값 목록) · path
@@ -37,6 +38,10 @@ SCHEMA = [
     ("codex_enabled", "보드", "Codex 세션도 모으기", "bool", True, None,
      "OpenAI Codex(CLI·데스크톱 앱)의 대화를 Claude Code 세션처럼 칸으로 보여 줍니다. ~/.codex 의 기록을 읽기만 합니다. "
      "끄면 새로 모으지 않습니다(이미 모은 칸은 그대로 — 보관하면 사라집니다)."),
+    ("codex_default_perm", "보드", "새 Codex 세션 기본 권한", "choice", "bypassPermissions", CODEX_PERMS,
+     "보드·브레인이 새로 띄우는 Codex 의 권한(codex -a · -s). Full Access 는 아무것도 묻지 않고 샌드박스 없이 실행합니다 — "
+     "작업 폴더 밖 파일 수정·네트워크도 승인 없이. Approve for me 는 위험해 보이는 작업만 묻습니다. "
+     "다시 시작·이어 열기는 그 세션이 쓰던 권한으로 엽니다. 「Codex 설정대로」는 ~/.codex/config.toml 을 따릅니다."),
     ("auto_daily", "하루 정리", "하루 정리 자동으로 만들기", "bool", True, None,
      "정한 시각이 지나면 전날 작업 일지를 자동으로 정리합니다. 그때 Mac 이 잠들어 있었으면 깨어난 뒤에."),
     ("daily_hour", "하루 정리", "자동 정리 시각(시)", "int", 6, (0, 23), "이 시각이 지나면 전날 일지를 만듭니다."),

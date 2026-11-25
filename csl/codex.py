@@ -672,6 +672,20 @@ def perm_mode(path, cwd=None, sid=None):
     return mode
 
 
+# 권한 상태 → codex 실행 옵션(/permissions 창의 네 가지와 같은 조합). Full Access 를 실행 옵션으로 주면 창에서 고를 때의
+# 「Enable full access?」 확인 없이 그 권한으로 뜬다. plan·모르는 값·""(Codex 설정대로)은 옵션 없음
+_PERM_ARGS = {
+    "bypassPermissions": ["-a", "never", "-s", "danger-full-access"],
+    "auto": ["-a", "on-request", "-s", "workspace-write", "-c", 'approvals_reviewer="auto_review"'],
+    "default": ["-a", "on-request", "-s", "workspace-write", "-c", 'approvals_reviewer="user"'],
+    "readonly": ["-a", "on-request", "-s", "read-only", "-c", 'approvals_reviewer="user"'],
+}
+
+
+def perm_args(mode):
+    return list(_PERM_ARGS.get(mode or "", []))
+
+
 def set_perm(tg, mode, sid=None):
     """/permissions 창에서 mode(auto·default·bypassPermissions·readonly)에 맞는 줄을 고른다. (성공, 문구)"""
     if busy(tg):
@@ -686,8 +700,12 @@ def set_perm(tg, mode, sid=None):
         _esc_all(tg)
         return False, "권한 선택 창에 그 항목이 없습니다(있는 것: %s)" % ", ".join(r["label"] for r in pk["rows"])
     out = choose(tg, row["n"])
-    if out.get("picker"):   # 확인 창이 더 뜨면(전부 허용 경고 등) 터미널에서 — 보드가 대신 동의하지 않는다
-        return False, "확인 창이 더 떴습니다 — 터미널에서 이어서 골라 주세요"
+    if out.get("picker"):
+        # 확인 창이 더 떴다(Full Access 의 「Enable full access?」 등) — 보드가 대신 동의하지 않는다. 열어 두면 그 칸의 보내기가
+        # 막히므로 닫고(취소 — 권한은 그대로), 터미널에서 직접 고르게 한다
+        _esc_all(tg)
+        return False, ("Codex 가 확인 창을 더 띄워 취소했습니다(권한은 그대로) — 바꾸려면 칸의 「⌨ 터미널」에서 /permissions 로 직접 "
+                       "골라 주세요. 새로 띄우는 Codex 는 설정의 「새 Codex 세션 기본 권한」으로 뜹니다")
     if out.get("error"):
         return False, out["error"]
     got = note_perm_change(sid, out.get("output")) or mode

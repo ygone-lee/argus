@@ -1300,8 +1300,9 @@ def codex_interrupt(conn, sess):
                  "message": "중단했습니다" if stopped else "중단 키를 보냈습니다 — 지금 단계가 정리되는 대로 멈춥니다"}
 
 
-def codex_launch(conn, cwd, model=None, effort=None, resume=None, prompt=None):
-    """보드 터미널에 codex 를 띄운다(resume: 그 스레드를 이어 열기). (Target, 오류)."""
+def codex_launch(conn, cwd, model=None, effort=None, resume=None, prompt=None, perm=None):
+    """보드 터미널에 codex 를 띄운다(resume: 그 스레드를 이어 열기). (Target, 오류).
+    perm: 권한 상태(codex.perm_args) — None 이면 설정의 「새 Codex 세션 기본 권한」."""
     b = codex.binary()
     if not b:
         return None, "codex 명령을 찾지 못했습니다 — Codex CLI 를 설치해 주세요(npm i -g @openai/codex 등)"
@@ -1322,6 +1323,9 @@ def codex_launch(conn, cwd, model=None, effort=None, resume=None, prompt=None):
         if effort not in codex.EFFORTS:
             return None, "모르는 추론 단계입니다"
         cmd += " -c " + shlex.quote('model_reasoning_effort="%s"' % effort)
+    pa = codex.perm_args(config.get(conn, "codex_default_perm") if perm is None else perm)
+    if pa:
+        cmd += " " + " ".join(shlex.quote(a) for a in pa)
     if prompt:   # 첫 요청 — Codex 는 첫 요청이 와야 대화 기록(스레드)을 만든다. 탭은 셸 자동완성이 되니 공백으로
         cmd += " -- " + shlex.quote(prompt.replace("\t", "    "))
     cmd += " && exit"   # 정상 종료(/quit)하면 셸도 끝낸다 — 빈 탭은 서버가 닫는다
@@ -1439,7 +1443,10 @@ def codex_resume(conn, sess):
     cwd = sess["cwd"] or ""
     if not os.path.isdir(cwd):
         return 409, {"error": "세션 폴더가 없습니다: " + cwd}
-    tg, err = codex_launch(conn, cwd, resume=sid)
+    # 다시 열 때는 그 세션이 쓰던 권한으로(옵션이 없으면 Codex 설정 기본값으로 떠서 Full Access 등이 풀린다)
+    tg, err = codex_launch(conn, cwd, resume=sid,
+                           perm=codex.perm_mode((conn.execute("SELECT transcript_path FROM sessions WHERE session_id=?",
+                                                              (sid,)).fetchone() or [None])[0], cwd, sid) or None)
     if not tg:
         return 502, {"error": err}
     term = tg.terminal.remember({}, tg.handle)

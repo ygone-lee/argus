@@ -99,7 +99,7 @@
 ./argus rename <세션 ID> '<제목>'   이름 바꾸기(터미널 /rename 도)
 ./argus stop <세션 ID>              작업 중인 Claude 멈추기(Esc)
 ./argus model <세션 ID> [sonnet|opus|haiku|fable] [--effort low|medium|high|xhigh|max]   모델·effort(이 세션만). Claude 세션은 작업 중에도 된다(지금 작업은 그대로, 다음 요청부터)
-./argus perm <세션 ID> <auto|default|acceptEdits|plan|bypassPermissions>   권한 모드 (Codex: auto=Approve for me · default · readonly · bypassPermissions=Full Access — /permissions 창에서 고른다)
+./argus perm <세션 ID> <auto|default|acceptEdits|plan|bypassPermissions>   권한 모드 (Codex: auto=Approve for me · default · readonly · bypassPermissions=Full Access — /permissions 창에서 고른다. Full Access 는 Codex 가 확인 창을 더 띄워 보드가 취소한다 — 사용자가 터미널에서 직접. 보드가 새로 띄우는 Codex 는 설정 「새 Codex 세션 기본 권한」(기본 Full Access)으로, restart 는 그 세션이 쓰던 권한으로 뜬다)
   · Claude 의 bypassPermissions(⚠ 권한 확인 없이 — 파일 삭제·셸·외부 접속까지 묻지 않음): 그 세션에 없으면 같은 대화로 다시 시작해서 켠다(백그라운드 작업은 끊김, 다음 다시 시작 때도 유지). 사용자가 그 세션에 대해 명시적으로 요청했을 때만 쓴다
 ./argus rewind <세션 ID> <#tN> [conversation|both|code|summarize_from|summarize_upto]   그 요청 앞으로 되돌리기(턴 번호는 session·search 결과의 #tN)
 ./argus ask <세션 ID> · answer <세션 ID> <질문마다 번호|1,3|기타:글>   묻고 있는 질문·권한 확인 창(Bash 실행 허용 등 — Codex 승인 창도) 보기 · 고르기(창은 번호 하나)
